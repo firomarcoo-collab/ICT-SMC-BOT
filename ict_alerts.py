@@ -5,6 +5,7 @@ Prices come from free public sources, so they can differ from your broker's pric
 
 Environment variables (all optional):
     SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30
+    OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
     TELEGRAM_CHAT_ID  your Telegram chat id
 """
@@ -81,12 +82,22 @@ def get_candles(inst):
 
 # ===== Analysis =====
 
-def analyze(name, cfg, now_ts, seen):
-    """Returns (status_text, setup_or_None, alert_text_or_None)."""
+def analyze(name, cfg, now_ts, seen, offsets=None):
+    """Returns (status_text, setup_or_None, alert_text_or_None).
+
+    offsets: optional {name: number} added to every feed price so the levels match
+    your broker (offset = broker price - feed price).
+    """
     inst = INSTRUMENTS[name]
     candles = get_candles(inst)
     if not candles:
         return f"{name}: no data", None, None
+
+    offset = (offsets or {}).get(name, 0.0)
+    if offset:
+        candles = [dict(c, open=c["open"] + offset, high=c["high"] + offset,
+                        low=c["low"] + offset, close=c["close"] + offset)
+                   for c in candles]
 
     r = to_series(candles)
     forming = now_ts - now_ts % BAR_SECONDS
@@ -104,6 +115,8 @@ def analyze(name, cfg, now_ts, seen):
 
     price = r[0]["close"]
     status = f"{name}: price {price:.{inst['digits']}f} ok"
+    if offset:
+        status += f" (feed {price - offset:.{inst['digits']}f}, offset {offset:+g})"
 
     setup = find_setup(r, cfg, ask=price, bid=price, digits=inst["digits"])
     if not setup:
@@ -122,7 +135,9 @@ def analyze(name, cfg, now_ts, seen):
         f"SL:    {setup['sl']:.{d}f}\n"
         f"TP:    {setup['tp']:.{d}f}\n"
         f"Risk distance: {risk:.{d}f} | RR {cfg.rr}\n"
-        f"Feed price now: {price:.{d}f} (compare with MT5, shift the levels if it differs)\n"
+        f"Price now: {price:.{d}f} "
+        + ("(offset applied)" if offset else "(feed price: compare with MT5 and shift the levels if it differs)")
+        + "\n"
         f"Candle: {r[1]['time'].strftime('%Y-%m-%d %H:%M')} UTC"
     )
     return status, setup, alert
@@ -159,16 +174,27 @@ def run():
     if unknown:
         raise SystemExit(f"Unknown symbols: {unknown}. Choose from {list(INSTRUMENTS)}")
 
+    offsets = {}
+    for n in names:
+        raw = os.environ.get(f"OFFSET_{n}")
+        if raw:
+            try:
+                offsets[n] = float(raw)
+            except ValueError:
+                raise SystemExit(f"OFFSET_{n} must be a number, got {raw!r}")
+
     cfg = Config()
     seen = set()
     print(f"ICT SMC alerts started for: {', '.join(names)}", flush=True)
+    if offsets:
+        print(f"Price offsets: {offsets}", flush=True)
 
     while True:
         now_ts = int(time.time())
         stamp = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%H:%M UTC")
         for name in names:
             try:
-                status, _setup, alert = analyze(name, cfg, now_ts, seen)
+                status, _setup, alert = analyze(name, cfg, now_ts, seen, offsets)
                 print(f"[{stamp}] {status}", flush=True)
                 if alert:
                     notify(alert)

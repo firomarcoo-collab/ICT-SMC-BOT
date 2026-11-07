@@ -61,6 +61,17 @@ def test_sell_alert():
     assert setup and setup["side"] == "sell" and "SELL LIMIT" in alert
 
 
+def test_offset_shifts_all_levels():
+    candles = make_candles()
+    ict_alerts.get_candles = lambda inst: candles
+    now_ts = forming_ts(candles) + 8
+    _, plain, _ = analyze("TEST", cfg, now_ts, set())
+    _, shifted, alert = analyze("TEST", cfg, now_ts, set(), {"TEST": 10.0})
+    for key in ("entry", "sl", "tp"):
+        assert abs(shifted[key] - plain[key] - 10.0) < 1e-6, key
+    assert "offset applied" in alert
+
+
 def test_stale_data_means_market_closed():
     candles = make_candles()
     ict_alerts.get_candles = lambda inst: candles
