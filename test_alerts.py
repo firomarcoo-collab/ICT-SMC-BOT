@@ -104,6 +104,41 @@ def test_offset_shifts_all_levels():
     assert "offset applied" in shifted["text"]
 
 
+def test_custom_sound_is_played(monkeypatch=None):
+    import os
+    import tempfile
+    calls = []
+    saved = (ict_alerts.shutil.which, ict_alerts.subprocess.run, os.environ.get("ALERT_SOUND"))
+    ict_alerts.shutil.which = lambda name: "/bin/" + name
+    ict_alerts.subprocess.run = lambda cmd, **kw: calls.append(cmd)
+    try:
+        os.environ.pop("ALERT_SOUND", None)
+        ict_alerts.notify("hello")
+        assert any(c[0] == "termux-media-player" and c[1] == "play"
+                   and c[2].endswith("alert.wav") for c in calls), calls
+        note = [c for c in calls if c[0] == "termux-notification"][0]
+        assert "--sound" not in note
+
+        calls.clear()
+        os.environ["ALERT_SOUND"] = "off"
+        ict_alerts.notify("hello")
+        assert not any(c[0] == "termux-media-player" for c in calls)
+        note = [c for c in calls if c[0] == "termux-notification"][0]
+        assert "--sound" in note
+
+        calls.clear()
+        with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
+            os.environ["ALERT_SOUND"] = f.name
+            ict_alerts.notify("hello")
+            assert [c for c in calls if c[0] == "termux-media-player"][0][2] == f.name
+    finally:
+        ict_alerts.shutil.which, ict_alerts.subprocess.run = saved[0], saved[1]
+        if saved[2] is None:
+            os.environ.pop("ALERT_SOUND", None)
+        else:
+            os.environ["ALERT_SOUND"] = saved[2]
+
+
 def test_stale_data_means_market_closed():
     candles = make_candles()
     feed(candles)

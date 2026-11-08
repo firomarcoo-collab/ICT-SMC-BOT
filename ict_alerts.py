@@ -8,6 +8,7 @@ Environment variables (all optional):
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
     CLASSIC           0 turns off the standalone classical alerts (default 1)
+    ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
     TELEGRAM_CHAT_ID  your Telegram chat id
 """
@@ -170,15 +171,36 @@ def analyze(name, cfg, now_ts, seen, offsets=None):
 
 # ===== Notifications =====
 
+SOUND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "alert.wav")
+
+
+def sound_path():
+    """Custom alert sound: the ALERT_SOUND file, or alert.wav next to this script.
+    ALERT_SOUND=off turns the custom sound off. Returns None when there is nothing to play."""
+    choice = os.environ.get("ALERT_SOUND")
+    if choice and choice.lower() == "off":
+        return None
+    path = os.path.expanduser(choice) if choice else SOUND_FILE
+    return path if os.path.exists(path) else None
+
+
 def notify(text):
     print(text, flush=True)
+    sound = sound_path() if shutil.which("termux-media-player") else None
     if shutil.which("termux-notification"):
+        cmd = ["termux-notification", "--title", "ICT SMC",
+               "--content", text, "--priority", "high"]
+        if not sound:
+            cmd.append("--sound")  # no custom sound: use the phone's notification sound
         try:
-            subprocess.run(["termux-notification", "--title", "ICT SMC",
-                            "--content", text, "--priority", "high", "--sound"],
-                           timeout=10)
+            subprocess.run(cmd, timeout=10)
         except Exception:
             log.exception("termux-notification failed")
+    if sound:
+        try:
+            subprocess.run(["termux-media-player", "play", sound], timeout=10)
+        except Exception:
+            log.exception("termux-media-player failed")
     token = os.environ.get("TELEGRAM_TOKEN")
     chat = os.environ.get("TELEGRAM_CHAT_ID")
     if token and chat:

@@ -6,6 +6,7 @@
 - `ict_alerts.py`: **وضع التنبيهات المجاني** على أندرويد (Termux). يراقب البتكوين والذهب وناسداك وداوجونز ويرسل لك الإشارة، وتضع الأمر يدوياً في MT5.
 - `ict_smc_bot.py`: منطق الإشارات، ومعه نسخة تنفيذ آلي تعمل عبر MetaApi (خدمة **مدفوعة**).
 - `classic.py`: التأكيدات الكلاسيكية (اتجاه EMA، فيبوناتشي، مستويات القمم والقيعان، شموع الابتلاع والانعكاس) وإشارة كلاسيكية مستقلة.
+- `alert.wav`: نغمة التنبيه.
 - `backtest.py`: يعيد تشغيل الإشارات على شموع سابقة ويحسب النتائج.
 - `test_logic.py` و`test_classic.py` و`test_alerts.py` و`test_backtest.py`: اختبارات تعمل بدون إنترنت.
 
@@ -64,6 +65,7 @@ SYMBOLS=BTCUSD,XAUUSD python ict_alerts.py
 ### تنبيه على الهاتف (اختياري)
 
 - **إشعارات Termux:** ثبّت تطبيق Termux:API من F-Droid ثم `pkg install termux-api`. بعدها يرسل البوت إشعاراً بصوت عند كل إشارة.
+- **نغمة خاصة:** الملف `alert.wav` (نغمة صاعدة قصيرة) يُشغَّل مع كل إشارة تلقائياً. لاستخدام نغمتك: `ALERT_SOUND=/path/to/file.mp3 python ict_alerts.py`، ولإيقاف النغمة الخاصة: `ALERT_SOUND=off`. للتجربة: `python -c "from ict_alerts import notify; notify('TEST')"`.
 - **تيليجرام:** أنشئ بوتاً من BotFather ثم:
   ```
   export TELEGRAM_TOKEN="..."
