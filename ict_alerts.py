@@ -21,6 +21,7 @@ Environment variables (all optional):
     RCT               0 turns off the reversal / continuation alerts
     US_OPEN_ALERTS    0 = no alert 15 min before / at the US open (09:30 New York)
     US_OPEN_ONLY      1 = entry signals only from 30 min before to 2 hours after the US open
+    TRACK             0 = do not follow signals to report WIN / LOSS (results go to results.csv)
     CLASSIC           0 turns off the standalone classical alerts (default 1)
     ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
@@ -39,6 +40,7 @@ from datetime import datetime, timezone
 import events
 import extras
 import rct
+import tracker
 from classic import find_classic_setup, ict_confluence, trend
 from ict_smc_bot import Config, find_setup, to_series
 
@@ -50,6 +52,7 @@ BAR_SECONDS = 300  # default timeframe (5m)
 # Yahoo has no 4h candles: they are built from 1h candles. (interval, range) per timeframe.
 YAHOO_TF = {"1m": ("1m", "5d"), "5m": ("5m", "5d"), "15m": ("15m", "1mo"),
             "1h": ("60m", "3mo"), "4h": ("60m", "1y"), "1d": ("1d", "2y")}
+LAST_R = {}  # (symbol, timeframe) -> candles of the last analysis, newest first
 TREND_CACHE = {}  # (symbol, timeframe) -> 'up' / 'down' / 'flat', filled while analysing
 
 
@@ -216,6 +219,7 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
         status += f" (feed {price - offset:.{d}f}, offset {offset:+g})"
 
     bar_time = int(r[1]["time"].timestamp())
+    LAST_R[(name, tf)] = r
     alerts = []
     my_trend = trend(r, cfg)
     if my_trend:
@@ -256,6 +260,8 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
                            "text": f"{ev['kind'].upper()} ALERT {name} ({ev['side'].upper()} bias)\n"
                                    f"{ev['text']}\nPrice now: {price:.{d}f}\n"
                                    f"Candle: {r[1]['time'].strftime('%Y-%m-%d %H:%M')} UTC"})
+    for a in alerts:
+        a.update(name=name, tf=tf, bar_time=bar_time)
     for a in alerts:  # second line: timeframe and style (scalp / swing)
         a["text"] = a["text"].replace("\n", f"\nTimeframe: {tf} ({PROFILE[tf]})\n", 1)
     return add_extras(name, alerts, cfg, now_ts, opts, status, tf)
@@ -379,6 +385,8 @@ def run():
     event_tfs = {t.strip().lower() for t in os.environ.get(
         "EVENT_TIMEFRAMES", "15m,1h,4h,1d").split(",") if t.strip()}
     cfg.rct_enabled = os.environ.get("RCT", "1") != "0"
+    track = tracker.Tracker(os.environ.get("RESULTS_FILE", tracker.DEFAULT_CSV)) \
+        if os.environ.get("TRACK", "1") != "0" else None
     last_bucket = {}
     us_alerts = os.environ.get("US_OPEN_ALERTS", "1") != "0"
     session_alerts = os.environ.get("SESSION_ALERTS", "1") != "0"
@@ -437,6 +445,11 @@ def run():
                         print(f"[{stamp} {tf}] {status}", flush=True)
                     for alert in alerts:
                         notify(alert["text"])
+                        if track and alert["setup"]:
+                            track.add(name, tf, alert["kind"], alert["setup"], alert["bar_time"])
+                    if track and (name, tf) in LAST_R:
+                        for note in track.update(name, tf, LAST_R[(name, tf)]):
+                            notify(note)
                 except Exception as e:
                     print(f"[{stamp} {tf}] {name}: error: {e}", flush=True)
         # wake up shortly after the next minute starts
