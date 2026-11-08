@@ -37,6 +37,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import data_layer
 import events
 import extras
 import markets
@@ -206,6 +207,10 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
         age_min = (now_ts - newest) // 60
         return f"{name}: market closed or data delayed (last candle {age_min} min old)", []
 
+    quality = data_layer.check_candles(candles, tf, now_ts, inst["source"] == "binance", min_bars=1)
+    if quality.blocked:
+        return f"{name}: {quality.summary()}", []
+
     # The signal rules need r[0] to be the bar that is still forming. If the newest bar
     # has already ended, the feed has not listed the forming bar yet: add a placeholder.
     if newest + bar <= now_ts:
@@ -218,6 +223,8 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
     status = f"{name}: price {price:.{d}f} ok"
     if offset:
         status += f" (feed {price - offset:.{d}f}, offset {offset:+g})"
+    if quality.warnings:
+        status += " [" + "; ".join(quality.warnings) + "]"
 
     bar_time = int(r[1]["time"].timestamp())
     LAST_R[(name, tf)] = r

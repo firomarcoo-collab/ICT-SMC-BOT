@@ -171,7 +171,7 @@ def test_session_only_and_news_block():
 
 def test_event_alerts_only_when_enabled():
     candles = make_candles()
-    candles[-2] = dict(candles[-2], low=102.0)  # a clear gap
+    candles[-4] = dict(candles[-4], open=100.1, high=100.2, close=100.1)  # a clear gap above it
     feed(candles)
     now_ts = forming_ts(candles) + 8
     base = analyze("TEST", cfg, now_ts, set())[1]

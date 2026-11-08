@@ -8,6 +8,7 @@
 - `classic.py`: التأكيدات الكلاسيكية (اتجاه EMA، فيبوناتشي، مستويات القمم والقيعان، شموع الابتلاع والانعكاس) وإشارة كلاسيكية مستقلة.
 - `extras.py`: حاسبة اللوت، جلسات لندن ونيويورك، وتنبيهات الأخبار القوية.
 - `markets.py` و`markets.json`: مواصفات كل سوق من وسيطك (يُملأ يدوياً)، ولا يُخمَّن شيء منها. افحص الحالة بـ`python markets.py`.
+- `data_layer.py`: طبقة البيانات: فحص جودة الشموع (مفقودة، شاذة، مكررة، OHLC مستحيل، توقيت مستقبلي، قديمة)، وبصمة البيانات خلف كل إشارة، ومزوّد البيانات المجاني. مزوّد MT5 غير مكتوب لأنه يحتاج Windows.
 - `structure.py`: محرك البنية والسيولة (BOS وCHoCH وMSS وPDH/PDL وPWH/PWL وآسيا وEqual H/L وسحب السيولة وPremium/Discount وOTE وفيبوناتشي وFVG وOB وBreaker وInducement) على شموع مغلقة فقط، وتعريفات كل مفهوم مكتوبة في أول الملف.
 - `PLAN.md`: خطة التطوير إلى المحرك الاحترافي ومراحله وقيوده.
 - `stats.py`: ملخص كل الصفقات المنتهية من `results.csv`.
@@ -16,7 +17,7 @@
 - `events.py`: تنبيهات مبكرة: سحب السيولة وFVG وOrder Block.
 - `alert.wav`: نغمة التنبيه.
 - `backtest.py`: يعيد تشغيل الإشارات على شموع سابقة ويحسب النتائج.
-- `test_logic.py` و`test_rct.py` و`test_us_open.py` و`test_tracker.py` و`test_markets.py` و`test_structure.py` و`test_events.py` و`test_extras.py` و`test_classic.py` و`test_alerts.py` و`test_backtest.py`: اختبارات تعمل بدون إنترنت.
+- `test_logic.py` و`test_rct.py` و`test_us_open.py` و`test_tracker.py` و`test_markets.py` و`test_structure.py` و`test_data_layer.py` و`test_events.py` و`test_extras.py` و`test_classic.py` و`test_alerts.py` و`test_backtest.py`: اختبارات تعمل بدون إنترنت.
 
 ## وضع التنبيهات على أندرويد (مجاني)
 
