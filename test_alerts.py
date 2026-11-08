@@ -1,4 +1,5 @@
 """Offline checks for ict_alerts.py (no internet). Run: python test_alerts.py"""
+import extras
 import ict_alerts
 from ict_alerts import INSTRUMENTS, analyze, parse_binance, parse_yahoo
 from ict_smc_bot import Config
@@ -137,6 +138,35 @@ def test_custom_sound_is_played(monkeypatch=None):
             os.environ.pop("ALERT_SOUND", None)
         else:
             os.environ["ALERT_SOUND"] = saved[2]
+
+
+def test_extras_in_alert_text():
+    candles = make_candles()
+    feed(candles)
+    now_ts = forming_ts(candles) + 8
+    opts = {"balance": 1000.0, "contracts": {"TEST": 1.0}}
+    text = analyze("TEST", cfg, now_ts, set(), None, opts)[1][0]["text"]
+    assert "Session:" in text and "Lot:" in text and "$1000" in text, text
+    plain = analyze("TEST", cfg, now_ts, set())[1][0]["text"]
+    assert "Lot:" not in plain
+
+
+def test_session_only_and_news_block():
+    candles = make_candles()
+    feed(candles)
+    now_ts = forming_ts(candles) + 8
+    ev = [{"ts": now_ts + 600, "title": "NFP", "currency": "USD"}]
+    warn = analyze("TEST", cfg, now_ts, set(), None, {"news": ev})[1][0]["text"]
+    assert "WARNING high-impact news: USD NFP in 10 min" in warn
+    st, al = analyze("TEST", cfg, now_ts, set(), None, {"news": ev, "news_block": True})
+    assert al == [] and "news" in st
+    saved = extras.active_sessions
+    extras.active_sessions = lambda ts: []
+    try:
+        st, al = analyze("TEST", cfg, now_ts, set(), None, {"session_only": True})
+    finally:
+        extras.active_sessions = saved
+    assert al == [] and "sessions" in st
 
 
 def test_stale_data_means_market_closed():

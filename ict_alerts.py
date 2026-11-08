@@ -8,6 +8,12 @@ Environment variables (all optional):
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
     FUTURES           1 = use futures for gold/indices instead of spot (default: spot)
+    BALANCE           your account balance in $: adds the lot size to each alert
+    RISK_PERCENT      risk per trade in % (default 0.5), used for the lot size
+    CONTRACT_<SYMBOL> units per 1 lot if your broker differs (defaults: XAUUSD 100, EURUSD 100000, others 1)
+    SESSION_ONLY      1 = no alerts outside London / New York hours
+    NEWS              0 = turn off the high-impact news calendar (default on)
+    NEWS_BLOCK        1 = no alerts within 30 min before / 15 min after high-impact news
     CLASSIC           0 turns off the standalone classical alerts (default 1)
     ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
@@ -23,6 +29,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import extras
 from classic import find_classic_setup, ict_confluence
 from ict_smc_bot import Config, find_setup, to_series
 
@@ -39,6 +46,7 @@ INSTRUMENTS = {
     "XAUUSD": {"source": "yahoo", "id": "XAUUSD=X", "digits": 2},
     "US100": {"source": "yahoo", "id": "^NDX", "digits": 1},
     "US30": {"source": "yahoo", "id": "^DJI", "digits": 1},
+    "EURUSD": {"source": "yahoo", "id": "EURUSD=X", "digits": 5},
 }
 FUTURES_IDS = {"XAUUSD": "GC=F", "US100": "NQ=F", "US30": "YM=F"}
 if os.environ.get("FUTURES") == "1":
@@ -114,12 +122,15 @@ def format_alert(kind, name, setup, price, d, cfg, r, points, offset):
     )
 
 
-def analyze(name, cfg, now_ts, seen, offsets=None):
+def analyze(name, cfg, now_ts, seen, offsets=None, opts=None):
     """Returns (status_text, alerts); alerts is a list of {'kind', 'setup', 'text'}.
 
     offsets: optional {name: number} added to every feed price so the levels match
     your broker (offset = broker price - feed price).
+    opts: optional {'balance', 'contracts': {name: units}, 'news': [events],
+    'session_only': bool, 'news_block': bool} for the extra lines and filters.
     """
+    opts = opts or {}
     inst = INSTRUMENTS[name]
     candles = get_candles(inst)
     if not candles:
@@ -172,6 +183,26 @@ def analyze(name, cfg, now_ts, seen, offsets=None):
             alerts.append({"kind": "classic", "setup": classic,
                            "text": format_alert("classic", name, classic, price, d, cfg, r, [], offset)})
 
+    return add_extras(name, alerts, cfg, now_ts, opts, status)
+
+
+def add_extras(name, alerts, cfg, now_ts, opts, status):
+    """Adds session, lot and news lines to each alert, and applies the optional filters."""
+    if not alerts:
+        return status, alerts
+    sessions = extras.session_text(now_ts)
+    if opts.get("session_only") and not extras.active_sessions(now_ts):
+        return status + " (signal skipped: outside sessions)", []
+    news = extras.news_line(opts.get("news") or [], name, now_ts)
+    if news and opts.get("news_block"):
+        return status + " (signal skipped: news)", []
+    contract = (opts.get("contracts") or {}).get(name, extras.CONTRACT.get(name, 1.0))
+    for a in alerts:
+        s = a["setup"]
+        risk = abs(s["entry"] - s["sl"])
+        a["text"] += (f"\nSession: {sessions}\n" + news
+                      + extras.lot_line(opts.get("balance", 0), cfg.risk_percent, risk, contract))
+        a["text"] = a["text"].rstrip("\n")
     return status, alerts
 
 
@@ -222,7 +253,7 @@ def notify(text):
 
 def run():
     names = [n.strip().upper() for n in os.environ.get(
-        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30").split(",") if n.strip()]
+        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD").split(",") if n.strip()]
     unknown = [n for n in names if n not in INSTRUMENTS]
     if unknown:
         raise SystemExit(f"Unknown symbols: {unknown}. Choose from {list(INSTRUMENTS)}")
@@ -236,8 +267,25 @@ def run():
             except ValueError:
                 raise SystemExit(f"OFFSET_{n} must be a number, got {raw!r}")
 
+    def number(var, default):
+        raw = os.environ.get(var)
+        if not raw:
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            raise SystemExit(f"{var} must be a number, got {raw!r}")
+
     cfg = Config(min_score=int(os.environ.get("MIN_SCORE", "0")),
-                 classic_enabled=os.environ.get("CLASSIC", "1") != "0")
+                 classic_enabled=os.environ.get("CLASSIC", "1") != "0",
+                 risk_percent=number("RISK_PERCENT", 0.5))
+    opts = {"balance": number("BALANCE", 0.0),
+            "contracts": {n: number(f"CONTRACT_{n}", extras.CONTRACT.get(n, 1.0)) for n in names},
+            "session_only": os.environ.get("SESSION_ONLY") == "1",
+            "news_block": os.environ.get("NEWS_BLOCK") == "1",
+            "news": []}
+    use_news = os.environ.get("NEWS", "1") != "0"
+    news_fetched = 0
     seen = set()
     print(f"ICT SMC alerts started for: {', '.join(names)}", flush=True)
     if offsets:
@@ -245,10 +293,23 @@ def run():
 
     while True:
         now_ts = int(time.time())
+        if use_news and now_ts - news_fetched > 3600:
+            news_fetched = now_ts  # also on failure, so we retry next hour
+            try:
+                opts["news"] = extras.fetch_news()
+            except Exception as e:
+                print(f"news calendar unavailable: {e}", flush=True)
+        for e in opts["news"]:
+            key = ("news", e["ts"], e["title"])
+            if 0 <= e["ts"] - now_ts <= 30 * 60 and key not in seen and \
+                    any(e["currency"] in extras.CURRENCIES.get(n, {"USD"}) for n in names):
+                seen.add(key)
+                notify(f"NEWS in {round((e['ts'] - now_ts) / 60)} min: "
+                       f"{e['currency']} {e['title']} (high impact). Be careful with open orders.")
         stamp = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%H:%M UTC")
         for name in names:
             try:
-                status, alerts = analyze(name, cfg, now_ts, seen, offsets)
+                status, alerts = analyze(name, cfg, now_ts, seen, offsets, opts)
                 print(f"[{stamp}] {status}", flush=True)
                 for alert in alerts:
                     notify(alert["text"])
