@@ -6,9 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 NEWS_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 
-# Price units per 1.00 lot. Brokers differ: check "Contract size" in the MT5 symbol
-# specification and override with CONTRACT_<SYMBOL> if it is not the same.
-CONTRACT = {"BTCUSD": 1.0, "XAUUSD": 100.0, "US100": 1.0, "US30": 1.0, "EURUSD": 100000.0}
+# Contract sizes are NOT guessed any more: they come from markets.json (see markets.py).
 
 # Which news currencies matter for each symbol.
 CURRENCIES = {"BTCUSD": {"USD"}, "XAUUSD": {"USD"}, "US100": {"USD"},
@@ -66,6 +64,25 @@ def lot_line(balance, risk_percent, risk_distance, contract):
                 f"the stop is too wide for your balance\n")
     return (f"Lot: {lot:.2f} (risk about ${money:.2f} = {risk_percent}% of ${balance:g}; "
             f"assumes 1 lot = {contract:g} units)\n")
+
+
+def lot_text(balance, risk_percent, setup, spec, assumed_contract=None):
+    """Lot line for an alert. Uses the verified broker specification; without it, it says so
+    (or uses your own CONTRACT_<SYMBOL> assumption and labels it as an assumption)."""
+    if not balance:
+        return ""
+    risk = abs(setup["entry"] - setup["sl"])
+    if spec is not None and spec.verified():
+        import markets
+        pct = spec.risk_percent if spec.risk_percent else risk_percent
+        lot, money, reason = markets.lot_for_risk(spec, balance, pct, setup["entry"], setup["sl"])
+        if lot <= 0:
+            return f"Lot: none ({reason})\n"
+        return f"Lot: {lot:.2f} (risk about {money:.2f} = {pct}% of {balance:g}; broker specification)\n"
+    if assumed_contract:
+        return lot_line(balance, risk_percent, risk, assumed_contract).replace(
+            "assumes", "YOUR ASSUMPTION:")
+    return "Lot: not calculated, broker specification not verified (run: python markets.py)\n"
 
 
 # ===== News =====

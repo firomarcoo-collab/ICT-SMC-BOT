@@ -1,0 +1,7 @@
+{
+  "_help": "Fill each field from MT5: long-press the symbol > Specification. Leave null if unknown. spread is in PRICE units (e.g. 0.25 for gold), commission_per_lot is the round-turn cost in account currency. product_type: spot_cfd, futures_cfd, crypto_cfd, index_cfd or other, exactly as the broker describes it.",
+  "XAUUSD": {"broker_symbol": null, "product_type": null, "contract_size": null, "tick_size": null, "tick_value": null, "volume_min": null, "volume_step": null, "volume_max": null, "spread": null, "commission_per_lot": null, "risk_percent": 0.5, "min_rr": 2.0},
+  "NAS100": {"broker_symbol": null, "product_type": null, "contract_size": null, "tick_size": null, "tick_value": null, "volume_min": null, "volume_step": null, "volume_max": null, "spread": null, "commission_per_lot": null, "risk_percent": 0.5, "min_rr": 2.0},
+  "US30": {"broker_symbol": null, "product_type": null, "contract_size": null, "tick_size": null, "tick_value": null, "volume_min": null, "volume_step": null, "volume_max": null, "spread": null, "commission_per_lot": null, "risk_percent": 0.5, "min_rr": 2.0},
+  "BTCUSD": {"broker_symbol": null, "product_type": null, "contract_size": null, "tick_size": null, "tick_value": null, "volume_min": null, "volume_step": null, "volume_max": null, "spread": null, "commission_per_lot": null, "risk_percent": 0.5, "min_rr": 2.0}
+}

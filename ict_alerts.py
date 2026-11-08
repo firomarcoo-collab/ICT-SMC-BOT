@@ -10,7 +10,7 @@ Environment variables (all optional):
     FUTURES           1 = use futures for gold/indices instead of spot (default: spot)
     BALANCE           your account balance in $: adds the lot size to each alert
     RISK_PERCENT      risk per trade in % (default 0.5), used for the lot size
-    CONTRACT_<SYMBOL> units per 1 lot if your broker differs (defaults: XAUUSD 100, EURUSD 100000, others 1)
+    CONTRACT_<SYMBOL> your own assumption of units per 1 lot (only used when markets.json is not filled)
     SESSION_ONLY      1 = no alerts outside London / New York hours
     NEWS              0 = turn off the high-impact news calendar (default on)
     NEWS_BLOCK        1 = no alerts within 30 min before / 15 min after high-impact news
@@ -39,6 +39,7 @@ from datetime import datetime, timezone
 
 import events
 import extras
+import markets
 import rct
 import tracker
 from classic import find_classic_setup, ict_confluence, trend
@@ -282,13 +283,14 @@ def add_extras(name, alerts, cfg, now_ts, opts, status, tf="5m"):
     news = extras.news_line(opts.get("news") or [], name, now_ts)
     if news and opts.get("news_block"):
         return status + " (signal skipped: news)", []
-    contract = (opts.get("contracts") or {}).get(name, extras.CONTRACT.get(name, 1.0))
+    contract = (opts.get("contracts") or {}).get(name)  # only when you set CONTRACT_<SYMBOL>
+    spec = (opts.get("markets") or {}).get(markets.canonical(name))
     for a in alerts:
         s = a["setup"]
         lot = ""
         if s:
             risk = abs(s["entry"] - s["sl"])
-            lot = extras.lot_line(opts.get("balance", 0), cfg.risk_percent, risk, contract)
+            lot = extras.lot_text(opts.get("balance", 0), cfg.risk_percent, s, spec, contract)
         side = s["side"] if s else a.get("side")
         a["text"] += (f"\nSession: {sessions}\n" + extras.us_open_line(now_ts) + news + lot
                       + extras.trend_line(TREND_CACHE, name, tf, side))
@@ -342,7 +344,7 @@ def notify(text):
 # ===== Main loop =====
 
 def run():
-    names = [n.strip().upper() for n in os.environ.get(
+    names = [markets.feed_name(n) for n in os.environ.get(
         "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD").split(",") if n.strip()]
     unknown = [n for n in names if n not in INSTRUMENTS]
     if unknown:
@@ -370,7 +372,9 @@ def run():
                  classic_enabled=os.environ.get("CLASSIC", "1") != "0",
                  risk_percent=number("RISK_PERCENT", 0.5))
     opts = {"balance": number("BALANCE", 0.0),
-            "contracts": {n: number(f"CONTRACT_{n}", extras.CONTRACT.get(n, 1.0)) for n in names},
+            "contracts": {n: number(f"CONTRACT_{n}", None) for n in names
+                          if os.environ.get(f"CONTRACT_{n}")},
+            "markets": markets.load_markets(),
             "session_only": os.environ.get("SESSION_ONLY") == "1",
             "news_block": os.environ.get("NEWS_BLOCK") == "1",
             "news": [],
