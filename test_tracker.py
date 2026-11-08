@@ -30,7 +30,7 @@ def test_buy_win():
     t, path = tracker()
     t.add("X", "5m", "ict", BUY, int(T0.timestamp()))
     notes = t.update("X", "5m", series([(101, 101.2, 99.9, 100.5), (100.5, 102.5, 100.4, 102.2)]))
-    assert len(notes) == 1 and "WIN +2.0R" in notes[0] and "1 wins, 0 losses (+2.0R)" in notes[0]
+    assert len(notes) == 1 and "WIN +2.0R" in notes[0] and "1 trades, 1 wins, 0 losses (win rate 100%, +2.0R)" in notes[0]
     assert t.items == []
     assert "win" in open(path).read()
 

@@ -38,7 +38,10 @@ class Tracker:
         self.total_r += r
 
     def tally(self):
-        return f"Total: {self.wins} wins, {self.losses} losses ({self.total_r:+.1f}R)"
+        n = self.wins + self.losses
+        rate = 100 * self.wins / n if n else 0
+        return (f"Total: {n} trades, {self.wins} wins, {self.losses} losses "
+                f"(win rate {rate:.0f}%, {self.total_r:+.1f}R)")
 
     def add(self, name, tf, kind, setup, bar_time):
         self.items.append({"name": name, "tf": tf, "kind": kind, "setup": dict(setup),
