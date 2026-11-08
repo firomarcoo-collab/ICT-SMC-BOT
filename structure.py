@@ -107,8 +107,33 @@ def current_trend(events):
 
 # ===== Liquidity =====
 
-def _day(c):
+def _ny_local(dt):
+    """New York wall-clock time (falls back to fixed UTC-5 without a timezone database)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        return dt - timedelta(hours=5)
+
+
+def day_key(c, calendar="utc"):
+    """Trading-day key of a candle.
+    'utc'  : calendar day in UTC (crypto, 24/7).
+    'ny17' : the forex/CFD day that rolls at 17:00 New York, so Sunday evening already belongs
+             to Monday (gold, indices)."""
+    if calendar == "ny17":
+        return (_ny_local(c["time"]) + timedelta(hours=7)).date()
     return c["time"].date()
+
+
+def week_key(c, calendar="utc"):
+    """(year, week) of the trading day: with 'ny17' the Sunday-evening open starts the new week."""
+    return day_key(c, calendar).isocalendar()[:2]
+
+
+def calendar_for(source):
+    """'utc' for 24/7 crypto feeds, 'ny17' for gold / index CFDs."""
+    return "utc" if source == "binance" else "ny17"
 
 
 def _traded_beyond(bars, start, kind, price):
@@ -119,9 +144,10 @@ def _traded_beyond(bars, start, kind, price):
     return False
 
 
-def liquidity_levels(bars, k=2):
+def liquidity_levels(bars, k=2, calendar="utc"):
     """Levels known from `bars`: [{'name','type','price','swept','scope'}].
-    Uses only completed periods (previous day / week, finished Asian session)."""
+    Uses only completed periods (previous day / week, finished Asian session).
+    calendar: 'utc' or 'ny17' (see day_key). The Asian range is always 00:00-07:00 UTC."""
     if len(bars) < 3:
         return []
     out = []
@@ -144,38 +170,37 @@ def liquidity_levels(bars, k=2):
                 level = max(p for _, p in group) if typ == "BSL" else min(p for _, p in group)
                 add(label, typ, level, group[-1][0] + 1, "internal")
 
-    days = sorted({_day(c) for c in bars})
-    today = _day(bars[-1])
-    earlier = [d for d in days if d < today]
+    keys = [day_key(c, calendar) for c in bars]
+    today = keys[-1]
+    earlier = sorted({d for d in keys if d < today})
     if earlier:  # previous trading day
-        d = earlier[-1]
-        idx = [i for i, c in enumerate(bars) if _day(c) == d]
+        idx = [i for i, d in enumerate(keys) if d == earlier[-1]]
         add("PDH", "BSL", max(bars[i]["high"] for i in idx), idx[-1] + 1, "external")
         add("PDL", "SSL", min(bars[i]["low"] for i in idx), idx[-1] + 1, "external")
-    week = lambda c: c["time"].isocalendar()[:2]
-    weeks = sorted({week(c) for c in bars})
-    prior_weeks = [w for w in weeks if w < week(bars[-1])]
+    wkeys = [week_key(c, calendar) for c in bars]
+    prior_weeks = sorted({w for w in wkeys if w < wkeys[-1]})
     if prior_weeks:
-        w = prior_weeks[-1]
-        idx = [i for i, c in enumerate(bars) if week(c) == w]
+        idx = [i for i, w in enumerate(wkeys) if w == prior_weeks[-1]]
         add("PWH", "BSL", max(bars[i]["high"] for i in idx), idx[-1] + 1, "external")
         add("PWL", "SSL", min(bars[i]["low"] for i in idx), idx[-1] + 1, "external")
-    asia_day = today if now.hour >= 7 else (earlier[-1] if earlier else None)  # finished session
-    if asia_day is not None:
-        idx = [i for i, c in enumerate(bars) if _day(c) == asia_day and c["time"].hour < 7]
+    utc_days = [c["time"].date() for c in bars]
+    earlier_utc = sorted({d for d in utc_days if d < utc_days[-1]})
+    asia_day = utc_days[-1] if now.hour >= 7 else (earlier_utc[-1] if earlier_utc else None)
+    if asia_day is not None:  # finished Asian session
+        idx = [i for i, c in enumerate(bars) if utc_days[i] == asia_day and c["time"].hour < 7]
         if idx:
             add("AsiaH", "BSL", max(bars[i]["high"] for i in idx), idx[-1] + 1, "external")
             add("AsiaL", "SSL", min(bars[i]["low"] for i in idx), idx[-1] + 1, "external")
     return out
 
 
-def find_sweeps(bars, recent=3):
+def find_sweeps(bars, recent=3, calendar="utc"):
     """Sweeps on the last `recent` closed bars: a wick beyond an untouched level, close back inside.
     Levels are built from the bars BEFORE the candidate bar, so nothing is looked ahead."""
     out = []
     for i in range(max(3, len(bars) - recent), len(bars)):
         c = bars[i]
-        for lv in liquidity_levels(bars[:i]):
+        for lv in liquidity_levels(bars[:i], calendar=calendar):
             if lv["swept"]:
                 continue
             if lv["type"] == "BSL" and c["high"] > lv["price"] and c["close"] < lv["price"]:

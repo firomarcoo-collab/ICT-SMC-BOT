@@ -48,7 +48,7 @@ from ict_smc_bot import Config, find_setup, to_series
 
 log = logging.getLogger("ict_alerts")
 
-TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+TF_SECONDS = data_layer.TF_SECONDS
 PROFILE = {"1m": "scalp", "5m": "scalp", "15m": "scalp", "1h": "swing", "4h": "swing", "1d": "swing"}
 BAR_SECONDS = 300  # default timeframe (5m)
 # Yahoo has no 4h candles: they are built from 1h candles. (interval, range) per timeframe.
@@ -58,11 +58,7 @@ LAST_R = {}  # (symbol, timeframe) -> candles of the last analysis, newest first
 TREND_CACHE = {}  # (symbol, timeframe) -> 'up' / 'down' / 'flat', filled while analysing
 
 
-def stale_after(bar):
-    """Seconds after a bar's start when we call the market closed / data delayed."""
-    if bar <= 900:
-        return bar + 600
-    return bar * 2 if bar < 86400 else bar + 3 * 86400
+stale_after = data_layer.stale_after
 
 # name -> free data source. Default is SPOT prices: bitcoin from Binance, gold from
 # Yahoo spot XAUUSD=X, indices from the Yahoo cash indices ^NDX and ^DJI.
@@ -233,7 +229,9 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
     if my_trend:
         TREND_CACHE[(name, tf)] = my_trend
 
-    setup = find_setup(r, cfg, ask=price, bid=price, digits=d)
+    # entry rule uses the close of the last CLOSED candle, never the still-forming one
+    ref_price = r[1]["close"]
+    setup = find_setup(r, cfg, ask=ref_price, bid=ref_price, digits=d)
     if setup:
         points = ict_confluence(r, cfg, setup)
         key = (name, tf, "ict", bar_time)

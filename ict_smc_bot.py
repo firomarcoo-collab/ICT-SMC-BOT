@@ -208,18 +208,9 @@ async def check_signal(conn, account, cfg, spec, price, forming_start):
         return
 
     log.info("SIGNAL %s lot=%s %s", setup["side"].upper(), lot, setup)
-    if cfg.dry_run:
-        log.info("DRY_RUN is on: no order sent")
-        return
-
-    opts = {"magic": cfg.magic, "comment": "ICT SMC " + setup["side"].upper()}
-    if setup["side"] == "buy":
-        res = await conn.create_limit_buy_order(
-            cfg.symbol, lot, setup["entry"], setup["sl"], setup["tp"], opts)
-    else:
-        res = await conn.create_limit_sell_order(
-            cfg.symbol, lot, setup["entry"], setup["sl"], setup["tp"], opts)
-    log.info("Order result: %s", res)
+    # Signals-only version: live order placement is disabled and cannot be switched on by a setting.
+    log.info("Live trading is disabled in this version: no order sent")
+    return
 
 
 async def run(cfg):
@@ -256,7 +247,7 @@ def main():
                         format="%(asctime)s %(levelname)s %(message)s")
     cfg = Config(
         symbol=os.environ.get("SYMBOL", "EURUSD"),
-        dry_run=os.environ.get("DRY_RUN", "1") != "0",
+        dry_run=True,  # fixed: this version never sends orders (DRY_RUN is ignored)
     )
     asyncio.run(run(cfg))
 

@@ -80,6 +80,17 @@ def test_outliers_warn_or_block_only_in_the_last_bars():
     assert not rep.blocked and rep.outliers
 
 
+def test_forming_candle_spike_does_not_block_but_freshness_still_counts():
+    c = mk(300)
+    forming = dict(c[-1], time=c[-1]["time"] + timedelta(seconds=300), high=130, low=70)
+    candles = c + [forming]
+    now = int(forming["time"].timestamp()) + 30  # the spiked candle is still forming
+    rep = dl.check_candles(candles, "5m", now)
+    assert not rep.blocked, rep.reason
+    late = int(forming["time"].timestamp()) + 5 * 3600  # nothing newer arrived for hours
+    assert "market closed or data delayed" in dl.check_candles(candles, "5m", late).reason
+
+
 def test_fingerprint_is_stable_and_changes_with_data():
     c = mk(300)
     a = dl.fingerprint(c, "BTCUSD", "5m", "free-feed", fetched_at=1_800_000_000)

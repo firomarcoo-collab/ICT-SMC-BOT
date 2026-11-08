@@ -169,6 +169,16 @@ def test_session_only_and_news_block():
     assert al == [] and "sessions" in st
 
 
+def test_entry_decision_ignores_the_forming_bar_price():
+    for forming_close in (102.9, 100.5, 120.0, 90.0):
+        candles = make_candles()
+        candles[-1] = dict(candles[-1], close=forming_close, high=max(103.0, forming_close),
+                           low=min(102.5, forming_close))
+        feed(candles)
+        _, alerts = analyze("TEST", cfg, forming_ts(candles) + 8, set())
+        assert [a["setup"]["side"] for a in alerts if a["kind"] == "ict"] == ["buy"], forming_close
+
+
 def test_event_alerts_only_when_enabled():
     candles = make_candles()
     candles[-4] = dict(candles[-4], open=100.1, high=100.2, close=100.1)  # a clear gap above it

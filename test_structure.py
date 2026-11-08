@@ -2,7 +2,7 @@
 import random
 from datetime import datetime, timedelta, timezone
 
-from structure import (closed_bars, dealing_range, fib_levels, find_sweeps, fvgs,
+from structure import (calendar_for, day_key, week_key, closed_bars, dealing_range, fib_levels, find_sweeps, fvgs,
                        inducement, liquidity_levels, order_blocks, pivots, premium_discount,
                        structure_events)
 
@@ -84,6 +84,43 @@ def test_liquidity_levels_pdh_pdl_asia_and_week():
     # today's Asian session (00:00-07:00) is finished at 08:00: flat 100.5 / 99.5
     assert lv["AsiaH"]["price"] == 100.5 and lv["AsiaL"]["price"] == 99.5
     assert not lv["PDH"]["swept"]
+
+
+def hourly(start, end, high=101, low=99, spike=None):
+    """flat hourly bars from start to end (UTC); spike = {datetime: high}"""
+    out, t = [], start
+    while t < end:
+        h = (spike or {}).get(t, high)
+        out.append({"time": t, "open": 100, "high": h, "low": low, "close": 100})
+        t += timedelta(hours=1)
+    return out
+
+
+def test_cfd_week_starts_sunday_evening_not_monday():
+    utc = timezone.utc
+    week_a = hourly(datetime(2026, 1, 5, tzinfo=utc), datetime(2026, 1, 9, 22, tzinfo=utc))
+    # Sunday 22:00 UTC = 17:00 New York: the new CFD week opens with a spike to 130
+    week_b = hourly(datetime(2026, 1, 11, 22, tzinfo=utc), datetime(2026, 1, 14, 12, tzinfo=utc),
+                    spike={datetime(2026, 1, 11, 22, tzinfo=utc): 130})
+    bars = week_a + week_b
+    iso = {x["name"]: x["price"] for x in liquidity_levels(bars, calendar="utc")}
+    cfd = {x["name"]: x["price"] for x in liquidity_levels(bars, calendar="ny17")}
+    assert iso["PWH"] == 130          # calendar-week logic wrongly puts the Sunday open in last week
+    assert cfd["PWH"] == 101 and cfd["PWL"] == 99  # trading-week logic: the spike belongs to this week
+    # the Sunday-open spike (130) really did trade beyond last week's high (101): swept is correct here
+    assert [x for x in liquidity_levels(bars, calendar="ny17") if x["name"] == "PWH"][0]["swept"] is True
+
+
+def test_cfd_day_rolls_at_17_new_york():
+    utc = timezone.utc
+    a = {"time": datetime(2026, 1, 7, 21, 59, tzinfo=utc)}   # 16:59 New York, Wednesday
+    b = {"time": datetime(2026, 1, 7, 22, 0, tzinfo=utc)}    # 17:00 New York: next trading day
+    sun = {"time": datetime(2026, 1, 11, 22, 0, tzinfo=utc)}  # Sunday 17:00 NY: Monday's day
+    assert day_key(a, "ny17") != day_key(b, "ny17")
+    assert day_key(a, "utc") == day_key(b, "utc")
+    assert day_key(sun, "ny17").weekday() == 0
+    assert week_key(sun, "ny17") != week_key({"time": datetime(2026, 1, 9, 21, tzinfo=utc)}, "ny17")
+    assert calendar_for("binance") == "utc" and calendar_for("yahoo") == "ny17"
 
 
 def test_sweep_needs_close_back_inside_and_untouched_level():

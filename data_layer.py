@@ -86,6 +86,10 @@ def check_candles(candles, tf, now_ts=None, continuous=False, min_bars=MIN_BARS)
     if not candles:
         rep.hard.append("no data")
         return rep
+    # the candle that is still forming is partial: it only counts for freshness, not quality
+    newest_any = max(_ts(c) for c in candles)
+    candles = [c for c in candles if _ts(c) + bar <= now_ts] or list(candles)
+    rep.n = len(candles)
     if len(candles) < min_bars:
         rep.hard.append(f"only {len(candles)} bars, {min_bars} needed")
 
@@ -103,7 +107,7 @@ def check_candles(candles, tf, now_ts=None, continuous=False, min_bars=MIN_BARS)
         rep.hard.append(f"{len(bad)} candles with impossible OHLC (first at "
                         f"{bad[0]['time'].strftime('%Y-%m-%d %H:%M')} UTC)")
 
-    newest = _ts(ordered[-1])
+    newest = newest_any
     rep.age_seconds = now_ts - newest
     if newest > now_ts + bar:
         rep.hard.append(f"newest candle is {newest - now_ts} s in the future "

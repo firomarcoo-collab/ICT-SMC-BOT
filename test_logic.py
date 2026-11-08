@@ -59,6 +59,28 @@ def test_lot():
     assert calc_lot(10000, 1, 0.01, 0.01, 5) == 5.0
 
 
+def test_live_orders_cannot_be_switched_on():
+    import inspect
+    import os
+    import ict_smc_bot
+    src = inspect.getsource(ict_smc_bot)
+    assert "create_limit" not in src and "create_market" not in src  # no order call exists
+    captured = {}
+    saved_run, saved_env = ict_smc_bot.run, os.environ.get("DRY_RUN")
+    ict_smc_bot.run = lambda cfg: captured.setdefault("cfg", cfg)
+    ict_smc_bot.asyncio.run = lambda x: None
+    os.environ["DRY_RUN"] = "0"  # the old switch is ignored now
+    try:
+        ict_smc_bot.main()
+    finally:
+        ict_smc_bot.run = saved_run
+        if saved_env is None:
+            os.environ.pop("DRY_RUN", None)
+        else:
+            os.environ["DRY_RUN"] = saved_env
+    assert captured["cfg"].dry_run is True
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
