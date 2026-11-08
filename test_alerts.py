@@ -2,6 +2,7 @@
 import ict_alerts
 from ict_alerts import INSTRUMENTS, analyze, parse_binance, parse_yahoo
 from ict_smc_bot import Config
+from test_classic import pullback_series
 from test_logic import make_candles
 
 INSTRUMENTS["TEST"] = {"source": "test", "id": "TEST", "digits": 2}
@@ -10,6 +11,10 @@ cfg = Config()
 
 def forming_ts(candles):
     return int(candles[-1]["time"].timestamp())
+
+
+def feed(candles):
+    ict_alerts.get_candles = lambda inst: candles
 
 
 def test_parse_binance():
@@ -31,52 +36,79 @@ def test_parse_yahoo_skips_empty_bars():
 
 def test_alert_when_forming_bar_listed():
     candles = make_candles()
-    ict_alerts.get_candles = lambda inst: candles
-    status, setup, alert = analyze("TEST", cfg, forming_ts(candles) + 8, set())
-    assert setup and setup["side"] == "buy", (status, setup)
-    assert alert and "BUY LIMIT TEST" in alert and "Entry:" in alert
+    feed(candles)
+    status, alerts = analyze("TEST", cfg, forming_ts(candles) + 8, set())
+    assert len(alerts) == 1 and alerts[0]["setup"]["side"] == "buy", (status, alerts)
+    text = alerts[0]["text"]
+    assert "BUY LIMIT TEST" in text and "Entry:" in text
+    assert "Confluence: 1/4 (fib)" in text
 
 
 def test_alert_when_forming_bar_missing():
     candles = make_candles()[:-1]  # the feed has not listed the forming bar yet
-    ict_alerts.get_candles = lambda inst: candles
+    feed(candles)
     now_ts = forming_ts(candles) + 300 + 8
-    status, setup, alert = analyze("TEST", cfg, now_ts, set())
-    assert setup and setup["side"] == "buy", (status, setup)
+    status, alerts = analyze("TEST", cfg, now_ts, set())
+    assert len(alerts) == 1 and alerts[0]["setup"]["side"] == "buy", (status, alerts)
 
 
 def test_same_signal_alerts_only_once():
     candles = make_candles()
-    ict_alerts.get_candles = lambda inst: candles
+    feed(candles)
     seen = set()
     now_ts = forming_ts(candles) + 8
-    assert analyze("TEST", cfg, now_ts, seen)[2] is not None
-    assert analyze("TEST", cfg, now_ts, seen)[2] is None
+    assert len(analyze("TEST", cfg, now_ts, seen)[1]) == 1
+    assert analyze("TEST", cfg, now_ts, seen)[1] == []
 
 
 def test_sell_alert():
     candles = make_candles(mirror=True)
-    ict_alerts.get_candles = lambda inst: candles
-    _, setup, alert = analyze("TEST", cfg, forming_ts(candles) + 8, set())
-    assert setup and setup["side"] == "sell" and "SELL LIMIT" in alert
+    feed(candles)
+    _, alerts = analyze("TEST", cfg, forming_ts(candles) + 8, set())
+    assert len(alerts) == 1 and alerts[0]["setup"]["side"] == "sell"
+    assert "SELL LIMIT" in alerts[0]["text"]
+
+
+def test_min_score_filters_ict_alerts():
+    candles = make_candles()  # this setup has 1 confirmation (fib)
+    feed(candles)
+    now_ts = forming_ts(candles) + 8
+    assert len(analyze("TEST", Config(min_score=1), now_ts, set())[1]) == 1
+    assert analyze("TEST", Config(min_score=2), now_ts, set())[1] == []
+
+
+def test_classic_alert():
+    candles = pullback_series()
+    feed(candles)
+    status, alerts = analyze("TEST", cfg, forming_ts(candles) + 8, set())
+    classic = [a for a in alerts if a["kind"] == "classic"]
+    assert len(classic) == 1 and classic[0]["setup"]["side"] == "buy", (status, alerts)
+    assert "CLASSIC ALERT: BUY TEST" in classic[0]["text"]
+
+
+def test_classic_can_be_turned_off():
+    candles = pullback_series()
+    feed(candles)
+    _, alerts = analyze("TEST", Config(classic_enabled=False), forming_ts(candles) + 8, set())
+    assert [a for a in alerts if a["kind"] == "classic"] == []
 
 
 def test_offset_shifts_all_levels():
     candles = make_candles()
-    ict_alerts.get_candles = lambda inst: candles
+    feed(candles)
     now_ts = forming_ts(candles) + 8
-    _, plain, _ = analyze("TEST", cfg, now_ts, set())
-    _, shifted, alert = analyze("TEST", cfg, now_ts, set(), {"TEST": 10.0})
+    plain = analyze("TEST", cfg, now_ts, set())[1][0]
+    shifted = analyze("TEST", cfg, now_ts, set(), {"TEST": 10.0})[1][0]
     for key in ("entry", "sl", "tp"):
-        assert abs(shifted[key] - plain[key] - 10.0) < 1e-6, key
-    assert "offset applied" in alert
+        assert abs(shifted["setup"][key] - plain["setup"][key] - 10.0) < 1e-6, key
+    assert "offset applied" in shifted["text"]
 
 
 def test_stale_data_means_market_closed():
     candles = make_candles()
-    ict_alerts.get_candles = lambda inst: candles
-    status, setup, alert = analyze("TEST", cfg, forming_ts(candles) + 3600, set())
-    assert setup is None and alert is None and "market closed" in status
+    feed(candles)
+    status, alerts = analyze("TEST", cfg, forming_ts(candles) + 3600, set())
+    assert alerts == [] and "market closed" in status
 
 
 if __name__ == "__main__":

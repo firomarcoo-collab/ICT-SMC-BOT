@@ -31,6 +31,19 @@ class Config:
     timeframe_seconds: int = 300
     poll_seconds: int = 10
     dry_run: bool = True
+    # classical confirmations (used by ict_alerts.py and backtest.py through classic.py)
+    ema_fast: int = 50
+    ema_slow: int = 200
+    fib_shallow: float = 0.5
+    fib_deep: float = 0.786
+    sr_pivot: int = 3          # bars on each side of a swing high/low
+    sr_lookback: int = 120     # how far back swing levels are collected
+    sr_tol_atr: float = 0.5    # "near a level" means within this many ATR
+    leg_lookback: int = 60     # how far back the classical setup looks for the swing
+    leg_span: int = 40         # bars before the swing used to find the leg's start
+    leg_min_atr: float = 2.0   # smallest leg worth trading, in ATR
+    min_score: int = 0         # ICT alerts need at least this many classical confirmations
+    classic_enabled: bool = True
 
 
 # ===== Signal logic (same rules as the MQL5 EA) =====

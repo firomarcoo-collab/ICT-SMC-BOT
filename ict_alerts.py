@@ -6,6 +6,8 @@ Prices come from free public sources, so they can differ from your broker's pric
 Environment variables (all optional):
     SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
+    MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
+    CLASSIC           0 turns off the standalone classical alerts (default 1)
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
     TELEGRAM_CHAT_ID  your Telegram chat id
 """
@@ -19,6 +21,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+from classic import find_classic_setup, ict_confluence
 from ict_smc_bot import Config, find_setup, to_series
 
 log = logging.getLogger("ict_alerts")
@@ -70,20 +73,42 @@ def get_candles(inst):
         last_error = None
         for host in ("https://api.binance.com", "https://data-api.binance.vision"):
             try:
-                rows = fetch_json(f"{host}/api/v3/klines?symbol={inst['id']}&interval=5m&limit=60")
+                rows = fetch_json(f"{host}/api/v3/klines?symbol={inst['id']}&interval=5m&limit=300")
                 return parse_binance(rows)
             except Exception as e:  # try the next host
                 last_error = e
         raise last_error
     sym = urllib.parse.quote(inst["id"], safe="")
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=5m&range=5d"
-    return parse_yahoo(fetch_json(url))[-60:]
+    return parse_yahoo(fetch_json(url))[-300:]
 
 
 # ===== Analysis =====
 
+def format_alert(kind, name, setup, price, d, cfg, r, points, offset):
+    risk = abs(setup["entry"] - setup["sl"])
+    side = setup["side"].upper()
+    if kind == "ict":
+        head = f"ICT SMC ALERT: {side} LIMIT {name}"
+        extra = f"Confluence: {len(points)}/4" + (f" ({', '.join(points)})" if points else "") + "\n"
+    else:
+        head = f"CLASSIC ALERT: {side} {name} (trend + fib zone + reversal candle)"
+        extra = "Entry is the reversal candle close: place it as a limit order at that price\n"
+    note = "(offset applied)" if offset else "(feed price: compare with MT5 and shift the levels if it differs)"
+    return (
+        f"{head}\n"
+        f"Entry: {setup['entry']:.{d}f}\n"
+        f"SL:    {setup['sl']:.{d}f}\n"
+        f"TP:    {setup['tp']:.{d}f}\n"
+        f"Risk distance: {risk:.{d}f} | RR {cfg.rr}\n"
+        f"{extra}"
+        f"Price now: {price:.{d}f} {note}\n"
+        f"Candle: {r[1]['time'].strftime('%Y-%m-%d %H:%M')} UTC"
+    )
+
+
 def analyze(name, cfg, now_ts, seen, offsets=None):
-    """Returns (status_text, setup_or_None, alert_text_or_None).
+    """Returns (status_text, alerts); alerts is a list of {'kind', 'setup', 'text'}.
 
     offsets: optional {name: number} added to every feed price so the levels match
     your broker (offset = broker price - feed price).
@@ -91,7 +116,7 @@ def analyze(name, cfg, now_ts, seen, offsets=None):
     inst = INSTRUMENTS[name]
     candles = get_candles(inst)
     if not candles:
-        return f"{name}: no data", None, None
+        return f"{name}: no data", []
 
     offset = (offsets or {}).get(name, 0.0)
     if offset:
@@ -105,7 +130,7 @@ def analyze(name, cfg, now_ts, seen, offsets=None):
 
     if newest < forming - STALE_SECONDS:
         age_min = (now_ts - newest) // 60
-        return f"{name}: market closed or data delayed (last candle {age_min} min old)", None, None
+        return f"{name}: market closed or data delayed (last candle {age_min} min old)", []
 
     # The signal rules need r[0] to be the bar that is still forming.
     if newest < forming:
@@ -113,34 +138,34 @@ def analyze(name, cfg, now_ts, seen, offsets=None):
         placeholder["time"] = datetime.fromtimestamp(forming, tz=timezone.utc)
         r.insert(0, placeholder)
 
-    price = r[0]["close"]
-    status = f"{name}: price {price:.{inst['digits']}f} ok"
-    if offset:
-        status += f" (feed {price - offset:.{inst['digits']}f}, offset {offset:+g})"
-
-    setup = find_setup(r, cfg, ask=price, bid=price, digits=inst["digits"])
-    if not setup:
-        return status, None, None
-
-    key = (name, int(r[1]["time"].timestamp()))
-    if key in seen:
-        return status, setup, None
-    seen.add(key)
-
     d = inst["digits"]
-    risk = abs(setup["entry"] - setup["sl"])
-    alert = (
-        f"ICT SMC ALERT: {setup['side'].upper()} LIMIT {name}\n"
-        f"Entry: {setup['entry']:.{d}f}\n"
-        f"SL:    {setup['sl']:.{d}f}\n"
-        f"TP:    {setup['tp']:.{d}f}\n"
-        f"Risk distance: {risk:.{d}f} | RR {cfg.rr}\n"
-        f"Price now: {price:.{d}f} "
-        + ("(offset applied)" if offset else "(feed price: compare with MT5 and shift the levels if it differs)")
-        + "\n"
-        f"Candle: {r[1]['time'].strftime('%Y-%m-%d %H:%M')} UTC"
-    )
-    return status, setup, alert
+    price = r[0]["close"]
+    status = f"{name}: price {price:.{d}f} ok"
+    if offset:
+        status += f" (feed {price - offset:.{d}f}, offset {offset:+g})"
+
+    bar_time = int(r[1]["time"].timestamp())
+    alerts = []
+
+    setup = find_setup(r, cfg, ask=price, bid=price, digits=d)
+    if setup:
+        points = ict_confluence(r, cfg, setup)
+        key = (name, "ict", bar_time)
+        if len(points) >= cfg.min_score and key not in seen:
+            seen.add(key)
+            alerts.append({"kind": "ict", "setup": setup,
+                           "text": format_alert("ict", name, setup, price, d, cfg, r, points, offset)})
+
+    if cfg.classic_enabled:
+        classic = find_classic_setup(r, cfg)
+        key = (name, "classic", bar_time)
+        if classic and key not in seen:
+            seen.add(key)
+            classic = {k: (round(v, d) if k != "side" else v) for k, v in classic.items()}
+            alerts.append({"kind": "classic", "setup": classic,
+                           "text": format_alert("classic", name, classic, price, d, cfg, r, [], offset)})
+
+    return status, alerts
 
 
 # ===== Notifications =====
@@ -183,7 +208,8 @@ def run():
             except ValueError:
                 raise SystemExit(f"OFFSET_{n} must be a number, got {raw!r}")
 
-    cfg = Config()
+    cfg = Config(min_score=int(os.environ.get("MIN_SCORE", "0")),
+                 classic_enabled=os.environ.get("CLASSIC", "1") != "0")
     seen = set()
     print(f"ICT SMC alerts started for: {', '.join(names)}", flush=True)
     if offsets:
@@ -194,10 +220,10 @@ def run():
         stamp = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%H:%M UTC")
         for name in names:
             try:
-                status, _setup, alert = analyze(name, cfg, now_ts, seen, offsets)
+                status, alerts = analyze(name, cfg, now_ts, seen, offsets)
                 print(f"[{stamp}] {status}", flush=True)
-                if alert:
-                    notify(alert)
+                for alert in alerts:
+                    notify(alert["text"])
             except Exception as e:
                 print(f"[{stamp}] {name}: error: {e}", flush=True)
         # wake up shortly after the next 5-minute candle opens
