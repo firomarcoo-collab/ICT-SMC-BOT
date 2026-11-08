@@ -7,6 +7,7 @@ Environment variables (all optional):
     SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
+    FUTURES           1 = use futures for gold/indices instead of spot (default: spot)
     CLASSIC           0 turns off the standalone classical alerts (default 1)
     ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
@@ -30,14 +31,19 @@ log = logging.getLogger("ict_alerts")
 BAR_SECONDS = 300
 STALE_SECONDS = 600  # newest candle older than this = market closed or data delayed
 
-# name -> free data source. Gold and indices use Yahoo futures (GC=F, NQ=F, YM=F),
-# bitcoin uses Binance spot. Futures prices can sit a little away from broker CFD prices.
+# name -> free data source. Default is SPOT prices: bitcoin from Binance, gold from
+# Yahoo spot XAUUSD=X, indices from the Yahoo cash indices ^NDX and ^DJI.
+# FUTURES=1 switches gold/indices to futures (GC=F, NQ=F, YM=F).
 INSTRUMENTS = {
     "BTCUSD": {"source": "binance", "id": "BTCUSDT", "digits": 2},
-    "XAUUSD": {"source": "yahoo", "id": "GC=F", "digits": 2},
-    "US100": {"source": "yahoo", "id": "NQ=F", "digits": 1},
-    "US30": {"source": "yahoo", "id": "YM=F", "digits": 1},
+    "XAUUSD": {"source": "yahoo", "id": "XAUUSD=X", "digits": 2},
+    "US100": {"source": "yahoo", "id": "^NDX", "digits": 1},
+    "US30": {"source": "yahoo", "id": "^DJI", "digits": 1},
 }
+FUTURES_IDS = {"XAUUSD": "GC=F", "US100": "NQ=F", "US30": "YM=F"}
+if os.environ.get("FUTURES") == "1":
+    for _n, _id in FUTURES_IDS.items():
+        INSTRUMENTS[_n]["id"] = _id
 
 
 # ===== Data =====
