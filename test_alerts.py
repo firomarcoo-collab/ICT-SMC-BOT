@@ -15,7 +15,7 @@ def forming_ts(candles):
 
 
 def feed(candles):
-    ict_alerts.get_candles = lambda inst: candles
+    ict_alerts.get_candles = lambda inst, tf="5m": candles
 
 
 def test_parse_binance():

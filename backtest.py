@@ -17,6 +17,7 @@ import time
 import urllib.parse
 
 from classic import find_classic_setup, ict_confluence
+from rct import find_rct
 from ict_alerts import INSTRUMENTS, fetch_json, parse_binance, parse_yahoo
 from ict_smc_bot import Config, find_setup
 
@@ -103,9 +104,10 @@ def simulate(candles, cfg, kind="ict", digits=2, warmup=250, window=300, max_wai
                 setup = find_setup(r, cfg, ask=price, bid=price, digits=digits)
                 score = len(ict_confluence(r, cfg, setup)) if setup else None
             else:
-                setup = find_classic_setup(r, cfg)
+                setup = find_rct(r, cfg) if kind == "rct" else find_classic_setup(r, cfg)
                 if setup:
-                    setup = {k: (round(v, digits) if k != "side" else v) for k, v in setup.items()}
+                    setup = {k: (round(v, digits) if isinstance(v, float) else v)
+                             for k, v in setup.items()}
                 score = None
             if setup:
                 pending = dict(setup, score=score, placed=i)
@@ -134,6 +136,8 @@ def report(name, days, candles, cfg, digits):
         if subset:
             print("  " + summarize(f"confirmations >= {minimum}", subset))
     print(summarize("CLASSIC", simulate(candles, cfg, "classic", digits)))
+    rct_trades = simulate(candles, cfg, "rct", digits)
+    print(summarize("RCT", rct_trades))
 
 
 def main():

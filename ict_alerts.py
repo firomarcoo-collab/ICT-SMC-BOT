@@ -16,6 +16,9 @@ Environment variables (all optional):
     NEWS_BLOCK        1 = no alerts within 30 min before / 15 min after high-impact news
     EVENTS            heads-up alerts, comma list of sweep,fvg,ob (default all three; EVENTS=none turns off)
     SESSION_ALERTS    0 = no alert when the London / New York session opens (default on)
+    TIMEFRAMES        comma list from 1m,5m,15m,1h,4h,1d (default all six)
+    EVENT_TIMEFRAMES  timeframes that get sweep/FVG/OB heads-up alerts (default 15m,1h,4h,1d)
+    RCT               0 turns off the reversal / continuation alerts
     CLASSIC           0 turns off the standalone classical alerts (default 1)
     ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
@@ -33,13 +36,26 @@ from datetime import datetime, timezone
 
 import events
 import extras
-from classic import find_classic_setup, ict_confluence
+import rct
+from classic import find_classic_setup, ict_confluence, trend
 from ict_smc_bot import Config, find_setup, to_series
 
 log = logging.getLogger("ict_alerts")
 
-BAR_SECONDS = 300
-STALE_SECONDS = 600  # newest candle older than this = market closed or data delayed
+TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+PROFILE = {"1m": "scalp", "5m": "scalp", "15m": "scalp", "1h": "swing", "4h": "swing", "1d": "swing"}
+BAR_SECONDS = 300  # default timeframe (5m)
+# Yahoo has no 4h candles: they are built from 1h candles. (interval, range) per timeframe.
+YAHOO_TF = {"1m": ("1m", "5d"), "5m": ("5m", "5d"), "15m": ("15m", "1mo"),
+            "1h": ("60m", "3mo"), "4h": ("60m", "1y"), "1d": ("1d", "2y")}
+TREND_CACHE = {}  # (symbol, timeframe) -> 'up' / 'down' / 'flat', filled while analysing
+
+
+def stale_after(bar):
+    """Seconds after a bar's start when we call the market closed / data delayed."""
+    if bar <= 900:
+        return bar + 600
+    return bar * 2 if bar < 86400 else bar + 3 * 86400
 
 # name -> free data source. Default is SPOT prices: bitcoin from Binance, gold from
 # Yahoo spot XAUUSD=X, indices from the Yahoo cash indices ^NDX and ^DJI.
@@ -86,19 +102,40 @@ def parse_yahoo(data):
     return out
 
 
-def get_candles(inst):
+def resample(candles, seconds):
+    """Merge candles (oldest first) into bigger ones aligned to multiples of `seconds` (UTC)."""
+    out = []
+    for c in sorted(candles, key=lambda c: c["time"]):
+        start = int(c["time"].timestamp()) // seconds * seconds
+        if out and out[-1]["start"] == start:
+            o = out[-1]
+            o["high"] = max(o["high"], c["high"])
+            o["low"] = min(o["low"], c["low"])
+            o["close"] = c["close"]
+        else:
+            out.append({"start": start, "open": c["open"], "high": c["high"],
+                        "low": c["low"], "close": c["close"]})
+    return [{"time": datetime.fromtimestamp(o["start"], tz=timezone.utc), "open": o["open"],
+             "high": o["high"], "low": o["low"], "close": o["close"]} for o in out]
+
+
+def get_candles(inst, tf="5m"):
     if inst["source"] == "binance":
         last_error = None
         for host in ("https://api.binance.com", "https://data-api.binance.vision"):
             try:
-                rows = fetch_json(f"{host}/api/v3/klines?symbol={inst['id']}&interval=5m&limit=300")
+                rows = fetch_json(f"{host}/api/v3/klines?symbol={inst['id']}&interval={tf}&limit=300")
                 return parse_binance(rows)
             except Exception as e:  # try the next host
                 last_error = e
         raise last_error
+    interval, span = YAHOO_TF[tf]
     sym = urllib.parse.quote(inst["id"], safe="")
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=5m&range=5d"
-    return parse_yahoo(fetch_json(url))[-300:]
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval={interval}&range={span}"
+    candles = parse_yahoo(fetch_json(url))
+    if tf == "4h":
+        candles = resample(candles, TF_SECONDS["4h"])
+    return candles[-300:]
 
 
 # ===== Analysis =====
@@ -109,6 +146,15 @@ def format_alert(kind, name, setup, price, d, cfg, r, points, offset):
     if kind == "ict":
         head = f"ICT SMC ALERT: {side} LIMIT {name}"
         extra = f"Confluence: {len(points)}/4" + (f" ({', '.join(points)})" if points else "") + "\n"
+    elif kind == "rct":
+        mode = setup.get("mode", "continuation")
+        if mode == "continuation":
+            head = f"RCT ALERT: {side} CONTINUATION {name} (trend + EMA pullback + resume candle)"
+        else:
+            head = f"RCT ALERT: {side} REVERSAL {name} (RSI stretched + sweep + rejection candle)"
+        extra = "Entry is the signal candle close: place it as a limit order at that price\n"
+        if mode != "continuation":
+            extra += "Counter-trend: higher risk, use a smaller size\n"
     else:
         head = f"CLASSIC ALERT: {side} {name} (trend + fib zone + reversal candle)"
         extra = "Entry is the reversal candle close: place it as a limit order at that price\n"
@@ -125,7 +171,7 @@ def format_alert(kind, name, setup, price, d, cfg, r, points, offset):
     )
 
 
-def analyze(name, cfg, now_ts, seen, offsets=None, opts=None):
+def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
     """Returns (status_text, alerts); alerts is a list of {'kind', 'setup', 'text'}.
 
     offsets: optional {name: number} added to every feed price so the levels match
@@ -135,7 +181,8 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None):
     """
     opts = opts or {}
     inst = INSTRUMENTS[name]
-    candles = get_candles(inst)
+    bar = TF_SECONDS[tf]
+    candles = get_candles(inst, tf)
     if not candles:
         return f"{name}: no data", []
 
@@ -146,15 +193,16 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None):
                    for c in candles]
 
     r = to_series(candles)
-    forming = now_ts - now_ts % BAR_SECONDS
+    forming = now_ts - now_ts % bar
     newest = int(r[0]["time"].timestamp())
 
-    if newest < forming - STALE_SECONDS:
+    if now_ts - newest > stale_after(bar):
         age_min = (now_ts - newest) // 60
         return f"{name}: market closed or data delayed (last candle {age_min} min old)", []
 
-    # The signal rules need r[0] to be the bar that is still forming.
-    if newest < forming:
+    # The signal rules need r[0] to be the bar that is still forming. If the newest bar
+    # has already ended, the feed has not listed the forming bar yet: add a placeholder.
+    if newest + bar <= now_ts:
         placeholder = dict(r[0])
         placeholder["time"] = datetime.fromtimestamp(forming, tz=timezone.utc)
         r.insert(0, placeholder)
@@ -167,11 +215,14 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None):
 
     bar_time = int(r[1]["time"].timestamp())
     alerts = []
+    my_trend = trend(r, cfg)
+    if my_trend:
+        TREND_CACHE[(name, tf)] = my_trend
 
     setup = find_setup(r, cfg, ask=price, bid=price, digits=d)
     if setup:
         points = ict_confluence(r, cfg, setup)
-        key = (name, "ict", bar_time)
+        key = (name, tf, "ict", bar_time)
         if len(points) >= cfg.min_score and key not in seen:
             seen.add(key)
             alerts.append({"kind": "ict", "setup": setup,
@@ -179,25 +230,36 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None):
 
     if cfg.classic_enabled:
         classic = find_classic_setup(r, cfg)
-        key = (name, "classic", bar_time)
+        key = (name, tf, "classic", bar_time)
         if classic and key not in seen:
             seen.add(key)
-            classic = {k: (round(v, d) if k != "side" else v) for k, v in classic.items()}
+            classic = {k: (round(v, d) if isinstance(v, float) else v) for k, v in classic.items()}
             alerts.append({"kind": "classic", "setup": classic,
                            "text": format_alert("classic", name, classic, price, d, cfg, r, [], offset)})
 
+    if cfg.rct_enabled:
+        sig = rct.find_rct(r, cfg)
+        key = (name, tf, "rct", bar_time)
+        if sig and key not in seen:
+            seen.add(key)
+            sig = {k: (round(v, d) if isinstance(v, float) else v) for k, v in sig.items()}
+            alerts.append({"kind": "rct", "setup": sig,
+                           "text": format_alert("rct", name, sig, price, d, cfg, r, [], offset)})
+
     for ev in events.find_events(r, cfg, d, opts.get("events", ())):
-        key = (name, ev["kind"], ev["side"], bar_time)
+        key = (name, tf, ev["kind"], ev["side"], bar_time)
         if key not in seen:
             seen.add(key)
-            alerts.append({"kind": "event", "setup": None,
+            alerts.append({"kind": "event", "setup": None, "side": ev["side"],
                            "text": f"{ev['kind'].upper()} ALERT {name} ({ev['side'].upper()} bias)\n"
                                    f"{ev['text']}\nPrice now: {price:.{d}f}\n"
                                    f"Candle: {r[1]['time'].strftime('%Y-%m-%d %H:%M')} UTC"})
-    return add_extras(name, alerts, cfg, now_ts, opts, status)
+    for a in alerts:  # second line: timeframe and style (scalp / swing)
+        a["text"] = a["text"].replace("\n", f"\nTimeframe: {tf} ({PROFILE[tf]})\n", 1)
+    return add_extras(name, alerts, cfg, now_ts, opts, status, tf)
 
 
-def add_extras(name, alerts, cfg, now_ts, opts, status):
+def add_extras(name, alerts, cfg, now_ts, opts, status, tf="5m"):
     """Adds session, lot and news lines to each alert, and applies the optional filters."""
     if not alerts:
         return status, alerts
@@ -214,7 +276,9 @@ def add_extras(name, alerts, cfg, now_ts, opts, status):
         if s:
             risk = abs(s["entry"] - s["sl"])
             lot = extras.lot_line(opts.get("balance", 0), cfg.risk_percent, risk, contract)
-        a["text"] += f"\nSession: {sessions}\n" + news + lot
+        side = s["side"] if s else a.get("side")
+        a["text"] += (f"\nSession: {sessions}\n" + news + lot
+                      + extras.trend_line(TREND_CACHE, name, tf, side))
         a["text"] = a["text"].rstrip("\n")
     return status, alerts
 
@@ -299,12 +363,21 @@ def run():
             "news": [],
             "events": tuple(k for k in os.environ.get("EVENTS", "sweep,fvg,ob").lower().split(",")
                             if k in ("sweep", "fvg", "ob"))}
+    tfs = [t.strip().lower() for t in os.environ.get(
+        "TIMEFRAMES", "1m,5m,15m,1h,4h,1d").split(",") if t.strip()]
+    bad = [t for t in tfs if t not in TF_SECONDS]
+    if bad:
+        raise SystemExit(f"Unknown timeframes: {bad}. Choose from {list(TF_SECONDS)}")
+    event_tfs = {t.strip().lower() for t in os.environ.get(
+        "EVENT_TIMEFRAMES", "15m,1h,4h,1d").split(",") if t.strip()}
+    cfg.rct_enabled = os.environ.get("RCT", "1") != "0"
+    last_bucket = {}
     session_alerts = os.environ.get("SESSION_ALERTS", "1") != "0"
     last_sessions = None
     use_news = os.environ.get("NEWS", "1") != "0"
     news_fetched = 0
     seen = set()
-    print(f"ICT SMC alerts started for: {', '.join(names)}", flush=True)
+    print(f"ICT SMC alerts started for: {', '.join(names)} on {', '.join(tfs)}", flush=True)
     if offsets:
         print(f"Price offsets: {offsets}", flush=True)
 
@@ -331,16 +404,23 @@ def run():
                 notify(f"NEWS in {round((e['ts'] - now_ts) / 60)} min: "
                        f"{e['currency']} {e['title']} (high impact). Be careful with open orders.")
         stamp = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%H:%M UTC")
-        for name in names:
-            try:
-                status, alerts = analyze(name, cfg, now_ts, seen, offsets, opts)
-                print(f"[{stamp}] {status}", flush=True)
-                for alert in alerts:
-                    notify(alert["text"])
-            except Exception as e:
-                print(f"[{stamp}] {name}: error: {e}", flush=True)
-        # wake up shortly after the next 5-minute candle opens
-        time.sleep(max(1, BAR_SECONDS - time.time() % BAR_SECONDS + 8))
+        for tf in tfs:
+            bucket = now_ts // TF_SECONDS[tf]
+            if last_bucket.get(tf) == bucket:
+                continue  # this timeframe already ran for its current candle
+            last_bucket[tf] = bucket
+            tf_opts = dict(opts, events=opts["events"] if tf in event_tfs else ())
+            for name in names:
+                try:
+                    status, alerts = analyze(name, cfg, now_ts, seen, offsets, tf_opts, tf)
+                    if tf != "1m" or alerts:
+                        print(f"[{stamp} {tf}] {status}", flush=True)
+                    for alert in alerts:
+                        notify(alert["text"])
+                except Exception as e:
+                    print(f"[{stamp} {tf}] {name}: error: {e}", flush=True)
+        # wake up shortly after the next minute starts
+        time.sleep(max(1, 60 - time.time() % 60 + 8))
 
 
 if __name__ == "__main__":

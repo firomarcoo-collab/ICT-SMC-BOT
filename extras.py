@@ -107,3 +107,28 @@ def news_line(events, name, now_ts):
         when = f"in {mins} min" if mins >= 0 else f"{-mins} min ago"
         parts.append(f"{e['currency']} {e['title']} {when}")
     return "WARNING high-impact news: " + "; ".join(parts) + "\n"
+
+
+# ===== Multi-timeframe trend =====
+
+TF_ORDER = ["1d", "4h", "1h", "15m", "5m", "1m"]
+
+
+def trend_line(cache, name, tf, side):
+    """e.g. 'Trends: 1d up | 4h up | 1h flat | 5m down' plus whether higher timeframes agree.
+    cache: {(name, tf): 'up'|'down'|'flat'}."""
+    parts = [(t, cache.get((name, t))) for t in TF_ORDER if cache.get((name, t))]
+    if not parts:
+        return ""
+    line = "Trends: " + " | ".join(f"{t} {v}" for t, v in parts) + "\n"
+    if side and tf in TF_ORDER:
+        higher = [v for t, v in parts if TF_ORDER.index(t) < TF_ORDER.index(tf)]
+        want = "up" if side == "buy" else "down"
+        if higher:
+            agree = sum(1 for v in higher if v == want)
+            against = sum(1 for v in higher if v not in (want, "flat"))
+            if against:
+                line += f"Higher timeframes: {against} against this {side.upper()} (counter-trend)\n"
+            elif agree:
+                line += f"Higher timeframes: {agree} agree with this {side.upper()}\n"
+    return line

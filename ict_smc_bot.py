@@ -44,6 +44,7 @@ class Config:
     leg_min_atr: float = 2.0   # smallest leg worth trading, in ATR
     min_score: int = 0         # ICT alerts need at least this many classical confirmations
     classic_enabled: bool = True
+    rct_enabled: bool = True
 
 
 # ===== Signal logic (same rules as the MQL5 EA) =====
