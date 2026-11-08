@@ -322,7 +322,7 @@ def order_blocks(bars, events):
                 if c["high"] >= zlow:
                     status = "mitigated"
         out.append({"kind": "OB", "side": ev["side"], "low": zlow, "high": zhigh, "idx": j,
-                    "status": status})
+                    "status": status, "event": ev["type"], "mss": ev["mss"], "break_idx": t})
         if status == "broken":  # polarity flips: stays valid while price has not closed back through
             opposite = "bear" if ev["side"] == "bull" else "bull"
             back = any((c["close"] > zhigh) if ev["side"] == "bull" else (c["close"] < zlow)

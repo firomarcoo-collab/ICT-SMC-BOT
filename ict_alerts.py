@@ -42,6 +42,9 @@ import events
 import extras
 import markets
 import rct
+import selective
+import signal_store
+import structure
 import tracker
 from classic import find_classic_setup, ict_confluence, trend
 from ict_smc_bot import Config, find_setup, to_series
@@ -232,7 +235,7 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
     # entry rule uses the close of the last CLOSED candle, never the still-forming one
     ref_price = r[1]["close"]
     setup = find_setup(r, cfg, ask=ref_price, bid=ref_price, digits=d)
-    if setup:
+    if setup and opts.get("legacy_ict", True):
         points = ict_confluence(r, cfg, setup)
         key = (name, tf, "ict", bar_time)
         if len(points) >= cfg.min_score and key not in seen:
@@ -301,6 +304,56 @@ def add_extras(name, alerts, cfg, now_ts, opts, status, tf="5m"):
                       + extras.trend_line(TREND_CACHE, name, tf, side))
         a["text"] = a["text"].rstrip("\n")
     return status, alerts
+
+
+# ===== Selective engine (H4/H1 trend + S/R, M15 FVG/OB, M5 closed confirmation) =====
+
+SELECTIVE_TFS = (("5m", "m5"), ("15m", "m15"), ("1h", "h1"), ("4h", "h4"))
+
+
+def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None):
+    """Runs the selective engine for one market.
+    Returns (status_text, alert_or_None, lagging). lagging=True means the M5 candle that just
+    closed is not listed by the feed yet, so the caller should try again in a minute."""
+    market = markets.canonical(name)
+    if market not in markets.DEFAULTS:
+        return f"{name}: the selective engine covers XAUUSD, NAS100, US30 and BTCUSD only", None, False
+    inst = INSTRUMENTS[name]
+    offset = (offsets or {}).get(name, 0.0)
+    data = {}
+    try:
+        for tf, key in SELECTIVE_TFS:
+            candles = get_candles(inst, tf)
+            if offset:
+                candles = [dict(c, open=c["open"] + offset, high=c["high"] + offset,
+                                low=c["low"] + offset, close=c["close"] + offset) for c in candles]
+            data[key] = candles
+        connected = True
+    except Exception as e:
+        connected = False
+        log.warning("selective: %s data error: %s", name, e)
+    status = selective.data_status(inst["source"], data.get("m5"), 300, now_ts, connected)
+    if status != "LIVE":
+        return f"{name}: SELECTIVE WAIT (data {status})", None, False
+    m5_closed = selective.closed_only(data["m5"], 300, now_ts)
+    if m5_closed and int(m5_closed[-1]["time"].timestamp()) + 300 < now_ts - now_ts % 300:
+        return f"{name}: waiting for the latest M5 candle to be listed", None, True
+    spec = (specs or {}).get(market)
+    spread = (spreads or {}).get(name)
+    if spread is None and spec is not None:
+        spread = spec.spread
+    commission_price = None
+    if spec is not None and spec.commission_per_lot is not None and spec.tick_size and spec.tick_value:
+        commission_price = spec.commission_per_lot / (spec.tick_value / spec.tick_size)
+    res = selective.process(market, data, now_ts, store, scfg, spread, commission_price, status,
+                            calendar=structure.calendar_for(inst["source"]))
+    d = inst["digits"]
+    if res["action"] == "WAIT":
+        return f"{name}: SELECTIVE WAIT ({res['reasons'][0] if res['reasons'] else 'no setup'})", None, False
+    setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
+    text = selective.format_signal(name, dict(res, setup=setup), d)
+    return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market,
+                                                  "bar_time": setup["bar_time"]}, False
 
 
 # ===== Notifications =====
@@ -388,15 +441,39 @@ def run():
                             if k in ("sweep", "fvg", "ob"))}
     tfs = [t.strip().lower() for t in os.environ.get(
         "TIMEFRAMES", "1m,5m,15m,1h,4h,1d").split(",") if t.strip()]
+    if "5m" not in tfs:
+        tfs.append("5m")  # the result tracker (which releases the signal locks) follows M5 candles
     bad = [t for t in tfs if t not in TF_SECONDS]
     if bad:
         raise SystemExit(f"Unknown timeframes: {bad}. Choose from {list(TF_SECONDS)}")
     event_tfs = {t.strip().lower() for t in os.environ.get(
         "EVENT_TIMEFRAMES", "15m,1h,4h,1d").split(",") if t.strip()}
     cfg.rct_enabled = os.environ.get("RCT", "1") != "0"
+    engine = os.environ.get("ENGINE", "selective").lower()
+    if engine not in ("selective", "legacy", "both"):
+        raise SystemExit("ENGINE must be selective, legacy or both")
+    use_selective = engine in ("selective", "both")
+    opts["legacy_ict"] = engine in ("legacy", "both")
+    if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both
+        cfg.classic_enabled = False
+        cfg.rct_enabled = False
+    scfg = selective.SelectiveConfig(
+        min_confluence=int(number("MIN_CONFLUENCE", 5)), slippage=number("SLIPPAGE", 0.0),
+        allow_unknown_cost=os.environ.get("ALLOW_UNKNOWN_COST") == "1")
+    spreads = {n: number(f"SPREAD_{n}", None) for n in names if os.environ.get(f"SPREAD_{n}")}
+    store = signal_store.SignalStore(os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE)) \
+        if use_selective else None
     track = tracker.Tracker(os.environ.get("RESULTS_FILE", tracker.DEFAULT_CSV)) \
         if os.environ.get("TRACK", "1") != "0" else None
     last_bucket = {}
+    if store and track:
+        track.on_done = lambda it, outcome: store.close(it["ref"], outcome) if it.get("ref") else None
+        for market, sig in list(store.active_signals.items()):  # keep following signals after a restart
+            feed = markets.feed_name(market)
+            if feed in names:
+                track.add(feed, "5m", "selective", sig, sig["bar_time"], ref=market, market=True)
+    if store and store.load_error:
+        print(f"WARNING: signal state file was unreadable ({store.load_error}); started clean", flush=True)
     us_alerts = os.environ.get("US_OPEN_ALERTS", "1") != "0"
     session_alerts = os.environ.get("SESSION_ALERTS", "1") != "0"
     last_sessions = None
@@ -441,6 +518,24 @@ def run():
                 notify(f"NEWS in {round((e['ts'] - now_ts) / 60)} min: "
                        f"{e['currency']} {e['title']} (high impact). Be careful with open orders.")
         stamp = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%H:%M UTC")
+        if use_selective and now_ts % 300 < 180:  # first 3 minutes of each M5 candle
+            bucket = now_ts // 300
+            for name in names:
+                if last_bucket.get(("sel", name)) == bucket:
+                    continue
+                try:
+                    status, alert, lagging = selective_scan(name, now_ts, scfg, store, offsets,
+                                                            spreads, opts["markets"])
+                    if not lagging:
+                        last_bucket[("sel", name)] = bucket
+                    print(f"[{stamp} sel] {status}", flush=True)
+                    if alert:
+                        notify(alert["text"])
+                        if track:
+                            track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],
+                                      ref=alert["market"], market=True)
+                except Exception as e:
+                    print(f"[{stamp} sel] {name}: error: {e}", flush=True)
         for tf in tfs:
             bucket = now_ts // TF_SECONDS[tf]
             if last_bucket.get(tf) == bucket:

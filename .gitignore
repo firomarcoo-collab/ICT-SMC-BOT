@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 results.csv
+signals_state.json
+signals_state.json.tmp
+signals_state.json.bad
+signals_state.jsonl

@@ -17,6 +17,7 @@ class Tracker:
     def __init__(self, path=DEFAULT_CSV):
         self.path = path
         self.items = []
+        self.on_done = None  # optional callback(item, outcome) with outcome win/loss/not_filled
         self.wins = self.losses = 0
         self.total_r = 0.0
         self._load()
@@ -43,9 +44,19 @@ class Tracker:
         return (f"Total: {n} trades, {self.wins} wins, {self.losses} losses "
                 f"(win rate {rate:.0f}%, {self.total_r:+.1f}R)")
 
-    def add(self, name, tf, kind, setup, bar_time):
+    def add(self, name, tf, kind, setup, bar_time, ref=None, market=False):
+        """market=True: the trade is entered at once at `entry` (the signal candle's close), so
+        it starts OPEN and the next candles are checked stop first. Otherwise it is a limit order."""
         self.items.append({"name": name, "tf": tf, "kind": kind, "setup": dict(setup),
-                           "state": "pending", "waited": 0, "last": bar_time})
+                           "state": "open" if market else "pending", "waited": 0, "last": bar_time,
+                           "ref": ref})
+
+    def _finish(self, it, outcome):
+        if self.on_done:
+            try:
+                self.on_done(it, outcome)
+            except Exception:
+                pass  # a callback problem must not stop the tracking
 
     def _record(self, it, result, r):
         self._count(r)
@@ -87,6 +98,7 @@ class Tracker:
                         it["waited"] += 1
                         if it["waited"] >= MAX_WAIT_BARS:
                             it["state"] = "done"
+                            self._finish(it, "not_filled")
                             notes.append(f"NOT FILLED: {self._label(it)}. Cancel the pending order.")
                             break
                         continue
@@ -96,11 +108,13 @@ class Tracker:
                     if stop_hit:
                         it["state"] = "done"
                         self._record(it, "loss", -1.0)
+                        self._finish(it, "loss")
                         notes.append(f"RESULT: LOSS -1R | {self._label(it)}\n{self.tally()}")
                         break
                     if target_hit:
                         it["state"] = "done"
                         self._record(it, "win", reward)
+                        self._finish(it, "win")
                         notes.append(f"RESULT: WIN +{reward:.1f}R | {self._label(it)}\n{self.tally()}")
                         break
         self.items = [i for i in self.items if i["state"] != "done"]
