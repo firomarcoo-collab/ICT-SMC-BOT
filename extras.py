@@ -132,3 +132,45 @@ def trend_line(cache, name, tf, side):
             elif agree:
                 line += f"Higher timeframes: {agree} agree with this {side.upper()}\n"
     return line
+
+
+# ===== US market open (09:30 New York) =====
+
+US_BEFORE = 30 * 60   # the window starts 30 minutes before the open
+US_AFTER = 120 * 60   # and lasts 2 hours after it
+
+
+def us_open_ts(ts):
+    """Timestamp of the 09:30 New York open on the New York date of `ts`; None on weekends."""
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        local = dt.astimezone(ZoneInfo("America/New_York"))
+        if local.weekday() >= 5:
+            return None
+        return int(local.replace(hour=9, minute=30, second=0, microsecond=0).timestamp())
+    except Exception:  # no timezone database: use winter time (UTC-5)
+        local = dt - timedelta(hours=5)
+        if local.weekday() >= 5:
+            return None
+        base = local.replace(hour=9, minute=30, second=0, microsecond=0)
+        return int((base + timedelta(hours=5)).replace(tzinfo=timezone.utc).timestamp())
+
+
+def us_open_state(ts):
+    """None outside the window, else minutes relative to the open (negative = before)."""
+    open_ts = us_open_ts(ts)
+    if open_ts is None:
+        return None
+    delta = ts - open_ts
+    if -US_BEFORE <= delta <= US_AFTER:
+        return round(delta / 60)
+    return None
+
+
+def us_open_line(ts):
+    m = us_open_state(ts)
+    if m is None:
+        return ""
+    when = f"opens in {-m} min" if m < 0 else f"opened {m} min ago"
+    return f"US OPEN window: US stocks {when}. Expect fast moves and wider spreads.\n"

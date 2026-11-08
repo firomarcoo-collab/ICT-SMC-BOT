@@ -19,6 +19,10 @@ Environment variables (all optional):
     TIMEFRAMES        comma list from 1m,5m,15m,1h,4h,1d (default all six)
     EVENT_TIMEFRAMES  timeframes that get sweep/FVG/OB heads-up alerts (default 15m,1h,4h,1d)
     RCT               0 turns off the reversal / continuation alerts
+    US_OPEN_ALERTS    0 = no alert 15 min before / at the US open (09:30 New York)
+    US_OPEN_ONLY      1 = entry signals only from 30 min before to 2 hours after the US open
+    GEMINI_API_KEY    free Google AI Studio key: adds a short AI comment (Arabic) to each entry signal
+    GEMINI_MODEL      default gemini-2.5-flash;  AI=0 turns the AI off;  AI_MAX_PER_DAY (default 40)
     CLASSIC           0 turns off the standalone classical alerts (default 1)
     ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
@@ -34,6 +38,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import ai
 import events
 import extras
 import rct
@@ -254,6 +259,11 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None, tf="5m"):
                            "text": f"{ev['kind'].upper()} ALERT {name} ({ev['side'].upper()} bias)\n"
                                    f"{ev['text']}\nPrice now: {price:.{d}f}\n"
                                    f"Candle: {r[1]['time'].strftime('%Y-%m-%d %H:%M')} UTC"})
+    if opts.get("ai"):
+        context = ai.candles_context(r, d)
+        for a in alerts:
+            if a["kind"] != "event":
+                a["context"] = context
     for a in alerts:  # second line: timeframe and style (scalp / swing)
         a["text"] = a["text"].replace("\n", f"\nTimeframe: {tf} ({PROFILE[tf]})\n", 1)
     return add_extras(name, alerts, cfg, now_ts, opts, status, tf)
@@ -266,6 +276,11 @@ def add_extras(name, alerts, cfg, now_ts, opts, status, tf="5m"):
     sessions = extras.session_text(now_ts)
     if opts.get("session_only") and not extras.active_sessions(now_ts):
         return status + " (signal skipped: outside sessions)", []
+    if opts.get("us_open_only") and extras.us_open_state(now_ts) is None and \
+            any(a["kind"] != "event" for a in alerts):
+        alerts = [a for a in alerts if a["kind"] == "event"]
+        if not alerts:
+            return status + " (signal skipped: outside US open window)", []
     news = extras.news_line(opts.get("news") or [], name, now_ts)
     if news and opts.get("news_block"):
         return status + " (signal skipped: news)", []
@@ -277,7 +292,7 @@ def add_extras(name, alerts, cfg, now_ts, opts, status, tf="5m"):
             risk = abs(s["entry"] - s["sl"])
             lot = extras.lot_line(opts.get("balance", 0), cfg.risk_percent, risk, contract)
         side = s["side"] if s else a.get("side")
-        a["text"] += (f"\nSession: {sessions}\n" + news + lot
+        a["text"] += (f"\nSession: {sessions}\n" + extras.us_open_line(now_ts) + news + lot
                       + extras.trend_line(TREND_CACHE, name, tf, side))
         a["text"] = a["text"].rstrip("\n")
     return status, alerts
@@ -361,6 +376,8 @@ def run():
             "session_only": os.environ.get("SESSION_ONLY") == "1",
             "news_block": os.environ.get("NEWS_BLOCK") == "1",
             "news": [],
+            "us_open_only": os.environ.get("US_OPEN_ONLY") == "1",
+            "ai": bool(os.environ.get("GEMINI_API_KEY")) and os.environ.get("AI", "1") != "0",
             "events": tuple(k for k in os.environ.get("EVENTS", "sweep,fvg,ob").lower().split(",")
                             if k in ("sweep", "fvg", "ob"))}
     tfs = [t.strip().lower() for t in os.environ.get(
@@ -372,6 +389,10 @@ def run():
         "EVENT_TIMEFRAMES", "15m,1h,4h,1d").split(",") if t.strip()}
     cfg.rct_enabled = os.environ.get("RCT", "1") != "0"
     last_bucket = {}
+    ai_day, ai_used = None, 0
+    ai_max = int(number("AI_MAX_PER_DAY", 40))
+    ai_model = os.environ.get("GEMINI_MODEL", ai.DEFAULT_MODEL)
+    us_alerts = os.environ.get("US_OPEN_ALERTS", "1") != "0"
     session_alerts = os.environ.get("SESSION_ALERTS", "1") != "0"
     last_sessions = None
     use_news = os.environ.get("NEWS", "1") != "0"
@@ -389,6 +410,17 @@ def run():
                 opts["news"] = extras.fetch_news()
             except Exception as e:
                 print(f"news calendar unavailable: {e}", flush=True)
+        if us_alerts:
+            open_ts = extras.us_open_ts(now_ts)
+            if open_ts is not None:
+                mins = round((open_ts - now_ts) / 60)
+                if 0 < mins <= 15 and ("us-pre", open_ts) not in seen:
+                    seen.add(("us-pre", open_ts))
+                    notify(f"US OPEN in {mins} min (09:30 New York). Expect fast moves. "
+                           f"Check open orders and the news.")
+                elif -3 <= mins <= 0 and ("us-open", open_ts) not in seen:
+                    seen.add(("us-open", open_ts))
+                    notify("US MARKET OPEN now. Volatility is usually highest in the first hour.")
         if session_alerts:
             now_sessions = extras.active_sessions(now_ts)
             if last_sessions is not None:
@@ -416,6 +448,18 @@ def run():
                     if tf != "1m" or alerts:
                         print(f"[{stamp} {tf}] {status}", flush=True)
                     for alert in alerts:
+                        if alert.get("context"):
+                            today = now_ts // 86400
+                            if ai_day != today:
+                                ai_day, ai_used = today, 0
+                            if ai_used < ai_max:
+                                ai_used += 1
+                                try:
+                                    comment = ai.ask(ai.build_prompt(alert["text"], alert["context"]),
+                                                     os.environ["GEMINI_API_KEY"], ai_model)
+                                    alert["text"] += "\n\nAI: " + comment
+                                except Exception as e:
+                                    print(f"[{stamp} {tf}] AI comment failed: {e}", flush=True)
                         notify(alert["text"])
                 except Exception as e:
                     print(f"[{stamp} {tf}] {name}: error: {e}", flush=True)
