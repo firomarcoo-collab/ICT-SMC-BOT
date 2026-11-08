@@ -169,6 +169,18 @@ def test_session_only_and_news_block():
     assert al == [] and "sessions" in st
 
 
+def test_event_alerts_only_when_enabled():
+    candles = make_candles()
+    candles[-2] = dict(candles[-2], low=102.0)  # a clear gap
+    feed(candles)
+    now_ts = forming_ts(candles) + 8
+    base = analyze("TEST", cfg, now_ts, set())[1]
+    assert [a for a in base if a["kind"] == "event"] == []
+    alerts = analyze("TEST", cfg, now_ts, set(), None, {"events": ("sweep", "fvg", "ob")})[1]
+    kinds = {a["text"].split(" ALERT")[0] for a in alerts if a["kind"] == "event"}
+    assert kinds >= {"FVG", "OB"}, kinds
+
+
 def test_stale_data_means_market_closed():
     candles = make_candles()
     feed(candles)

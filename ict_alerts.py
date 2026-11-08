@@ -14,6 +14,8 @@ Environment variables (all optional):
     SESSION_ONLY      1 = no alerts outside London / New York hours
     NEWS              0 = turn off the high-impact news calendar (default on)
     NEWS_BLOCK        1 = no alerts within 30 min before / 15 min after high-impact news
+    EVENTS            heads-up alerts, comma list of sweep,fvg,ob (default all three; EVENTS=none turns off)
+    SESSION_ALERTS    0 = no alert when the London / New York session opens (default on)
     CLASSIC           0 turns off the standalone classical alerts (default 1)
     ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
@@ -29,6 +31,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import events
 import extras
 from classic import find_classic_setup, ict_confluence
 from ict_smc_bot import Config, find_setup, to_series
@@ -183,6 +186,14 @@ def analyze(name, cfg, now_ts, seen, offsets=None, opts=None):
             alerts.append({"kind": "classic", "setup": classic,
                            "text": format_alert("classic", name, classic, price, d, cfg, r, [], offset)})
 
+    for ev in events.find_events(r, cfg, d, opts.get("events", ())):
+        key = (name, ev["kind"], ev["side"], bar_time)
+        if key not in seen:
+            seen.add(key)
+            alerts.append({"kind": "event", "setup": None,
+                           "text": f"{ev['kind'].upper()} ALERT {name} ({ev['side'].upper()} bias)\n"
+                                   f"{ev['text']}\nPrice now: {price:.{d}f}\n"
+                                   f"Candle: {r[1]['time'].strftime('%Y-%m-%d %H:%M')} UTC"})
     return add_extras(name, alerts, cfg, now_ts, opts, status)
 
 
@@ -199,9 +210,11 @@ def add_extras(name, alerts, cfg, now_ts, opts, status):
     contract = (opts.get("contracts") or {}).get(name, extras.CONTRACT.get(name, 1.0))
     for a in alerts:
         s = a["setup"]
-        risk = abs(s["entry"] - s["sl"])
-        a["text"] += (f"\nSession: {sessions}\n" + news
-                      + extras.lot_line(opts.get("balance", 0), cfg.risk_percent, risk, contract))
+        lot = ""
+        if s:
+            risk = abs(s["entry"] - s["sl"])
+            lot = extras.lot_line(opts.get("balance", 0), cfg.risk_percent, risk, contract)
+        a["text"] += f"\nSession: {sessions}\n" + news + lot
         a["text"] = a["text"].rstrip("\n")
     return status, alerts
 
@@ -283,7 +296,11 @@ def run():
             "contracts": {n: number(f"CONTRACT_{n}", extras.CONTRACT.get(n, 1.0)) for n in names},
             "session_only": os.environ.get("SESSION_ONLY") == "1",
             "news_block": os.environ.get("NEWS_BLOCK") == "1",
-            "news": []}
+            "news": [],
+            "events": tuple(k for k in os.environ.get("EVENTS", "sweep,fvg,ob").lower().split(",")
+                            if k in ("sweep", "fvg", "ob"))}
+    session_alerts = os.environ.get("SESSION_ALERTS", "1") != "0"
+    last_sessions = None
     use_news = os.environ.get("NEWS", "1") != "0"
     news_fetched = 0
     seen = set()
@@ -299,6 +316,13 @@ def run():
                 opts["news"] = extras.fetch_news()
             except Exception as e:
                 print(f"news calendar unavailable: {e}", flush=True)
+        if session_alerts:
+            now_sessions = extras.active_sessions(now_ts)
+            if last_sessions is not None:
+                for sess in now_sessions:
+                    if sess not in last_sessions:
+                        notify(f"SESSION OPEN: {sess} session has started. Expect more movement.")
+            last_sessions = now_sessions
         for e in opts["news"]:
             key = ("news", e["ts"], e["title"])
             if 0 <= e["ts"] - now_ts <= 30 * 60 and key not in seen and \
