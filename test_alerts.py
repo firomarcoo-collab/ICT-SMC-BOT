@@ -149,12 +149,40 @@ def test_custom_sound_is_played(monkeypatch=None):
 def test_only_entry_alerts_may_make_a_sound():
     import inspect
     src = inspect.getsource(ict_alerts.run)
-    assert 'notify(alert["text"], entry=True)' in src                       # selective entry
+    assert 'notify(alert["text"], entry=True, side=alert["setup"]["side"])' in src                       # selective entry
     assert 'entry=alert["kind"] in ENTRY_KINDS' in src                      # legacy: ict / classic / rct only
     assert "event" not in ict_alerts.ENTRY_KINDS
     for call in ("notify(f\"US OPEN", "notify(\"US MARKET", "notify(f\"SESSION", "notify(f\"NEWS", "notify(note)"):
         line = [ln for ln in src.splitlines() if call in ln][0]
         assert "entry=True" not in line, call                               # info messages stay silent
+
+
+def test_buy_is_blue_and_sell_is_red():
+    import io
+    import contextlib
+    calls = []
+    saved = (ict_alerts.shutil.which, ict_alerts.subprocess.run)
+    ict_alerts.shutil.which = lambda name: "/bin/" + name
+    ict_alerts.subprocess.run = lambda cmd, **kw: calls.append(cmd)
+    try:
+        for side, emoji, ansi, led in (("buy", "\U0001F535", "\033[1;94m", "0066FF"),
+                                       ("sell", "\U0001F534", "\033[1;91m", "FF0000")):
+            calls.clear()
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ict_alerts.notify("SIGNAL", entry=True, side=side)
+            assert out.getvalue().startswith(ansi) and "\033[0m" in out.getvalue()      # coloured terminal text
+            note = [c for c in calls if c[0] == "termux-notification"][0]
+            assert note[note.index("--title") + 1].startswith(emoji)                    # coloured circle
+            assert note[note.index("--content") + 1].startswith(emoji + " SIGNAL")
+            assert note[note.index("--led-color") + 1] == led                           # notification light
+        calls.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            ict_alerts.notify("NEWS soon")                                              # no side: no colour
+        note = [c for c in calls if c[0] == "termux-notification"][0]
+        assert "--led-color" not in note
+    finally:
+        ict_alerts.shutil.which, ict_alerts.subprocess.run = saved
 
 
 def test_extras_in_alert_text():

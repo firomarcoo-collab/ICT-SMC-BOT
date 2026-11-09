@@ -390,14 +390,28 @@ def sound_path():
 ENTRY_KINDS = ("ict", "classic", "rct")  # alerts that are a ready entry; all others stay silent
 
 
-def notify(text, entry=False):
+SIDE_STYLE = {"buy": ("\U0001F535", "\033[1;94m", "0066FF"),    # blue
+              "sell": ("\U0001F534", "\033[1;91m", "FF0000")}   # red
+
+
+def notify(text, entry=False, side=None):
     """Shows the message. Only entry=True (a trade ready to enter) makes a sound; everything
-    else (sessions, news, results, heads-up events) appears silently."""
-    print(text, flush=True)
+    else (sessions, news, results, heads-up events) appears silently.
+    side 'buy' / 'sell' colours the alert: blue for BUY, red for SELL (terminal colour, a coloured
+    circle in the notification and Telegram text, and the phone's notification light)."""
+    emoji, ansi, led = SIDE_STYLE.get(side, ("", "", ""))
+    print(f"{ansi}{text}\033[0m" if ansi else text, flush=True)
+    if emoji:
+        text = f"{emoji} {text}"
     sound = sound_path() if entry and shutil.which("termux-media-player") else None
     if shutil.which("termux-notification"):
-        cmd = ["termux-notification", "--title", "ICT SMC" if entry else "ICT SMC (info)",
+        title = "ICT SMC" if entry else "ICT SMC (info)"
+        if side:
+            title = f"{emoji} {side.upper()} - ICT SMC"
+        cmd = ["termux-notification", "--title", title,
                "--content", text, "--priority", "high" if entry else "low"]
+        if led:
+            cmd += ["--led-color", led]
         if entry and not sound:
             cmd.append("--sound")  # no custom sound: use the phone's notification sound
         try:
@@ -477,7 +491,7 @@ def run():
     if engine not in ("selective", "legacy", "both"):
         raise SystemExit("ENGINE must be selective, legacy or both")
     use_selective = engine in ("selective", "both")
-    alert_lang = os.environ.get("ALERT_LANG", "ar").lower()  # ar (default) or en
+    alert_lang = os.environ.get("ALERT_LANG", "en").lower()  # en (default) or ar
     opts["legacy_ict"] = engine in ("legacy", "both")
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both
         cfg.classic_enabled = False
@@ -555,7 +569,7 @@ def run():
                         last_bucket[("sel", name)] = bucket
                     print(f"[{stamp} sel] {status}", flush=True)
                     if alert:
-                        notify(alert["text"], entry=True)
+                        notify(alert["text"], entry=True, side=alert["setup"]["side"])
                         if track:
                             track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],
                                       ref=alert["market"], market=True)
@@ -573,7 +587,8 @@ def run():
                     if tf != "1m" or alerts:
                         print(f"[{stamp} {tf}] {status}", flush=True)
                     for alert in alerts:
-                        notify(alert["text"], entry=alert["kind"] in ENTRY_KINDS)
+                        notify(alert["text"], entry=alert["kind"] in ENTRY_KINDS,
+                               side=(alert["setup"] or {}).get("side") if alert["kind"] in ENTRY_KINDS else None)
                         if track and alert["setup"]:
                             track.add(name, tf, alert["kind"], alert["setup"], alert["bar_time"])
                     if track and (name, tf) in LAST_R:
