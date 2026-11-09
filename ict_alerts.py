@@ -386,6 +386,9 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     d = inst["digits"]
     if res["action"] == "WAIT":
         line = f"{name}: SELECTIVE WAIT ({res['reasons'][0] if res['reasons'] else 'no setup'})"
+        stage = res["report"].get("reversal", "")
+        if stage.startswith("stage") and not stage.startswith(("stage 0", "stage 1")):
+            line += f" [setup forming: reversal {stage.split(':')[0].split(' complete')[0]}]"
         if os.environ.get("VERBOSE") == "1":  # full report: HTF, liquidity, structure, zones, retest, M5 candle
             line += "\n" + selective.explain(res)
         return line, None, False
@@ -528,8 +531,12 @@ def run():
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both
         cfg.classic_enabled = False
         cfg.rct_enabled = False
-    scfg = selective.SelectiveConfig(
-        min_confluence=int(number("MIN_CONFLUENCE", 5)), slippage=number("SLIPPAGE", 0.0),
+    profile = os.environ.get("PROFILE", "strict").lower()
+    if profile not in ("strict", "active"):
+        raise SystemExit("PROFILE must be strict or active")
+    base_conf = 4 if profile == "active" else 5
+    scfg = selective.make_config(
+        profile, min_confluence=int(number("MIN_CONFLUENCE", base_conf)), slippage=number("SLIPPAGE", 0.0),
         max_daily_losses=int(number("MAX_DAILY_LOSSES", 2)),
         max_daily_loss_r=number("MAX_DAILY_LOSS_R", 3.0),
         allow_unknown_cost=os.environ.get("ALLOW_UNKNOWN_COST") == "1")

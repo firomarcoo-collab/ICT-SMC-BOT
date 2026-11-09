@@ -189,6 +189,37 @@ def test_supervisor_restarts_after_a_crash_and_stops_on_ctrl_c():
         ict_alerts.run = saved_run
 
 
+def late_retest_scenario():
+    """The zone was retested 4 M5 candles before the confirmation: outside the strict window of 3."""
+    d = scenario()
+    m5 = [dict(b) for b in d["m5"]]
+    hi = m5[-2]["close"]
+    new = m5[:-1] + [bar(hi + .3, hi + .9, hi + .2, hi + .8), bar(hi + .8, hi + 1.0, hi + .5, hi + .6),
+                     bar(hi + .6, hi + 2.0, hi + .5, hi + 1.8)]
+    return dict(d, m5=retime(new, 300))
+
+
+def test_active_profile_gives_more_signals_but_keeps_the_hard_rules():
+    d = late_retest_scenario()
+    strict, active = sl.make_config("strict"), sl.make_config("active")
+    assert strict.min_confluence == 5 and active.min_confluence == 4 and active.retest_window == 5
+    assert sl.evaluate("X", d, NOW, strict, spread=.2)["action"] == "WAIT"
+    res = sl.evaluate("X", d, NOW, active, spread=.2)
+    assert res["action"] == "BUY" and res["setup"]["profile"] == "active"
+    assert "ACTIVE profile" in sl.format_signal("X", res) and "ملف نشط" in sl.format_signal_ar("X", res)
+    # hard rules still apply under the active profile
+    assert sl.evaluate("X", d, NOW - 250, active, spread=.2)["action"] == "WAIT"            # unclosed candle
+    assert sl.evaluate("X", d, NOW, active, spread=None)["action"] == "WAIT"                # unknown cost
+    assert sl.evaluate("X", dict(d, h4=scenario(h4_up=False)["h4"]), NOW, active, spread=.2)["action"] == "WAIT"
+    assert sl.evaluate("X", d, NOW, active, spread=.2, status="STALE")["action"] == "WAIT"
+    try:
+        sl.make_config("wild")
+        raise AssertionError("an unknown profile must be rejected")
+    except ValueError:
+        pass
+    assert sl.make_config("strict").profile == "strict"
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):

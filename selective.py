@@ -45,10 +45,28 @@ class SelectiveConfig:
     slippage: float = 0.0           # price units, added to the cost
     allow_unknown_cost: bool = False
     max_signal_age: int = 180       # seconds after the confirmation candle closed
+    profile: str = "strict"         # "strict" (default) or "active" (see make_config)
     max_daily_losses: int = 2       # stop for the day after this many losses in a row (0 = off)
     max_daily_loss_r: float = 3.0   # ... or after a day total of this many R lost (0 = off)
     allow_historical: bool = False  # backtests only
     min_bars: dict = field(default_factory=lambda: {"m5": 60, "m15": 60, "h1": 60, "h4": 40})
+
+
+def make_config(profile="strict", **overrides):
+    """strict = the default, highly selective rules. active = a looser profile that gives more
+    signals: lower confluence minimum (4/8), a longer retest window (5 M5 candles), zones may be
+    older (192 M15 candles) and FVGs up to 70% filled. The hard rules (closed M5 candle, HTF
+    alignment or a complete reversal sequence, retest, cost, locks, risk guard) are NOT relaxed.
+    More signals means lower average quality; no measured result supports either profile yet."""
+    if profile == "active":
+        base = dict(profile="active", min_confluence=4, retest_window=5, max_zone_age=192,
+                    fvg_max_fill=0.7)
+    elif profile == "strict":
+        base = {}
+    else:
+        raise ValueError("PROFILE must be strict or active")
+    base.update(overrides)
+    return SelectiveConfig(**base)
 
 
 # ===== Data status and closed-candle handling =====
@@ -530,7 +548,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "bar_time": int(last["time"].timestamp()), "cost": cost,
                     "cost_note": note, "strong_confirmation": strong, "uses": uses,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
-                    "invalidation": invalidation}
+                    "invalidation": invalidation, "profile": cfg.profile}
     rep["levels"] = (f"entry {entry:.5g}, invalidation {invalidation:.5g}, SL {sl:.5g}, TP {tp:.5g}, "
                      f"R:R 1:{cfg.rr:g} before costs")
     return res
@@ -561,7 +579,8 @@ def format_signal(market, res, digits=2):
     s = res["setup"]
     c = res["checks"]
     mark = lambda k: "yes" if c.get(k) else "no"  # noqa: E731
-    lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}]",
+    tag = ", ACTIVE profile (looser filter)" if s.get("profile") == "active" else ""
+    lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}]",
              f"Entry: {s['entry']:.{digits}f}  Invalidation: {s['invalidation']:.{digits}f}  "
              f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:2 before costs)",
              f"Confluence {res['score']}/8: HTF {mark('htf')}, S/R {mark('sr')}, liquidity {mark('liquidity')}, "
@@ -610,7 +629,8 @@ def format_signal_ar(market, res, digits=2):
     if s["cost_note"]:
         cost += " (غير موثّقة: السبريد غير معروف، تحقق منه في MT5)"
     lines = [f"إشارة دخول: {side} {name} ({market})",
-             f"النوع: {mode} | حالة البيانات: {res['status']}",
+             f"النوع: {mode} | حالة البيانات: {res['status']}"
+             + (" | ملف نشط (فلتر أخف)" if s.get("profile") == "active" else ""),
              f"الدخول: {s['entry']:.{digits}f}",
              f"الإبطال: {s['invalidation']:.{digits}f}",
              f"وقف الخسارة: {s['sl']:.{digits}f}",
