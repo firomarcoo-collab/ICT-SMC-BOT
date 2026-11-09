@@ -269,6 +269,38 @@ def test_yahoo_fallback_symbol_is_sticky_labelled_and_never_mixed():
         ict_alerts._CACHE.clear()
 
 
+def test_binance_stand_in_for_gold_when_yahoo_fails():
+    import urllib.error
+    assert ict_alerts.INSTRUMENTS["XAUUSD"]["fallbacks"][0] == "binance:PAXGUSDT"   # real-time stand-in first
+    klines = [[1700000000000, "1.0", "2.0", "0.5", "1.5", "9", 1700000299999],
+              [1700000300000, "1.5", "3.0", "1.0", "2.5", "9", 1700000599999]]
+    asked, saved = [], ict_alerts.fetch_json
+
+    def fake(url):
+        asked.append(url)
+        if "yahoo" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+        return klines
+
+    inst = {"source": "yahoo", "id": "XAUUSD=X", "digits": 2, "fallbacks": ["binance:PAXGUSDT", "GC=F"]}
+    ict_alerts.get_candles = REAL_GET_CANDLES
+    ict_alerts.fetch_json = fake
+    ict_alerts._STICKY.clear()
+    ict_alerts._CACHE.clear()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            c = ict_alerts.get_candles(inst, "5m")
+        assert len(c) == 2 and c[-1]["close"] == 2.5
+        assert "symbol=PAXGUSDT&interval=5m" in asked[-1] and not any("GC%3DF" in u for u in asked)
+        assert "binance:PAXGUSDT" in out.getvalue() and "binance:PAXGUSDT" in ict_alerts.fallback_note(inst)
+        ict_alerts.get_candles(inst, "4h")                                  # same stand-in for every timeframe
+        assert "interval=4h" in asked[-1] and "PAXGUSDT" in asked[-1]
+    finally:
+        ict_alerts.fetch_json = saved
+        ict_alerts._STICKY.clear()
+        ict_alerts._CACHE.clear()
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):

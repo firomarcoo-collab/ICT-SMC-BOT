@@ -18,6 +18,14 @@ def main():
                 print(f"{name:7} binance {inst['id']:10} FAILED: {e}")
             continue
         for sid in [inst["id"]] + list(inst.get("fallbacks", [])):
+            if sid.startswith("binance:"):
+                try:
+                    c = a._binance_klines(sid.split(":", 1)[1], "5m")
+                    age = (datetime.now(timezone.utc) - c[-1]["time"]).total_seconds() / 60
+                    print(f"{name:7} binance {sid[8:]:9} OK  last {c[-1]['close']} ({age:.0f} min old)")
+                except Exception as e:
+                    print(f"{name:7} binance {sid[8:]:9} FAILED: {e}")
+                continue
             for host in a.YAHOO_HOSTS:
                 url = (f"https://{host}/v8/finance/chart/{urllib.parse.quote(sid, safe='')}"
                        f"?interval=5m&range=1d")

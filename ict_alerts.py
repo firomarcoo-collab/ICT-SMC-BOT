@@ -68,12 +68,16 @@ stale_after = data_layer.stale_after
 # FUTURES=1 switches gold/indices to futures (GC=F, NQ=F, YM=F).
 INSTRUMENTS = {
     "BTCUSD": {"source": "binance", "id": "BTCUSDT", "digits": 2},
-    "XAUUSD": {"source": "yahoo", "id": "XAUUSD=X", "digits": 2, "fallbacks": ["GC=F"]},
+    "XAUUSD": {"source": "yahoo", "id": "XAUUSD=X", "digits": 2, "fallbacks": ["binance:PAXGUSDT", "GC=F"]},
     "US100": {"source": "yahoo", "id": "^NDX", "digits": 1},
     "US30": {"source": "yahoo", "id": "^DJI", "digits": 1},
     "EURUSD": {"source": "yahoo", "id": "EURUSD=X", "digits": 5},
 }
 FUTURES_IDS = {"XAUUSD": "GC=F", "US100": "NQ=F", "US30": "YM=F"}
+for _n in INSTRUMENTS:  # FALLBACK_XAUUSD=GC=F,binance:PAXGUSDT overrides the stand-in order ("none" = no fallback)
+    _fb = os.environ.get(f"FALLBACK_{_n}")
+    if _fb:
+        INSTRUMENTS[_n]["fallbacks"] = [] if _fb.lower() == "none" else [x.strip() for x in _fb.split(",")]
 _fut = os.environ.get("FUTURES", "").strip().upper()
 for _n, _id in FUTURES_IDS.items():  # FUTURES=1 for all, or a list such as FUTURES=US100,US30
     if _fut == "1" or _n in [x.strip() for x in _fut.split(",")]:
@@ -150,16 +154,20 @@ def get_candles(inst, tf="5m"):
     return list(candles)
 
 
+def _binance_klines(symbol, tf):
+    last_error = None
+    for host in ("https://api.binance.com", "https://data-api.binance.vision"):
+        try:
+            rows = fetch_json(f"{host}/api/v3/klines?symbol={symbol}&interval={tf}&limit=300")
+            return parse_binance(rows)
+        except Exception as e:  # try the next host
+            last_error = e
+    raise last_error
+
+
 def _fetch_candles(inst, tf="5m"):
     if inst["source"] == "binance":
-        last_error = None
-        for host in ("https://api.binance.com", "https://data-api.binance.vision"):
-            try:
-                rows = fetch_json(f"{host}/api/v3/klines?symbol={inst['id']}&interval={tf}&limit=300")
-                return parse_binance(rows)
-            except Exception as e:  # try the next host
-                last_error = e
-        raise last_error
+        return _binance_klines(inst["id"], tf)
     interval, span = YAHOO_TF[tf]
     primary = inst["id"]
     ids = [primary] + list(inst.get("fallbacks", []))
@@ -171,6 +179,18 @@ def _fetch_candles(inst, tf="5m"):
         _drop_cache(primary)
     last_error = None
     for sid in ids:
+        if sid.startswith("binance:"):  # a Binance market used as a stand-in (e.g. PAXGUSDT for gold)
+            try:
+                candles = _binance_klines(sid.split(":", 1)[1], tf)
+            except Exception as e:
+                last_error = e
+                continue
+            if sid != primary and (primary not in _STICKY):
+                _STICKY[primary] = (sid, time.time() + FALLBACK_SECONDS)
+                _drop_cache(primary)
+                print(f"DATA SOURCE: {primary} is unavailable ({last_error}); using {sid} for "
+                      f"{FALLBACK_SECONDS // 60} min. Its price differs from spot: set OFFSET.", flush=True)
+            return candles[-300:]
         for host in YAHOO_HOSTS:
             sym = urllib.parse.quote(sid, safe="")
             url = f"https://{host}/v8/finance/chart/{sym}?interval={interval}&range={span}"
