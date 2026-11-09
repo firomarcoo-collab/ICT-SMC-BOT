@@ -74,7 +74,7 @@ class Tracker:
     def _label(self, it):
         s = it["setup"]
         return (f"{it['name']} {it['tf']} {it['kind'].upper()} {s['side'].upper()} "
-                f"(entry {s['entry']}, SL {s['sl']}, TP {s['tp']})")
+                f"(entry {s['entry']:.8g}, SL {s['sl']:.8g}, TP {s['tp']:.8g})")
 
     def update(self, name, tf, r):
         """r: candles newest first (r[0] forming). Returns a list of messages to send."""
