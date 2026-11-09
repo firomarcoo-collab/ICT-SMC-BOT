@@ -114,7 +114,11 @@ def test_custom_sound_is_played(monkeypatch=None):
     ict_alerts.subprocess.run = lambda cmd, **kw: calls.append(cmd)
     try:
         os.environ.pop("ALERT_SOUND", None)
-        ict_alerts.notify("hello")
+        ict_alerts.notify("hello")                          # not an entry: silent
+        assert not any(c[0] == "termux-media-player" for c in calls)
+        assert "--sound" not in [c for c in calls if c[0] == "termux-notification"][0]
+        calls.clear()
+        ict_alerts.notify("hello", entry=True)
         assert any(c[0] == "termux-media-player" and c[1] == "play"
                    and c[2].endswith("alert.wav") for c in calls), calls
         note = [c for c in calls if c[0] == "termux-notification"][0]
@@ -122,7 +126,7 @@ def test_custom_sound_is_played(monkeypatch=None):
 
         calls.clear()
         os.environ["ALERT_SOUND"] = "off"
-        ict_alerts.notify("hello")
+        ict_alerts.notify("hello", entry=True)
         assert not any(c[0] == "termux-media-player" for c in calls)
         note = [c for c in calls if c[0] == "termux-notification"][0]
         assert "--sound" in note
@@ -130,7 +134,9 @@ def test_custom_sound_is_played(monkeypatch=None):
         calls.clear()
         with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
             os.environ["ALERT_SOUND"] = f.name
-            ict_alerts.notify("hello")
+            ict_alerts.notify("hello")                      # silent even with a custom file
+            assert not any(c[0] == "termux-media-player" for c in calls)
+            ict_alerts.notify("hello", entry=True)
             assert [c for c in calls if c[0] == "termux-media-player"][0][2] == f.name
     finally:
         ict_alerts.shutil.which, ict_alerts.subprocess.run = saved[0], saved[1]
@@ -138,6 +144,17 @@ def test_custom_sound_is_played(monkeypatch=None):
             os.environ.pop("ALERT_SOUND", None)
         else:
             os.environ["ALERT_SOUND"] = saved[2]
+
+
+def test_only_entry_alerts_may_make_a_sound():
+    import inspect
+    src = inspect.getsource(ict_alerts.run)
+    assert 'notify(alert["text"], entry=True)' in src                       # selective entry
+    assert 'entry=alert["kind"] in ENTRY_KINDS' in src                      # legacy: ict / classic / rct only
+    assert "event" not in ict_alerts.ENTRY_KINDS
+    for call in ("notify(f\"US OPEN", "notify(\"US MARKET", "notify(f\"SESSION", "notify(f\"NEWS", "notify(note)"):
+        line = [ln for ln in src.splitlines() if call in ln][0]
+        assert "entry=True" not in line, call                               # info messages stay silent
 
 
 def test_extras_in_alert_text():

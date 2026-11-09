@@ -387,13 +387,18 @@ def sound_path():
     return path if os.path.exists(path) else None
 
 
-def notify(text):
+ENTRY_KINDS = ("ict", "classic", "rct")  # alerts that are a ready entry; all others stay silent
+
+
+def notify(text, entry=False):
+    """Shows the message. Only entry=True (a trade ready to enter) makes a sound; everything
+    else (sessions, news, results, heads-up events) appears silently."""
     print(text, flush=True)
-    sound = sound_path() if shutil.which("termux-media-player") else None
+    sound = sound_path() if entry and shutil.which("termux-media-player") else None
     if shutil.which("termux-notification"):
-        cmd = ["termux-notification", "--title", "ICT SMC",
-               "--content", text, "--priority", "high"]
-        if not sound:
+        cmd = ["termux-notification", "--title", "ICT SMC" if entry else "ICT SMC (info)",
+               "--content", text, "--priority", "high" if entry else "low"]
+        if entry and not sound:
             cmd.append("--sound")  # no custom sound: use the phone's notification sound
         try:
             subprocess.run(cmd, timeout=10)
@@ -408,7 +413,10 @@ def notify(text):
     chat = os.environ.get("TELEGRAM_CHAT_ID")
     if token and chat:
         try:
-            body = urllib.parse.urlencode({"chat_id": chat, "text": text}).encode()
+            fields = {"chat_id": chat, "text": text}
+            if not entry:
+                fields["disable_notification"] = "true"  # no sound on the Telegram side either
+            body = urllib.parse.urlencode(fields).encode()
             urllib.request.urlopen(
                 f"https://api.telegram.org/bot{token}/sendMessage", data=body, timeout=20)
         except Exception:
@@ -547,7 +555,7 @@ def run():
                         last_bucket[("sel", name)] = bucket
                     print(f"[{stamp} sel] {status}", flush=True)
                     if alert:
-                        notify(alert["text"])
+                        notify(alert["text"], entry=True)
                         if track:
                             track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],
                                       ref=alert["market"], market=True)
@@ -565,7 +573,7 @@ def run():
                     if tf != "1m" or alerts:
                         print(f"[{stamp} {tf}] {status}", flush=True)
                     for alert in alerts:
-                        notify(alert["text"])
+                        notify(alert["text"], entry=alert["kind"] in ENTRY_KINDS)
                         if track and alert["setup"]:
                             track.add(name, tf, alert["kind"], alert["setup"], alert["bar_time"])
                     if track and (name, tf) in LAST_R:
