@@ -568,6 +568,60 @@ def format_signal(market, res, digits=2):
     return "\n".join(lines)
 
 
+AR_NAMES = {"XAUUSD": "الذهب", "NAS100": "ناسداك", "US100": "ناسداك", "US30": "داو جونز",
+            "BTCUSD": "البتكوين"}
+
+
+_AR_WORDS = (("counter-trend reversal: complete sequence", "انعكاس ضد الاتجاه بتسلسل كامل"),
+             ("reversal with the trend", "انعكاس مع الاتجاه"), ("confirmed reversal", "انعكاس مؤكد"),
+             ("H4 and H1 up", "H4 و H1 صاعدان"), ("H4 and H1 down", "H4 و H1 هابطان"),
+             ("D1 unavailable", "D1 غير متوفر"), ("D1 up", "D1 صاعد"), ("D1 down", "D1 هابط"),
+             ("no confirmed sweep", "لا يوجد sweep مؤكد"), ("swept", "تم سحبها"),
+             ("M15 trend up", "اتجاه M15 صاعد"), ("M15 trend down", "اتجاه M15 هابط"),
+             ("last event", "آخر حدث"), ("bullish", "صاعدة"), ("bearish", "هابطة"), ("closed M5", "M5 مغلقة"),
+             ("closed beyond the previous candle", "أغلقت خلف قمة/قاع الشمعة السابقة"),
+             ("with displacement = MSS", "مع displacement = MSS"), ("bull", "صاعد"), ("bear", "هابط"),
+             ("fresh", "جديدة"), ("partial", "مستهلكة جزئياً"), ("order block", "Order Block"),
+             ("external", "خارجي"), ("internal", "داخلي"), ("session", "جلسة"), ("swing", "swing"),
+             ("extreme", "الطرف"), ("support", "دعم"), ("resistance", "مقاومة"),
+             ("strong", "قوية"), ("weak", "ضعيفة"), ("touches", "لمسات"), ("MSS", "MSS"))
+
+
+def _ar(text):
+    for en, ar in _AR_WORDS:
+        text = text.replace(en, ar)
+    return text
+
+
+def format_signal_ar(market, res, digits=2):
+    """Arabic entry alert (terms such as FVG, OB, MSS stay in English as traders use them)."""
+    s, c, r = res["setup"], res["checks"], res["report"]
+    yn = lambda k: "نعم" if c.get(k) else "لا"  # noqa: E731
+    side = "شراء" if s["side"] == "buy" else "بيع"
+    mode = "انعكاس بعد سحب سيولة" if s["mode"] == "reversal" else "استمرار الاتجاه"
+    name = AR_NAMES.get(market, market)
+    cost = f"{s['cost']:.4g}"
+    if s["cost_note"]:
+        cost += " (غير موثّقة: السبريد غير معروف، تحقق منه في MT5)"
+    lines = [f"إشارة دخول: {side} {name} ({market})",
+             f"النوع: {mode} | حالة البيانات: {res['status']}",
+             f"الدخول: {s['entry']:.{digits}f}",
+             f"الإبطال: {s['invalidation']:.{digits}f}",
+             f"وقف الخسارة: {s['sl']:.{digits}f}",
+             f"الهدف: {s['tp']:.{digits}f}  (نسبة 1:2 قبل التكاليف)",
+             f"التوافق {res['score']}/8: الاتجاه {yn('htf')}، دعم/مقاومة {yn('sr')}، سيولة {yn('liquidity')}، "
+             f"BOS/MSS {yn('bos_mss')}، FVG/OB {yn('fvg_ob')}، إعادة اختبار {yn('retest')}، "
+             f"شمعة M5 مغلقة {yn('confirm')}{' (قوية)' if s['strong_confirmation'] else ''}، التكلفة {yn('cost')}",
+             f"المناطق: {_ar('; '.join(s['zones']))}",
+             f"اتجاه الفريمات الكبيرة: {_ar(r['htf'])} | {_ar(r['d1'])}",
+             f"السيولة: {_ar(r['liquidity'])}",
+             f"الهيكل: {_ar(r['structure'])}",
+             f"شمعة التأكيد M5: {_ar(r['confirm'])}",
+             f"التكلفة المفترضة: {cost}",
+             "هذه إشارة فقط: نفّذ الصفقة بنفسك في MT5 بعد مقارنة السعر. لا توجد نسبة نجاح مضمونة."]
+    return "\n".join(lines)
+
+
 def process(market, data, now_ts, store, cfg=None, spread=None, commission_price=None,
             status="LIVE", calendar="utc"):
     """evaluate() plus the one-active-signal-per-market lock. The lock is only taken when a

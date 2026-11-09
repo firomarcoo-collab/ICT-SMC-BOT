@@ -312,7 +312,7 @@ SELECTIVE_TFS = (("5m", "m5"), ("15m", "m15"), ("1h", "h1"), ("4h", "h4"))
 OPTIONAL_TFS = (("1d", "d1"), ("1m", "m1"))  # context / timing only; a failure here never blocks
 
 
-def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None):
+def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None, lang="en"):
     """Runs the selective engine for one market.
     Returns (status_text, alert_or_None, lagging). lagging=True means the M5 candle that just
     closed is not listed by the feed yet, so the caller should try again in a minute."""
@@ -365,7 +365,8 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
             line += "\n" + selective.explain(res)
         return line, None, False
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
-    text = selective.format_signal(name, dict(res, setup=setup), d)
+    fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
+    text = fmt(name, dict(res, setup=setup), d)
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market,
                                                   "bar_time": setup["bar_time"]}, False
 
@@ -467,6 +468,7 @@ def run():
     if engine not in ("selective", "legacy", "both"):
         raise SystemExit("ENGINE must be selective, legacy or both")
     use_selective = engine in ("selective", "both")
+    alert_lang = os.environ.get("ALERT_LANG", "ar").lower()  # ar (default) or en
     opts["legacy_ict"] = engine in ("legacy", "both")
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both
         cfg.classic_enabled = False
@@ -539,7 +541,7 @@ def run():
                     continue
                 try:
                     status, alert, lagging = selective_scan(name, now_ts, scfg, store, offsets,
-                                                            spreads, opts["markets"])
+                                                            spreads, opts["markets"], alert_lang)
                     if not lagging:
                         last_bucket[("sel", name)] = bucket
                     print(f"[{stamp} sel] {status}", flush=True)

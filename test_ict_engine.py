@@ -329,6 +329,29 @@ def test_live_scan_survives_missing_optional_data_and_can_print_the_full_report(
     assert alert and "Invalidation" in alert["text"]
 
 
+def test_arabic_entry_alert():
+    import ict_alerts
+    res = sl.evaluate("XAUUSD", scenario(), NOW, CFG, spread=.2)
+    text = sl.format_signal_ar("XAUUSD", res)
+    for part in ("إشارة دخول: شراء الذهب", "الدخول:", "الإبطال:", "وقف الخسارة:", "الهدف:",
+                 "التوافق", "شمعة التأكيد M5", "إشارة فقط"):
+        assert part in text, part
+    assert f"{res['setup']['entry']:.2f}" in text
+    sell = sl.evaluate("XAUUSD", dict(zip(("h4", "h1", "m15", "m5"), [[]] * 4)), NOW, CFG, spread=.2)
+    assert sell["action"] == "WAIT"
+    unverified = sl.evaluate("XAUUSD", scenario(), NOW, sl.SelectiveConfig(allow_unknown_cost=True), spread=None)
+    assert "غير موثّقة" in sl.format_signal_ar("XAUUSD", unverified)
+    d = scenario()
+    ict_alerts.get_candles = lambda inst, tf="5m": d[{"5m": "m5", "15m": "m15", "1h": "h1", "4h": "h4"}.get(tf, "m5")] \
+        if tf in ("5m", "15m", "1h", "4h") else (_ for _ in ()).throw(RuntimeError("x"))
+    store, _ = tmp_store()
+    _, alert, _ = ict_alerts.selective_scan("XAUUSD", NOW, CFG, store, None, {"XAUUSD": .2}, None, "ar")
+    assert alert and "إشارة دخول" in alert["text"]
+    store2, _ = tmp_store()
+    _, alert, _ = ict_alerts.selective_scan("XAUUSD", NOW, CFG, store2, None, {"XAUUSD": .2}, None)
+    assert alert and "SELECTIVE SIGNAL" in alert["text"]          # English stays the function default
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
