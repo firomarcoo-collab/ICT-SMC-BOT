@@ -20,6 +20,7 @@ class SignalStore:
         self.log_path = log_path if log_path is not None else (path + "l" if path else None)
         self.active_signals = {}
         self.seen = []
+        self.results = []   # finished trades [{'t', 'outcome', 'R'}]: feeds the daily risk guard
         self.used = []      # liquidity events and FVG/OB zones that already produced a signal
         self.load_error = None
         self._load()
@@ -33,6 +34,7 @@ class SignalStore:
             self.active_signals = dict(data.get("active", {}))
             self.seen = list(data.get("seen", []))[-MAX_SEEN:]
             self.used = list(data.get("used", []))[-MAX_SEEN:]
+            self.results = list(data.get("results", []))[-200:]
         except (OSError, ValueError, AttributeError) as e:
             self.load_error = str(e)
             try:
@@ -46,7 +48,7 @@ class SignalStore:
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
             json.dump({"active": self.active_signals, "seen": self.seen[-MAX_SEEN:],
-                       "used": self.used[-MAX_SEEN:]}, f)
+                       "used": self.used[-MAX_SEEN:], "results": self.results[-200:]}, f)
         os.replace(tmp, self.path)
 
     def _log(self, event, sig, now_ts, extra=None):
@@ -94,9 +96,30 @@ class SignalStore:
         now_ts = int(now_ts if now_ts is not None else time.time())
         sig = self.active_signals.pop(market, None)
         if sig:
+            if outcome in ("win", "loss"):
+                risk = abs(sig["entry"] - sig["sl"])
+                r = (abs(sig["tp"] - sig["entry"]) / risk if risk else 0.0) if outcome == "win" else -1.0
+                self.results.append({"t": now_ts, "outcome": outcome, "R": r, "market": market})
             self._save()
             self._log("CLOSE", sig, now_ts, {"outcome": outcome})
         return sig
+
+    def halted(self, now_ts, max_losses=2, max_loss_r=3.0):
+        """Reason string when today's (UTC) results say stop, else ''. Counts all markets together:
+        `max_losses` losses in a row, or a day total of -`max_loss_r` R or worse. Costs are not included."""
+        day = time.strftime("%Y-%m-%d", time.gmtime(now_ts))
+        today = [x for x in self.results if time.strftime("%Y-%m-%d", time.gmtime(x["t"])) == day]
+        streak = 0
+        for x in reversed(today):
+            if x["outcome"] != "loss":
+                break
+            streak += 1
+        if max_losses and streak >= max_losses:
+            return f"daily risk guard: {streak} losses in a row today, no new signals until tomorrow (UTC)"
+        total = sum(x["R"] for x in today)
+        if max_loss_r and total <= -max_loss_r:
+            return f"daily risk guard: today's result is {total:.1f}R, no new signals until tomorrow (UTC)"
+        return ""
 
     def expire(self, now_ts):
         for market, sig in list(self.active_signals.items()):

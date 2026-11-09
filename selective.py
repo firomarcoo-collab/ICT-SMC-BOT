@@ -45,6 +45,8 @@ class SelectiveConfig:
     slippage: float = 0.0           # price units, added to the cost
     allow_unknown_cost: bool = False
     max_signal_age: int = 180       # seconds after the confirmation candle closed
+    max_daily_losses: int = 2       # stop for the day after this many losses in a row (0 = off)
+    max_daily_loss_r: float = 3.0   # ... or after a day total of this many R lost (0 = off)
     allow_historical: bool = False  # backtests only
     min_bars: dict = field(default_factory=lambda: {"m5": 60, "m15": 60, "h1": 60, "h4": 40})
 
@@ -67,7 +69,11 @@ def data_status(source, candles, tf_seconds, now_ts, connected=True, historical=
 
 def closed_only(candles, tf_seconds, now_ts):
     """Drop every candle that has not finished yet (its end is after now_ts)."""
-    return [c for c in candles if int(c["time"].timestamp()) + tf_seconds <= now_ts]
+    done = {}
+    for c in candles:  # one candle per start time (the last listed wins), oldest first
+        if int(c["time"].timestamp()) + tf_seconds <= now_ts:
+            done[int(c["time"].timestamp())] = c
+    return [done[k] for k in sorted(done)]
 
 
 # ===== OHLC helpers =====
@@ -627,8 +633,10 @@ def process(market, data, now_ts, store, cfg=None, spread=None, commission_price
     """evaluate() plus the one-active-signal-per-market lock. The lock is only taken when a
     signal is really issued."""
     res = evaluate(market, data, now_ts, cfg, spread, commission_price, status, calendar)
+    cfg = cfg or SelectiveConfig()
     if res["action"] != "WAIT":
-        ok, why = store.open(market, res["setup"], now_ts)
+        stop = store.halted(now_ts, cfg.max_daily_losses, cfg.max_daily_loss_r)
+        ok, why = (False, stop) if stop else store.open(market, res["setup"], now_ts)
         if not ok:
             res["action"], res["setup"] = "WAIT", None
             res["reasons"].append(why)

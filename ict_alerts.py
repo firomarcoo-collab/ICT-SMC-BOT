@@ -126,7 +126,23 @@ def resample(candles, seconds):
              "high": o["high"], "low": o["low"], "close": o["close"]} for o in out]
 
 
+_CACHE = {}
+CACHE_TTL = 45  # seconds: the engines share one download per symbol and timeframe
+
+
 def get_candles(inst, tf="5m"):
+    """Candles for (symbol, timeframe), re-using a download younger than CACHE_TTL seconds so
+    the alert engines and the selective engine do not hit the free feeds twice."""
+    key = (inst["source"], inst["id"], tf)
+    hit = _CACHE.get(key)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        return list(hit[1])
+    candles = _fetch_candles(inst, tf)
+    _CACHE[key] = (time.time(), candles)
+    return list(candles)
+
+
+def _fetch_candles(inst, tf="5m"):
     if inst["source"] == "binance":
         last_error = None
         for host in ("https://api.binance.com", "https://data-api.binance.vision"):
@@ -313,7 +329,8 @@ SELECTIVE_TFS = (("5m", "m5"), ("15m", "m15"), ("1h", "h1"), ("4h", "h4"))
 OPTIONAL_TFS = (("1d", "d1"), ("1m", "m1"))  # context / timing only; a failure here never blocks
 
 
-def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None, lang="en"):
+def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None, lang="en",
+                   news=None, news_block=False, balance=0.0, risk_percent=0.5, contracts=None):
     """Runs the selective engine for one market.
     Returns (status_text, alert_or_None, lagging). lagging=True means the M5 candle that just
     closed is not listed by the feed yet, so the caller should try again in a minute."""
@@ -350,6 +367,13 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     m5_closed = selective.closed_only(data["m5"], 300, now_ts)
     if m5_closed and int(m5_closed[-1]["time"].timestamp()) + 300 < now_ts - now_ts % 300:
         return f"{name}: waiting for the latest M5 candle to be listed", None, True
+    for tf, key in SELECTIVE_TFS:  # same data-quality gate as the other engines
+        quality = data_layer.check_candles(data[key], tf, now_ts, inst["source"] == "binance", min_bars=1)
+        if quality.blocked:
+            return f"{name}: SELECTIVE WAIT (data quality {tf}: {quality.reason})", None, False
+    if news_block and extras.near_news(news or [], name, now_ts):
+        near = extras.near_news(news, name, now_ts)[0]
+        return f"{name}: SELECTIVE WAIT (high-impact news: {near['currency']} {near['title']})", None, False
     spec = (specs or {}).get(market)
     spread = (spreads or {}).get(name)
     if spread is None and spec is not None:
@@ -368,6 +392,9 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
     fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
     text = fmt(name, dict(res, setup=setup), d)
+    lot = extras.lot_text(balance, risk_percent, setup, spec, (contracts or {}).get(name)).strip()
+    if lot:
+        text += "\n" + lot
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market,
                                                   "bar_time": setup["bar_time"]}, False
 
@@ -480,8 +507,9 @@ def run():
             "us_open_only": os.environ.get("US_OPEN_ONLY") == "1",
             "events": tuple(k for k in os.environ.get("EVENTS", "sweep,fvg,ob").lower().split(",")
                             if k in ("sweep", "fvg", "ob"))}
-    tfs = [t.strip().lower() for t in os.environ.get(
-        "TIMEFRAMES", "1m,5m,15m,1h,4h,1d").split(",") if t.strip()]
+    default_tfs = ("5m,15m,1h,4h" if os.environ.get("ENGINE", "selective").lower() == "selective"
+                   else "1m,5m,15m,1h,4h,1d")  # fewer downloads when only the selective engine is on
+    tfs = [t.strip().lower() for t in os.environ.get("TIMEFRAMES", default_tfs).split(",") if t.strip()]
     if "5m" not in tfs:
         tfs.append("5m")  # the result tracker (which releases the signal locks) follows M5 candles
     bad = [t for t in tfs if t not in TF_SECONDS]
@@ -495,12 +523,15 @@ def run():
         raise SystemExit("ENGINE must be selective, legacy or both")
     use_selective = engine in ("selective", "both")
     alert_lang = os.environ.get("ALERT_LANG", "en").lower()  # en (default) or ar
+    opts["news_block"] = os.environ.get("NEWS_BLOCK", "1" if use_selective else "0") == "1"
     opts["legacy_ict"] = engine in ("legacy", "both")
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both
         cfg.classic_enabled = False
         cfg.rct_enabled = False
     scfg = selective.SelectiveConfig(
         min_confluence=int(number("MIN_CONFLUENCE", 5)), slippage=number("SLIPPAGE", 0.0),
+        max_daily_losses=int(number("MAX_DAILY_LOSSES", 2)),
+        max_daily_loss_r=number("MAX_DAILY_LOSS_R", 3.0),
         allow_unknown_cost=os.environ.get("ALLOW_UNKNOWN_COST") == "1")
     spreads = {n: number(f"SPREAD_{n}", None) for n in names if os.environ.get(f"SPREAD_{n}")}
     store = signal_store.SignalStore(os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE)) \
@@ -526,8 +557,12 @@ def run():
     if offsets:
         print(f"Price offsets: {offsets}", flush=True)
 
+    last_beat = 0
     while True:
         now_ts = int(time.time())
+        if now_ts - last_beat >= 3600:
+            last_beat = now_ts
+            print(f"[{datetime.fromtimestamp(now_ts, tz=timezone.utc):%H:%M UTC}] bot is running", flush=True)
         if use_news and now_ts - news_fetched > 3600:
             news_fetched = now_ts  # also on failure, so we retry next hour
             try:
@@ -566,8 +601,10 @@ def run():
                 if last_bucket.get(("sel", name)) == bucket:
                     continue
                 try:
-                    status, alert, lagging = selective_scan(name, now_ts, scfg, store, offsets,
-                                                            spreads, opts["markets"], alert_lang)
+                    status, alert, lagging = selective_scan(
+                        name, now_ts, scfg, store, offsets, spreads, opts["markets"], alert_lang,
+                        opts["news"], opts["news_block"], opts["balance"], cfg.risk_percent,
+                        opts["contracts"])
                     if not lagging:
                         last_bucket[("sel", name)] = bucket
                     print(f"[{stamp} sel] {status}", flush=True)
@@ -603,6 +640,19 @@ def run():
         time.sleep(max(1, 60 - time.time() % 60 + 8))
 
 
+def supervise():
+    """Keeps the bot alive: an unexpected crash is printed and the bot restarts after 30 seconds.
+    Ctrl+C and bad settings (SystemExit) still stop it."""
+    while True:
+        try:
+            run()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as e:
+            print(f"BOT CRASHED: {type(e).__name__}: {e}. Restarting in 30 s.", flush=True)
+            time.sleep(30)
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    run()
+    supervise()
