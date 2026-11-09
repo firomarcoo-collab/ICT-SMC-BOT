@@ -7,7 +7,7 @@ Environment variables (all optional):
     SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
-    FUTURES           1 = use futures for gold/indices instead of spot (default: spot)
+    FUTURES           1 = futures for gold/indices instead of spot; or a list: FUTURES=US100,US30
     BALANCE           your account balance in $: adds the lot size to each alert
     RISK_PERCENT      risk per trade in % (default 0.5), used for the lot size
     CONTRACT_<SYMBOL> your own assumption of units per 1 lot (only used when markets.json is not filled)
@@ -74,8 +74,9 @@ INSTRUMENTS = {
     "EURUSD": {"source": "yahoo", "id": "EURUSD=X", "digits": 5},
 }
 FUTURES_IDS = {"XAUUSD": "GC=F", "US100": "NQ=F", "US30": "YM=F"}
-if os.environ.get("FUTURES") == "1":
-    for _n, _id in FUTURES_IDS.items():
+_fut = os.environ.get("FUTURES", "").strip().upper()
+for _n, _id in FUTURES_IDS.items():  # FUTURES=1 for all, or a list such as FUTURES=US100,US30
+    if _fut == "1" or _n in [x.strip() for x in _fut.split(",")]:
         INSTRUMENTS[_n]["id"] = _id
 
 

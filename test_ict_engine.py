@@ -352,6 +352,19 @@ def test_arabic_entry_alert():
     assert alert and "SELECTIVE SIGNAL" in alert["text"]          # English stays the function default
 
 
+def test_futures_switch_can_target_only_some_markets():
+    import subprocess
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    code = "import ict_alerts as a;print(a.INSTRUMENTS['XAUUSD']['id'],a.INSTRUMENTS['US100']['id'],a.INSTRUMENTS['US30']['id'])"
+    def ids(value):
+        env = dict(os.environ, FUTURES=value)
+        return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, cwd=here).stdout.split()
+    assert ids("US100,US30") == ["XAUUSD=X", "NQ=F", "YM=F"]
+    assert ids("1") == ["GC=F", "NQ=F", "YM=F"]
+    assert ids("") == ["XAUUSD=X", "^NDX", "^DJI"]
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
