@@ -301,6 +301,23 @@ def test_binance_stand_in_for_gold_when_yahoo_fails():
         ict_alerts._CACHE.clear()
 
 
+def test_open_trades_report():
+    import os
+    import tempfile
+    import open_trades
+    path = os.path.join(tempfile.mkdtemp(), "s.json")
+    assert "No state file" in open_trades.describe(path)
+    store = signal_store.SignalStore(path)
+    now = int(time.time())
+    store.open("XAUUSD", {"side": "buy", "entry": 4100.0, "sl": 4095.0, "tp": 4110.0, "bar_time": 1}, now)
+    store.open("BTCUSD", {"side": "sell", "entry": 74000.0, "sl": 74300.0, "tp": 73400.0, "bar_time": 2}, now)
+    store.close("BTCUSD", "loss", now)
+    text = open_trades.describe(path)
+    assert "XAUUSD: BUY entry 4100" in text and "BTCUSD" not in text.split("Today")[0]
+    assert "1 finished, 0 wins, 1 losses, -1.0R" in text
+    assert open_trades.describe(path).count("XAUUSD") == 1
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
