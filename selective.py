@@ -309,6 +309,8 @@ def htf_alignment(h4, h1, m15, side, cfg):
         if last["mss"] and len(h1) - 1 - last["idx"] <= cfg.reversal_max_age:
             return True, "confirmed reversal (H1 MSS, M15 agrees)"
         return False, f"H4 is {t4}; the H1 reversal is not confirmed by an MSS"
+    if t4 == t1:
+        return False, f"higher-timeframe trend is against a {side}: H4 {t4}, H1 {t1}"
     return False, f"higher-timeframe conflict: H4 {t4}, H1 {t1}"
 
 
