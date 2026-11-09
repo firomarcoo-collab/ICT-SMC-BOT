@@ -63,6 +63,7 @@ def test_duplicate_candles_count_once():
 
 
 def test_candle_cache_shares_one_download():
+    ict_alerts.get_candles = REAL_GET_CANDLES      # earlier tests replace it with a fake feed
     calls = []
     saved = ict_alerts._fetch_candles
     ict_alerts._fetch_candles = lambda inst, tf="5m": calls.append(tf) or [bar(1, 2, 0, 1)]
@@ -331,3 +332,32 @@ if __name__ == "__main__":
                 print("FAIL", name, type(e).__name__, e)
                 traceback.print_exc(limit=-2)
     raise SystemExit(1 if failed else 0)
+
+
+def test_restart_follows_saved_signals_and_releases_the_lock(tmp_path):
+    import tracker
+    store = signal_store.SignalStore(str(tmp_path / "s.json"))
+    ok, _ = store.open("XAUUSD", {"side": "buy", "entry": 100.0, "sl": 99.0, "tp": 102.0,
+                                  "bar_time": 1000}, now_ts=1000)
+    assert ok
+    store2 = signal_store.SignalStore(str(tmp_path / "s.json"))       # new process
+    track = tracker.Tracker(str(tmp_path / "r.csv"))
+    unfollowed = ict_alerts.restore_tracking(store2, track, ["XAUUSD", "BTCUSD"])
+    assert unfollowed == [] and len(track.items) == 1 and track.items[0]["state"] == "open"
+    from datetime import datetime, timezone
+    cs = [bar(100, 101, 99.5, 100.5), bar(100.5, 102.5, 100, 102)]    # newest first; r[0] is forming
+    for i, c in enumerate(reversed(cs)):
+        c["time"] = datetime.fromtimestamp(1300 + 300 * i, timezone.utc)
+    forming = dict(cs[0], time=datetime.fromtimestamp(2000, timezone.utc))
+    notes = track.update("XAUUSD", "5m", [forming] + list(reversed(cs)))
+    assert any("WIN" in n for n in notes)
+    assert store2.active("XAUUSD") is None                            # lock released after the restart
+    assert store2.results[-1]["outcome"] == "win"
+
+
+def test_restart_reports_locks_whose_feed_is_not_running(tmp_path):
+    import tracker
+    store = signal_store.SignalStore(str(tmp_path / "s.json"))
+    store.open("BTCUSD", {"side": "sell", "entry": 100.0, "sl": 101.0, "tp": 98.0, "bar_time": 1}, now_ts=1)
+    track = tracker.Tracker(str(tmp_path / "r.csv"))
+    assert ict_alerts.restore_tracking(store, track, ["XAUUSD"]) == ["BTCUSD"]

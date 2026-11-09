@@ -533,6 +533,21 @@ def notify(text, entry=False, side=None):
 
 # ===== Main loop =====
 
+def restore_tracking(store, track, names):
+    """After a restart, follow every saved ACTIVE signal again so its TP / SL still releases the
+    market lock. Returns the markets that are NOT followed (their feed is not being run): those
+    locks stay until the store's TTL expires them."""
+    track.on_done = lambda it, outcome: store.close(it["ref"], outcome) if it.get("ref") else None
+    unfollowed = []
+    for market, sig in list(store.active_signals.items()):
+        feed = markets.feed_name(market)
+        if feed in names:
+            track.add(feed, "5m", "selective", sig, sig["bar_time"], ref=market, market=True)
+        else:
+            unfollowed.append(market)
+    return unfollowed
+
+
 def run():
     names = [markets.feed_name(n) for n in os.environ.get(
         "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD").split(",") if n.strip()]
@@ -608,11 +623,7 @@ def run():
         if os.environ.get("TRACK", "1") != "0" else None
     last_bucket = {}
     if store and track:
-        track.on_done = lambda it, outcome: store.close(it["ref"], outcome) if it.get("ref") else None
-        for market, sig in list(store.active_signals.items()):  # keep following signals after a restart
-            feed = markets.feed_name(market)
-            if feed in names:
-                track.add(feed, "5m", "selective", sig, sig["bar_time"], ref=market, market=True)
+        restore_tracking(store, track, names)
     if store and store.load_error:
         print(f"WARNING: signal state file was unreadable ({store.load_error}); started clean", flush=True)
     us_alerts = os.environ.get("US_OPEN_ALERTS", "1") != "0"
