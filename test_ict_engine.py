@@ -339,7 +339,7 @@ def test_arabic_entry_alert():
     assert f"{res['setup']['entry']:.2f}" in text
     sell = sl.evaluate("XAUUSD", dict(zip(("h4", "h1", "m15", "m5"), [[]] * 4)), NOW, CFG, spread=.2)
     assert sell["action"] == "WAIT"
-    unverified = sl.evaluate("XAUUSD", scenario(), NOW, sl.SelectiveConfig(allow_unknown_cost=True), spread=None)
+    unverified = sl.evaluate("XAUUSD", scenario(), NOW, sl.SelectiveConfig(allow_unknown_cost=True, ready_score=0), spread=None)
     assert "غير موثّقة" in sl.format_signal_ar("XAUUSD", unverified)
     d = scenario()
     ict_alerts.get_candles = lambda inst, tf="5m": d[{"5m": "m5", "15m": "m15", "1h": "h1", "4h": "h4"}.get(tf, "m5")] \

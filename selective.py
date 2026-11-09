@@ -46,10 +46,21 @@ class SelectiveConfig:
     allow_unknown_cost: bool = False
     max_signal_age: int = 180       # seconds after the confirmation candle closed
     profile: str = "strict"         # "strict" (default) or "active" (see make_config)
-    max_daily_losses: int = 2       # stop for the day after this many losses in a row (0 = off)
-    max_daily_loss_r: float = 3.0   # ... or after a day total of this many R lost (0 = off)
+    risk_percent: float = 0.25      # paper-trading risk per trade, % of the account (research setting)
+    max_daily_losses: int = 3       # stop for the day after this many losses in a row (0 = off)
+    max_daily_loss_pct: float = 1.5  # ... or after losing this % of the account in a UTC day
+    max_daily_loss_r: float = None  # explicit R limit; default = max_daily_loss_pct / risk_percent
+    ready_score: int = 86           # score (0-100) above 85 = eligible; 75-85 WATCH; below REJECT
+    watch_score: int = 75
     allow_historical: bool = False  # backtests only
     min_bars: dict = field(default_factory=lambda: {"m5": 60, "m15": 60, "h1": 60, "h4": 40})
+
+
+def daily_loss_limit_r(cfg):
+    """Daily loss limit in R (0 = off). 1.5% of the account at 0.25% risk per trade = 6R."""
+    if cfg.max_daily_loss_r is not None:
+        return cfg.max_daily_loss_r
+    return cfg.max_daily_loss_pct / cfg.risk_percent if cfg.risk_percent and cfg.max_daily_loss_pct else 0.0
 
 
 def make_config(profile="strict", **overrides):
@@ -330,6 +341,47 @@ def cost_check(risk, spread, commission_price, cfg):
     return True, cost, note
 
 
+# ===== Score out of 100 =====
+
+SCORE_MAX = {"htf": 20, "liquidity": 15, "structure": 15, "displacement": 15, "zone": 15,
+             "confirm": 10, "execution": 10}
+
+
+def score_band(score, cfg=None):
+    """READY (more than 85), WATCH (75 to 85) or REJECT. The score is NOT a probability of winning."""
+    cfg = cfg or SelectiveConfig()
+    return "READY" if score >= cfg.ready_score else "WATCH" if score >= cfg.watch_score else "REJECT"
+
+
+def score_breakdown(htf_ok, mode, sweep_scope, mss, bos, zone_event, disp_ratio, zone_status, sr_hit,
+                    confirm, strong, cost_ok, net_rr, cost_unverified=False):
+    """Points per factor (max 20/15/15/15/15/10/10 = 100), each from a fixed, testable rule:
+    htf: aligned 20, complete counter-trend reversal 10.
+    liquidity: sweep of an external/session level 15, internal 12, swing 10; no sweep but a retested S/R 4.
+    structure: MSS 15, BOS 10, only the zone's own break event 5.
+    displacement: break/gap candle body vs ATR: >=1.5 -> 15, >=1.0 -> 11, >=0.8 -> 8.
+    zone: fresh FVG/OB 15, partial 11, other valid 8, S/R only 6.
+    confirm: closed M5 candle 6, closing beyond the previous candle 10.
+    execution: net R:R >= 1.8 -> 10, >= 1.5 -> 7, otherwise 3; 0 if the cost check failed; at most 4
+    when the spread is unverified."""
+    htf = 20 if htf_ok else 10 if mode == "reversal" else 0
+    liq = {"external": 15, "session": 15, "internal": 12, "swing": 10}.get(sweep_scope, 4 if sr_hit else 0)
+    structure = 15 if mss else 10 if bos else 5 if zone_event else 0
+    r = disp_ratio or 0.0
+    disp = 15 if r >= 1.5 else 11 if r >= 1.0 else 8 if r >= 0.8 else 0
+    zone = {"fresh": 15, "partial": 11}.get(zone_status, 8 if zone_status else (6 if sr_hit else 0))
+    conf = 10 if (confirm and strong) else 6 if confirm else 0
+    if not cost_ok:
+        ex = 0
+    else:
+        ex = 10 if net_rr >= 1.8 else 7 if net_rr >= 1.5 else 3
+        if cost_unverified:
+            ex = min(ex, 4)
+    parts = {"htf": htf, "liquidity": liq, "structure": structure, "displacement": disp,
+             "zone": zone, "confirm": conf, "execution": ex}
+    return parts, sum(parts.values())
+
+
 # ===== The decision =====
 
 def _zone_id(z):
@@ -542,6 +594,40 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     if score < cfg.min_confluence:
         res["reasons"].append(f"confluence {score}/8 is under {cfg.min_confluence}")
         return res
+    # --- score out of 100 (a ranking of setup quality, never a win probability)
+    recent_ev = [e for e in ev15 if e["side"] == want and len(m15) - 1 - e["idx"] <= 20]
+    cand_idx = [e["idx"] for e in recent_ev if e["displacement"]]
+    if rev["event"] and seq_ok:
+        cand_idx.append(rev["event"]["idx"])
+    for z in fo_hit:
+        cand_idx.append(z["idx"] - 1 if z["kind"] == "FVG" else z.get("break_idx", z.get("idx")))
+    ratios = []
+    for i in cand_idx:
+        if i is not None and 1 <= i < len(m15):
+            a = st.atr_at(m15, i)
+            if a > 0:
+                ratios.append(abs(m15[i]["close"] - m15[i]["open"]) / a)
+    scope = None
+    if rev["sweep"] and seq_ok:
+        scope = rev["sweep"]["scope"]
+    elif sweeps:
+        scope = sweeps[-1]["scope"]
+    top = fo_hit[0] if fo_hit else None
+    net_rr = (cfg.rr * risk - cost) / (risk + cost)
+    parts, score100 = score_breakdown(
+        checks["htf"], mode, scope,
+        mss=bool(rev["event"] and seq_ok) or any(e["mss"] for e in recent_ev),
+        bos=any(e["type"] == "BOS" for e in recent_ev), zone_event=any(z.get("event") for z in fo_hit),
+        disp_ratio=max(ratios, default=0.0), zone_status=top.get("status", "fresh") if top else None,
+        sr_hit=bool(sr_hit), confirm=ok_c, strong=strong, cost_ok=ok_cost, net_rr=net_rr,
+        cost_unverified=bool(note))
+    band = score_band(score100, cfg)
+    res.update(score100=score100, score_parts=parts, band=band)
+    if band != "READY":
+        res["reasons"].append(f"score {score100}/100 is {band}: a signal needs {cfg.ready_score}+ "
+                              f"(WATCH {cfg.watch_score}-{cfg.ready_score - 1}). Parts: "
+                              + ", ".join(f"{k} {v}/{SCORE_MAX[k]}" for k, v in parts.items()))
+        return res
     uses = [_zone_id(z) for z in fo_hit]
     if mode == "reversal" and rev["event_id"]:
         uses.append(rev["event_id"])
@@ -550,7 +636,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "bar_time": int(last["time"].timestamp()), "cost": cost,
                     "cost_note": note, "strong_confirmation": strong, "uses": uses,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
-                    "invalidation": invalidation, "profile": cfg.profile}
+                    "invalidation": invalidation, "profile": cfg.profile,
+                    "score100": score100, "score_parts": parts}
     rep["levels"] = (f"entry {entry:.5g}, invalidation {invalidation:.5g}, SL {sl:.5g}, TP {tp:.5g}, "
                      f"R:R 1:{cfg.rr:g} before costs")
     return res
@@ -560,7 +647,8 @@ def explain(res):
     """Plain-text report for a signal or a WAIT: every step and the exact reasons."""
     r = res["report"]
     head = (f"{res['action']} {res['market']} [{r['mode'] or 'no setup'}] data {res['status']}"
-            + (f", confluence {res['score']}/8" if "score" in res else ""))
+            + (f", confluence {res['score']}/8" if "score" in res else "")
+            + (f", score {res['score100']}/100 {res['band']}" if "score100" in res else ""))
     lines = [head,
              f"HTF trend: {r['htf']}   |   {r['d1']}",
              f"Liquidity: {r['liquidity']}",
@@ -585,6 +673,8 @@ def format_signal(market, res, digits=2):
     lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}]",
              f"Entry: {s['entry']:.{digits}f}  Invalidation: {s['invalidation']:.{digits}f}  "
              f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:2 before costs)",
+             f"Score {res['score100']}/100 ({res['band']}; a quality ranking, NOT a win probability) | "
+             + ", ".join(f"{k} {v}/{SCORE_MAX[k]}" for k, v in res["score_parts"].items()),
              f"Confluence {res['score']}/8: HTF {mark('htf')}, S/R {mark('sr')}, liquidity {mark('liquidity')}, "
              f"BOS/MSS {mark('bos_mss')}, FVG/OB {mark('fvg_ob')}, retest {mark('retest')}, "
              f"M5 close {mark('confirm')}{' (strong)' if s['strong_confirmation'] else ''}, cost {mark('cost')}",
@@ -637,6 +727,7 @@ def format_signal_ar(market, res, digits=2):
              f"الإبطال: {s['invalidation']:.{digits}f}",
              f"وقف الخسارة: {s['sl']:.{digits}f}",
              f"الهدف: {s['tp']:.{digits}f}  (نسبة 1:2 قبل التكاليف)",
+             f"التقييم {res['score100']}/100 (ترتيب لجودة الإعداد وليس احتمال ربح)",
              f"التوافق {res['score']}/8: الاتجاه {yn('htf')}، دعم/مقاومة {yn('sr')}، سيولة {yn('liquidity')}، "
              f"BOS/MSS {yn('bos_mss')}، FVG/OB {yn('fvg_ob')}، إعادة اختبار {yn('retest')}، "
              f"شمعة M5 مغلقة {yn('confirm')}{' (قوية)' if s['strong_confirmation'] else ''}، التكلفة {yn('cost')}",
@@ -657,7 +748,7 @@ def process(market, data, now_ts, store, cfg=None, spread=None, commission_price
     res = evaluate(market, data, now_ts, cfg, spread, commission_price, status, calendar)
     cfg = cfg or SelectiveConfig()
     if res["action"] != "WAIT":
-        stop = store.halted(now_ts, cfg.max_daily_losses, cfg.max_daily_loss_r)
+        stop = store.halted(now_ts, cfg.max_daily_losses, daily_loss_limit_r(cfg))
         ok, why = (False, stop) if stop else store.open(market, res["setup"], now_ts)
         if not ok:
             res["action"], res["setup"] = "WAIT", None

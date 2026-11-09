@@ -11,7 +11,7 @@ import structure as st
 UTC = timezone.utc
 END = datetime(2026, 1, 7, 15, 0, tzinfo=UTC)          # the last candle of every series closes here
 NOW = int(END.timestamp()) + 20                          # 20 s after the M5 confirmation closed
-CFG = sl.SelectiveConfig()
+CFG = sl.SelectiveConfig(ready_score=0)   # these tests check the other rules; scoring has its own tests
 
 
 def bar(o, h, low, c):
@@ -341,7 +341,7 @@ def test_spread_and_execution_filters():
     assert sl.evaluate("X", d, NOW, CFG, spread=.2)["action"] == "BUY"
     pricey = sl.evaluate("X", d, NOW, CFG, spread=.2, commission_price=.5)
     assert pricey["action"] == "WAIT"                           # commission pushes cost over the limit
-    allow = sl.SelectiveConfig(allow_unknown_cost=True)
+    allow = sl.SelectiveConfig(allow_unknown_cost=True, ready_score=0)
     res = sl.evaluate("X", d, NOW, allow, spread=None)
     assert res["action"] == "BUY" and res["setup"]["cost_note"] == "COST UNVERIFIED"
     ok, cost, note = sl.cost_check(2.0, .2, 0, sl.SelectiveConfig(min_net_rr=1.95))
@@ -366,7 +366,7 @@ def test_data_status_is_honest():
     for status in ("SIMULATED", "STALE", "DISCONNECTED", "HISTORICAL"):
         res = sl.evaluate("X", d, NOW, CFG, spread=.2, status=status)
         assert res["action"] == "WAIT" and status in res["reasons"][0]
-    hist = sl.SelectiveConfig(allow_historical=True)
+    hist = sl.SelectiveConfig(allow_historical=True, ready_score=0)
     assert sl.evaluate("X", d, NOW, hist, spread=.2, status="HISTORICAL")["action"] == "BUY"
 
 

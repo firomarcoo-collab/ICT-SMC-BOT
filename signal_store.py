@@ -10,6 +10,24 @@ import time
 
 DEFAULT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signals_state.json")
 MAX_SEEN = 1000
+# Final states of a signal. The short outcome names used inside the bot map onto them.
+TP_HIT, SL_HIT, CANCELLED, EXPIRED = "TP_HIT", "SL_HIT", "CANCELLED", "EXPIRED"
+TERMINAL_STATES = (TP_HIT, SL_HIT, CANCELLED, EXPIRED)
+_OUTCOME_TO_STATE = {"win": TP_HIT, "loss": SL_HIT, "not_filled": CANCELLED, "manual": CANCELLED,
+                     "expired": EXPIRED, TP_HIT: TP_HIT, SL_HIT: SL_HIT, CANCELLED: CANCELLED,
+                     EXPIRED: EXPIRED}
+_STATE_TO_OUTCOME = {TP_HIT: "win", SL_HIT: "loss"}
+
+
+def final_state(outcome):
+    """TP_HIT / SL_HIT / CANCELLED / EXPIRED for an outcome name (win, loss, not_filled, expired,
+    manual, or one of the final states itself). An unknown name raises ValueError."""
+    try:
+        return _OUTCOME_TO_STATE[outcome]
+    except KeyError:
+        raise ValueError(f"unknown outcome {outcome!r}") from None
+
+
 DEFAULT_TTL = 6 * 3600  # an active signal older than this is expired (tracker normally closes it first)
 
 
@@ -92,19 +110,24 @@ class SignalStore:
         return True, ""
 
     def close(self, market, outcome, now_ts=None):
-        """Release the market's lock. outcome: win, loss, not_filled, expired, manual."""
+        """Release the market's lock with a final state (TP_HIT, SL_HIT, CANCELLED, EXPIRED; the
+        names win, loss, not_filled, expired and manual are accepted too)."""
         now_ts = int(now_ts if now_ts is not None else time.time())
+        state = final_state(outcome)
+        outcome = _STATE_TO_OUTCOME.get(state, outcome)   # win / loss keep feeding the risk guard
         sig = self.active_signals.pop(market, None)
         if sig:
+            sig = dict(sig, state=state)
             if outcome in ("win", "loss"):
                 risk = abs(sig["entry"] - sig["sl"])
                 r = (abs(sig["tp"] - sig["entry"]) / risk if risk else 0.0) if outcome == "win" else -1.0
-                self.results.append({"t": now_ts, "outcome": outcome, "R": r, "market": market})
+                self.results.append({"t": now_ts, "outcome": outcome, "R": r, "market": market,
+                                     "state": state})
             self._save()
-            self._log("CLOSE", sig, now_ts, {"outcome": outcome})
+            self._log("CLOSE", sig, now_ts, {"outcome": outcome, "state": state})
         return sig
 
-    def halted(self, now_ts, max_losses=2, max_loss_r=3.0):
+    def halted(self, now_ts, max_losses=3, max_loss_r=6.0):
         """Reason string when today's (UTC) results say stop, else ''. Counts all markets together:
         `max_losses` losses in a row, or a day total of -`max_loss_r` R or worse. Costs are not included."""
         day = time.strftime("%Y-%m-%d", time.gmtime(now_ts))

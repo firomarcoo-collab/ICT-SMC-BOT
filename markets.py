@@ -34,7 +34,7 @@ class MarketSpec:
     volume_max: float = None
     spread: float = None            # typical spread in PRICE units (not points)
     commission_per_lot: float = None  # account currency, round turn, per 1.00 lot (0 if none)
-    risk_percent: float = 0.5       # per-market defaults, edit in markets.json
+    risk_percent: float = 0.25      # per-market defaults, edit in markets.json
     min_rr: float = 2.0
     notes: str = ""
 

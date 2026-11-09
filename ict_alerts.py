@@ -9,7 +9,7 @@ Environment variables (all optional):
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
     FUTURES           1 = futures for gold/indices instead of spot; or a list: FUTURES=US100,US30
     BALANCE           your account balance in $: adds the lot size to each alert
-    RISK_PERCENT      risk per trade in % (default 0.5), used for the lot size
+    RISK_PERCENT      risk per trade in % (default 0.25, paper), used for the lot size
     CONTRACT_<SYMBOL> your own assumption of units per 1 lot (only used when markets.json is not filled)
     SESSION_ONLY      1 = no alerts outside London / New York hours
     NEWS              0 = turn off the high-impact news calendar (default on)
@@ -575,7 +575,7 @@ def run():
 
     cfg = Config(min_score=int(os.environ.get("MIN_SCORE", "0")),
                  classic_enabled=os.environ.get("CLASSIC", "1") != "0",
-                 risk_percent=number("RISK_PERCENT", 0.5))
+                 risk_percent=number("RISK_PERCENT", 0.25))
     opts = {"balance": number("BALANCE", 0.0),
             "contracts": {n: number(f"CONTRACT_{n}", None) for n in names
                           if os.environ.get(f"CONTRACT_{n}")},
@@ -613,8 +613,10 @@ def run():
     base_conf = 4 if profile == "active" else 5
     scfg = selective.make_config(
         profile, min_confluence=int(number("MIN_CONFLUENCE", base_conf)), slippage=number("SLIPPAGE", 0.0),
-        max_daily_losses=int(number("MAX_DAILY_LOSSES", 2)),
-        max_daily_loss_r=number("MAX_DAILY_LOSS_R", 3.0),
+        max_daily_losses=int(number("MAX_DAILY_LOSSES", 3)),
+        max_daily_loss_pct=number("MAX_DAILY_LOSS_PCT", 1.5),
+        max_daily_loss_r=number("MAX_DAILY_LOSS_R", None) if os.environ.get("MAX_DAILY_LOSS_R") else None,
+        risk_percent=number("RISK_PERCENT", 0.25), ready_score=int(number("READY_SCORE", 86)),
         allow_unknown_cost=os.environ.get("ALLOW_UNKNOWN_COST") == "1")
     spreads = {n: number(f"SPREAD_{n}", None) for n in names if os.environ.get(f"SPREAD_{n}")}
     store = signal_store.SignalStore(os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE)) \

@@ -112,7 +112,7 @@ def test_selective_scan_blocks_bad_data_and_news_and_adds_the_lot():
     assert ok(news=[], news_block=True)[1] is not None                 # nothing scheduled
 
 
-def test_daily_risk_guard_stops_after_two_losses_in_a_row():
+def test_daily_risk_guard_stops_after_three_losses_in_a_row():
     store, _ = tmp_store()
     day = 1_800_000_000
 
@@ -124,7 +124,9 @@ def test_daily_risk_guard_stops_after_two_losses_in_a_row():
     finish("XAUUSD", "loss", day)
     assert store.halted(day + 200) == ""                               # one loss: still allowed
     finish("BTCUSD", "loss", day + 300)                                # the second, on another market
-    assert "2 losses in a row" in store.halted(day + 700)
+    assert store.halted(day + 400) == ""                               # two losses: still allowed
+    finish("US30", "loss", day + 500)                                  # the third
+    assert "3 losses in a row" in store.halted(day + 700)
     assert store.halted(day + 86400 + 10) == ""                        # next UTC day: allowed again
     again = signal_store.SignalStore(store.path)                       # and it survives a restart
     assert "daily risk guard" in again.halted(day + 700)
@@ -141,12 +143,12 @@ def test_daily_risk_guard_stops_after_two_losses_in_a_row():
 
 def test_process_refuses_new_signals_when_the_daily_guard_is_on():
     store, _ = tmp_store()
-    for market in ("XAUUSD", "BTCUSD"):
+    for market in ("XAUUSD", "BTCUSD", "US30"):
         store.open(market, {"side": "buy", "entry": 100.0, "sl": 99.0, "tp": 102.0, "bar_time": 1}, NOW - 900)
         store.close(market, "loss", NOW - 800)
     res = sl.process("NAS100", scenario(), NOW, store, CFG, spread=.2)
     assert res["action"] == "WAIT" and any("daily risk guard" in r for r in res["reasons"])
-    off = sl.SelectiveConfig(max_daily_losses=0, max_daily_loss_r=0)
+    off = sl.SelectiveConfig(max_daily_losses=0, max_daily_loss_r=0, ready_score=0)
     assert sl.process("NAS100", scenario(), NOW, store, off, spread=.2)["action"] == "BUY"
     assert store.results[0]["outcome"] == "loss" and store.results[0]["R"] == -1.0
 
@@ -203,7 +205,7 @@ def late_retest_scenario():
 
 def test_active_profile_gives_more_signals_but_keeps_the_hard_rules():
     d = late_retest_scenario()
-    strict, active = sl.make_config("strict"), sl.make_config("active")
+    strict, active = sl.make_config("strict", ready_score=0), sl.make_config("active", ready_score=0)
     assert strict.min_confluence == 5 and active.min_confluence == 4 and active.retest_window == 5
     assert sl.evaluate("X", d, NOW, strict, spread=.2)["action"] == "WAIT"
     res = sl.evaluate("X", d, NOW, active, spread=.2)
@@ -361,3 +363,94 @@ def test_restart_reports_locks_whose_feed_is_not_running(tmp_path):
     store.open("BTCUSD", {"side": "sell", "entry": 100.0, "sl": 101.0, "tp": 98.0, "bar_time": 1}, now_ts=1)
     track = tracker.Tracker(str(tmp_path / "r.csv"))
     assert ict_alerts.restore_tracking(store, track, ["XAUUSD"]) == ["BTCUSD"]
+
+
+def test_new_risk_defaults_match_the_research_settings():
+    c = sl.SelectiveConfig()
+    assert (c.risk_percent, c.max_daily_losses, c.max_daily_loss_pct) == (0.25, 3, 1.5)
+    assert sl.daily_loss_limit_r(c) == 6.0                              # 1.5% / 0.25% per trade
+    assert sl.daily_loss_limit_r(sl.SelectiveConfig(max_daily_loss_r=2.0)) == 2.0
+    assert sl.daily_loss_limit_r(sl.SelectiveConfig(max_daily_loss_pct=0)) == 0.0
+    assert (c.ready_score, c.watch_score) == (86, 75)
+
+
+def parts(**kw):
+    base = dict(htf_ok=True, mode="continuation", sweep_scope="external", mss=True, bos=False,
+                zone_event=True, disp_ratio=1.6, zone_status="fresh", sr_hit=False, confirm=True,
+                strong=True, cost_ok=True, net_rr=1.9)
+    base.update(kw)
+    return sl.score_breakdown(**base)
+
+
+def test_score_out_of_100_follows_the_fixed_weights():
+    p, total = parts()
+    assert p == {"htf": 20, "liquidity": 15, "structure": 15, "displacement": 15, "zone": 15,
+                 "confirm": 10, "execution": 10} and total == 100 == sum(sl.SCORE_MAX.values())
+    assert parts(htf_ok=False, mode="reversal")[0]["htf"] == 10
+    assert parts(htf_ok=False, mode="continuation")[0]["htf"] == 0
+    assert parts(sweep_scope=None, sr_hit=True)[0]["liquidity"] == 4
+    assert parts(sweep_scope=None)[0]["liquidity"] == 0
+    assert parts(sweep_scope="swing")[0]["liquidity"] == 10
+    assert parts(mss=False, bos=True)[0]["structure"] == 10
+    assert parts(mss=False, bos=False, zone_event=False)[0]["structure"] == 0
+    assert [parts(disp_ratio=r)[0]["displacement"] for r in (0.5, 0.8, 1.0, 1.5)] == [0, 8, 11, 15]
+    assert parts(zone_status="partial")[0]["zone"] == 11
+    assert parts(zone_status=None, sr_hit=True)[0]["zone"] == 6
+    assert parts(strong=False)[0]["confirm"] == 6 and parts(confirm=False)[0]["confirm"] == 0
+    assert parts(cost_ok=False)[0]["execution"] == 0
+    assert parts(net_rr=1.6)[0]["execution"] == 7
+    assert parts(cost_unverified=True)[0]["execution"] == 4            # an unverified spread caps it
+
+
+def test_score_bands_and_that_only_ready_can_signal():
+    c = sl.SelectiveConfig()
+    assert [sl.score_band(x, c) for x in (100, 86, 85, 75, 74, 0)] == \
+        ["READY", "READY", "WATCH", "WATCH", "REJECT", "REJECT"]
+    d = scenario()
+    res = sl.evaluate("X", d, NOW, c, spread=.2)                        # a continuation without a sweep
+    assert res["action"] == "WAIT" and res["band"] in ("WATCH", "REJECT")
+    assert any("score" in r and "/100" in r for r in res["reasons"])
+    assert sum(res["score_parts"].values()) == res["score100"]
+    low = sl.SelectiveConfig(ready_score=0)
+    ok = sl.evaluate("X", d, NOW, low, spread=.2)
+    assert ok["action"] == "BUY" and ok["setup"]["score100"] == ok["score100"]
+    text = sl.format_signal("X", ok)
+    assert f"Score {ok['score100']}/100" in text and "NOT a win probability" in text
+    assert f"التقييم {ok['score100']}/100" in sl.format_signal_ar("X", ok)
+
+
+def test_final_states_are_unified_and_still_accept_the_old_names(tmp_path):
+    assert signal_store.TERMINAL_STATES == ("TP_HIT", "SL_HIT", "CANCELLED", "EXPIRED")
+    assert [signal_store.final_state(x) for x in ("win", "loss", "not_filled", "manual", "expired")] == \
+        ["TP_HIT", "SL_HIT", "CANCELLED", "CANCELLED", "EXPIRED"]
+    assert signal_store.final_state("TP_HIT") == "TP_HIT"
+    try:
+        signal_store.final_state("maybe")
+        raise AssertionError("an unknown outcome must be rejected")
+    except ValueError:
+        pass
+    store = signal_store.SignalStore(str(tmp_path / "s.json"))
+    sig = {"side": "buy", "entry": 100.0, "sl": 99.0, "tp": 102.0, "bar_time": 1}
+    for market, outcome in (("XAUUSD", "TP_HIT"), ("BTCUSD", "SL_HIT"), ("US30", "CANCELLED"), ("NAS100", "EXPIRED")):
+        assert store.open(market, dict(sig, bar_time=hash(market) % 1000), 10)[0]
+        closed = store.close(market, outcome, 20)
+        assert closed["state"] == outcome and store.active(market) is None
+    assert [(x["state"], x["R"]) for x in store.results] == [("TP_HIT", 2.0), ("SL_HIT", -1.0)]
+    assert [x["outcome"] for x in store.results] == ["win", "loss"]      # the risk guard keeps working
+    rows = [__import__("json").loads(l) for l in open(store.log_path)]
+    assert [r["state"] for r in rows if r["event"] == "CLOSE"] == ["TP_HIT", "SL_HIT", "CANCELLED", "EXPIRED"]
+    store.open("XAUUSD", sig, 30)
+    store.expire(30 + signal_store.DEFAULT_TTL + 1)                       # the TTL closes it as EXPIRED
+    assert store.active("XAUUSD") is None
+    rows = [__import__("json").loads(l) for l in open(store.log_path)]
+    assert [r["state"] for r in rows if r["event"] == "CLOSE"][-1] == "EXPIRED"
+
+
+def test_a_complete_reversal_with_the_trend_is_ready_and_a_counter_trend_one_is_only_watch():
+    from test_ict_engine import reversal_scenario
+    cfg = sl.SelectiveConfig()
+    with_trend, against = (reversal_scenario("valid", h_up=up)[0] for up in (True, False))
+    ready = sl.evaluate("X", with_trend, NOW, cfg, spread=.2)
+    assert ready["action"] == "BUY" and ready["band"] == "READY" and ready["score100"] >= 86
+    watch = sl.evaluate("X", against, NOW, cfg, spread=.2)
+    assert watch["action"] == "WAIT" and watch["band"] == "WATCH" and watch["score_parts"]["htf"] == 10
