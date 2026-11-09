@@ -68,7 +68,7 @@ stale_after = data_layer.stale_after
 # FUTURES=1 switches gold/indices to futures (GC=F, NQ=F, YM=F).
 INSTRUMENTS = {
     "BTCUSD": {"source": "binance", "id": "BTCUSDT", "digits": 2},
-    "XAUUSD": {"source": "yahoo", "id": "XAUUSD=X", "digits": 2},
+    "XAUUSD": {"source": "yahoo", "id": "XAUUSD=X", "digits": 2, "fallbacks": ["GC=F"]},
     "US100": {"source": "yahoo", "id": "^NDX", "digits": 1},
     "US30": {"source": "yahoo", "id": "^DJI", "digits": 1},
     "EURUSD": {"source": "yahoo", "id": "EURUSD=X", "digits": 5},
@@ -126,8 +126,16 @@ def resample(candles, seconds):
              "high": o["high"], "low": o["low"], "close": o["close"]} for o in out]
 
 
+YAHOO_HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
+FALLBACK_SECONDS = 1800
+_STICKY = {}  # primary symbol -> (fallback symbol, until timestamp)
 _CACHE = {}
 CACHE_TTL = 45  # seconds: the engines share one download per symbol and timeframe
+
+
+def _drop_cache(symbol):
+    for key in [k for k in _CACHE if k[1] == symbol]:
+        _CACHE.pop(key, None)
 
 
 def get_candles(inst, tf="5m"):
@@ -153,12 +161,42 @@ def _fetch_candles(inst, tf="5m"):
                 last_error = e
         raise last_error
     interval, span = YAHOO_TF[tf]
-    sym = urllib.parse.quote(inst["id"], safe="")
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval={interval}&range={span}"
-    candles = parse_yahoo(fetch_json(url))
-    if tf == "4h":
-        candles = resample(candles, TF_SECONDS["4h"])
-    return candles[-300:]
+    primary = inst["id"]
+    ids = [primary] + list(inst.get("fallbacks", []))
+    sticky = _STICKY.get(primary)
+    if sticky and time.time() < sticky[1]:
+        ids = [sticky[0]]            # keep ONE symbol for all timeframes while a fallback is in use
+    elif sticky:
+        _STICKY.pop(primary, None)   # the fallback period ended: try the primary symbol again
+        _drop_cache(primary)
+    last_error = None
+    for sid in ids:
+        for host in YAHOO_HOSTS:
+            sym = urllib.parse.quote(sid, safe="")
+            url = f"https://{host}/v8/finance/chart/{sym}?interval={interval}&range={span}"
+            try:
+                candles = parse_yahoo(fetch_json(url))
+            except Exception as e:   # next host, then next symbol
+                last_error = e
+                continue
+            if tf == "4h":
+                candles = resample(candles, TF_SECONDS["4h"])
+            if sid != primary and (primary not in _STICKY):
+                _STICKY[primary] = (sid, time.time() + FALLBACK_SECONDS)
+                _drop_cache(primary)  # never mix two symbols' prices in one analysis
+                print(f"DATA SOURCE: {primary} is unavailable ({last_error}); using {sid} for "
+                      f"{FALLBACK_SECONDS // 60} min. Its price differs from spot: set OFFSET.", flush=True)
+            return candles[-300:]
+    raise last_error
+
+
+def fallback_note(inst):
+    """Text for alerts when a fallback symbol is feeding the analysis, else ''."""
+    sticky = _STICKY.get(inst["id"])
+    if sticky and time.time() < sticky[1]:
+        return (f"DATA SOURCE WARNING: {inst['id']} is unavailable, prices come from {sticky[0]} "
+                f"(not spot). Compare with MT5 and set OFFSET before trading.")
+    return ""
 
 
 # ===== Analysis =====
@@ -395,6 +433,9 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
     fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
     text = fmt(name, dict(res, setup=setup), d)
+    warn = fallback_note(inst)
+    if warn:
+        text += "\n" + warn
     lot = extras.lot_text(balance, risk_percent, setup, spec, (contracts or {}).get(name)).strip()
     if lot:
         text += "\n" + lot

@@ -10,6 +10,7 @@ import selective as sl
 import signal_store
 from test_selective import CFG, NOW, bar, retime, scenario, tmp_store
 
+REAL_GET_CANDLES = ict_alerts.get_candles
 SECONDS = {"m5": 300, "m15": 900, "h1": 3600, "h4": 14400, "d1": 86400, "m1": 60}
 GETTER = {"5m": "m5", "15m": "m15", "1h": "h1", "4h": "h4"}
 
@@ -218,6 +219,54 @@ def test_active_profile_gives_more_signals_but_keeps_the_hard_rules():
     except ValueError:
         pass
     assert sl.make_config("strict").profile == "strict"
+
+
+def test_yahoo_fallback_symbol_is_sticky_labelled_and_never_mixed():
+    import urllib.error
+    rows = {"chart": {"result": [{"timestamp": [1700000000, 1700000300], "indicators": {"quote": [
+        {"open": [1.0, 2.0], "high": [2.0, 3.0], "low": [0.5, 1.5], "close": [1.5, 2.5]}]}}]}}
+    asked, saved = [], ict_alerts.fetch_json
+
+    def fake(url):
+        asked.append(url)
+        if "XAUUSD%3DX" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+        return rows
+
+    inst = {"source": "yahoo", "id": "XAUUSD=X", "digits": 2, "fallbacks": ["GC=F"]}
+    ict_alerts.get_candles = REAL_GET_CANDLES      # earlier tests replaced it with a fake feed
+    ict_alerts.fetch_json = fake
+    ict_alerts._STICKY.clear()
+    ict_alerts._CACHE.clear()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            c = ict_alerts.get_candles(inst, "5m")
+        assert len(c) == 2 and "GC%3DF" in asked[-1]
+        assert "query1" in asked[0] and "query2" in asked[1]            # both hosts tried before the fallback
+        assert "DATA SOURCE" in out.getvalue() and "GC=F" in ict_alerts.fallback_note(inst)
+        asked.clear()
+        ict_alerts.get_candles(inst, "15m")                              # sticky: no more tries of the broken one
+        assert asked and all("GC%3DF" in u for u in asked)
+        ict_alerts._STICKY["XAUUSD=X"] = ("GC=F", time.time() - 1)        # the fallback period ended
+        asked.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            ict_alerts.get_candles(inst, "1h")
+        assert "XAUUSD%3DX" in asked[0]                                  # the primary is tried again first
+        # when everything fails the error is raised (the loop prints it and goes on)
+        ict_alerts.fetch_json = lambda url: (_ for _ in ()).throw(RuntimeError("down"))
+        ict_alerts._STICKY.clear()
+        ict_alerts._CACHE.clear()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                ict_alerts.get_candles(inst, "5m")
+            raise AssertionError("an error was expected")
+        except RuntimeError:
+            pass
+        assert ict_alerts.fallback_note(inst) == ""
+    finally:
+        ict_alerts.fetch_json = saved
+        ict_alerts._STICKY.clear()
+        ict_alerts._CACHE.clear()
 
 
 if __name__ == "__main__":
