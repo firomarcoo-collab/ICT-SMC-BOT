@@ -114,7 +114,10 @@ def test_custom_sound_is_played(monkeypatch=None):
     ict_alerts.subprocess.run = lambda cmd, **kw: calls.append(cmd)
     try:
         os.environ.pop("ALERT_SOUND", None)
-        ict_alerts.notify("hello")                          # not an entry: silent
+        ict_alerts.notify("hello")                          # not an entry: no phone notification at all
+        assert calls == []
+        os.environ["INFO_NOTIFY"] = "1"
+        ict_alerts.notify("hello")                          # INFO_NOTIFY=1: a silent notification
         assert not any(c[0] == "termux-media-player" for c in calls)
         assert "--sound" not in [c for c in calls if c[0] == "termux-notification"][0]
         calls.clear()
@@ -140,6 +143,7 @@ def test_custom_sound_is_played(monkeypatch=None):
             assert [c for c in calls if c[0] == "termux-media-player"][0][2] == f.name
     finally:
         ict_alerts.shutil.which, ict_alerts.subprocess.run = saved[0], saved[1]
+        os.environ.pop("INFO_NOTIFY", None)
         if saved[2] is None:
             os.environ.pop("ALERT_SOUND", None)
         else:
@@ -178,9 +182,8 @@ def test_buy_is_blue_and_sell_is_red():
             assert note[note.index("--led-color") + 1] == led                           # notification light
         calls.clear()
         with contextlib.redirect_stdout(io.StringIO()):
-            ict_alerts.notify("NEWS soon")                                              # no side: no colour
-        note = [c for c in calls if c[0] == "termux-notification"][0]
-        assert "--led-color" not in note
+            ict_alerts.notify("NEWS soon")                                              # info: screen only
+        assert calls == []
     finally:
         ict_alerts.shutil.which, ict_alerts.subprocess.run = saved
 

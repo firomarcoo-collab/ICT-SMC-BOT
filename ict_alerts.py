@@ -396,11 +396,14 @@ SIDE_STYLE = {"buy": ("\U0001F535", "\033[1;94m", "0066FF"),    # blue
 
 def notify(text, entry=False, side=None):
     """Shows the message. Only entry=True (a trade ready to enter) makes a sound; everything
-    else (sessions, news, results, heads-up events) appears silently.
+    else (sessions, news, results, heads-up events) is only printed on the Termux screen
+    (INFO_NOTIFY=1 also shows it as a silent phone notification).
     side 'buy' / 'sell' colours the alert: blue for BUY, red for SELL (terminal colour, a coloured
     circle in the notification and Telegram text, and the phone's notification light)."""
     emoji, ansi, led = SIDE_STYLE.get(side, ("", "", ""))
     print(f"{ansi}{text}\033[0m" if ansi else text, flush=True)
+    if not entry and os.environ.get("INFO_NOTIFY") != "1":
+        return  # info messages stay in the Termux screen only: no phone notification, no sound
     if emoji:
         text = f"{emoji} {text}"
     sound = sound_path() if entry and shutil.which("termux-media-player") else None
