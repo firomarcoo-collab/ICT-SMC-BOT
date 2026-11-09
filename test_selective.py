@@ -473,7 +473,7 @@ def test_live_scan_end_to_end_with_locks_and_status():
     store, _ = tmp_store()
     spreads = {"XAUUSD": .2}
     status, alert, lagging = ict_alerts.selective_scan("XAUUSD", NOW, CFG, store, None, spreads, None)
-    assert alert and "SELECTIVE BUY" in status and "[data LIVE]" in alert["text"] and not lagging
+    assert alert and "SELECTIVE BUY" in status and "data LIVE]" in alert["text"] and not lagging
     assert store.active("XAUUSD") and alert["market"] == "XAUUSD"
     status, alert2, _ = ict_alerts.selective_scan("XAUUSD", NOW + 30, CFG, store, None, spreads, None)
     assert alert2 is None and "WAIT" in status                     # active lock: no second signal

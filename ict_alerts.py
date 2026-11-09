@@ -309,6 +309,7 @@ def add_extras(name, alerts, cfg, now_ts, opts, status, tf="5m"):
 # ===== Selective engine (H4/H1 trend + S/R, M15 FVG/OB, M5 closed confirmation) =====
 
 SELECTIVE_TFS = (("5m", "m5"), ("15m", "m15"), ("1h", "h1"), ("4h", "h4"))
+OPTIONAL_TFS = (("1d", "d1"), ("1m", "m1"))  # context / timing only; a failure here never blocks
 
 
 def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None):
@@ -332,6 +333,16 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     except Exception as e:
         connected = False
         log.warning("selective: %s data error: %s", name, e)
+    if connected:
+        for tf, key in OPTIONAL_TFS:
+            try:
+                candles = get_candles(inst, tf)
+                if offset:
+                    candles = [dict(c, open=c["open"] + offset, high=c["high"] + offset,
+                                    low=c["low"] + offset, close=c["close"] + offset) for c in candles]
+                data[key] = candles
+            except Exception as e:
+                log.info("selective: optional %s data for %s unavailable: %s", tf, name, e)
     status = selective.data_status(inst["source"], data.get("m5"), 300, now_ts, connected)
     if status != "LIVE":
         return f"{name}: SELECTIVE WAIT (data {status})", None, False
@@ -349,7 +360,10 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
                             calendar=structure.calendar_for(inst["source"]))
     d = inst["digits"]
     if res["action"] == "WAIT":
-        return f"{name}: SELECTIVE WAIT ({res['reasons'][0] if res['reasons'] else 'no setup'})", None, False
+        line = f"{name}: SELECTIVE WAIT ({res['reasons'][0] if res['reasons'] else 'no setup'})"
+        if os.environ.get("VERBOSE") == "1":  # full report: HTF, liquidity, structure, zones, retest, M5 candle
+            line += "\n" + selective.explain(res)
+        return line, None, False
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
     text = selective.format_signal(name, dict(res, setup=setup), d)
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market,

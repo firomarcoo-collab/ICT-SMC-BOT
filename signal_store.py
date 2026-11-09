@@ -20,6 +20,7 @@ class SignalStore:
         self.log_path = log_path if log_path is not None else (path + "l" if path else None)
         self.active_signals = {}
         self.seen = []
+        self.used = []      # liquidity events and FVG/OB zones that already produced a signal
         self.load_error = None
         self._load()
 
@@ -31,6 +32,7 @@ class SignalStore:
                 data = json.load(f)
             self.active_signals = dict(data.get("active", {}))
             self.seen = list(data.get("seen", []))[-MAX_SEEN:]
+            self.used = list(data.get("used", []))[-MAX_SEEN:]
         except (OSError, ValueError, AttributeError) as e:
             self.load_error = str(e)
             try:
@@ -43,7 +45,8 @@ class SignalStore:
             return
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump({"active": self.active_signals, "seen": self.seen[-MAX_SEEN:]}, f)
+            json.dump({"active": self.active_signals, "seen": self.seen[-MAX_SEEN:],
+                       "used": self.used[-MAX_SEEN:]}, f)
         os.replace(tmp, self.path)
 
     def _log(self, event, sig, now_ts, extra=None):
@@ -72,11 +75,16 @@ class SignalStore:
             return False, f"{kind} signal blocked: {market} already has an active {cur['side'].upper()} ({cur['id']})"
         if sid in self.seen:
             return False, f"duplicate signal blocked: {sid} was already issued"
+        uses = [f"{market}|{u}" for u in setup.get("uses", [])]  # ids are per market
+        reused = [u for u in uses if u in self.used]
+        if reused:
+            return False, f"already used (consumed liquidity event or zone): {reused[0].split('|', 1)[1]}"
         sig = {"id": sid, "market": market, "side": setup["side"], "entry": setup["entry"],
                "sl": setup["sl"], "tp": setup["tp"], "bar_time": setup["bar_time"],
                "created": now_ts, "state": "ACTIVE"}
         self.active_signals[market] = sig
         self.seen.append(sid)
+        self.used.extend(uses)
         self._save()
         self._log("OPEN", sig, now_ts)
         return True, ""

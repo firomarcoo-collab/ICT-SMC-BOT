@@ -16,6 +16,7 @@ backtest.py, out-of-sample tests and forward paper trading.
 """
 from dataclasses import dataclass, field
 
+import ict_engine
 import structure as st
 
 LIVE_SOURCES = ("binance", "yahoo")
@@ -305,13 +306,37 @@ def cost_check(risk, spread, commission_price, cfg):
 
 # ===== The decision =====
 
+def _zone_id(z):
+    return f"{z['kind']}-{z['side']}-{round(z['low'], 6)}-{round(z['high'], 6)}-{z.get('idx')}"
+
+
+def _ohlc(c):
+    return f"O {c['open']:.5g} H {c['high']:.5g} L {c['low']:.5g} C {c['close']:.5g}"
+
+
+def m1_timing(m1, side):
+    """Timing refinement only: the last closed M1 candle. Never blocks and never creates a signal."""
+    if not m1:
+        return "M1 unavailable (timing refinement only)"
+    c = m1[-1]
+    agree = (c["close"] > c["open"]) == (side == "buy") and c["close"] != c["open"]
+    return (f"last closed M1 {'agrees' if agree else 'is against'} ({_ohlc(c)}); "
+            "M1 is timing only, never a signal source")
+
+
 def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
              status="LIVE", calendar="utc"):
-    """data = {'h4','h1','m15','m5'} candles oldest first. Returns a dict:
-    {'action': 'BUY'|'SELL'|'WAIT', 'reasons': [...], 'checks': {...}, 'setup': {...}|None, 'status': ...}"""
+    """data = {'h4','h1','m15','m5'} (+ optional 'd1', 'm1') candles oldest first. Returns:
+    {'action': 'BUY'|'SELL'|'WAIT', 'reasons': [...], 'checks': {...}, 'setup': {...}|None,
+     'status': ..., 'report': {...}}. Two ways to a signal:
+      reversal     = liquidity sweep -> MSS with displacement -> valid FVG/OB -> retest -> closed M5 candle
+      continuation = H4/H1 (and D1) alignment -> M15 structure -> pullback to a valid zone -> closed M5 candle"""
     cfg = cfg or SelectiveConfig()
+    rep = {"mode": None, "htf": "not evaluated", "d1": "not evaluated", "liquidity": "not evaluated",
+           "structure": "not evaluated", "zones": [], "retest": "not evaluated",
+           "confirm": "not evaluated", "levels": None, "m1": "not evaluated", "premium_discount": None}
     res = {"market": market, "action": "WAIT", "reasons": [], "checks": {}, "setup": None,
-           "status": status}
+           "status": status, "report": rep}
     if status != "LIVE" and not (status == "HISTORICAL" and cfg.allow_historical):
         res["reasons"].append(f"data status {status}: no signal")
         return res
@@ -322,6 +347,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
             res["reasons"].append(f"not enough closed {tf.upper()} candles ({len(bars[tf])})")
     if res["reasons"]:
         return res
+    d1 = closed_only(data.get("d1") or [], 86400, now_ts)
+    m1 = closed_only(data.get("m1") or [], 60, now_ts)
     m5, m15, h1, h4 = bars["m5"], bars["m15"], bars["h1"], bars["h4"]
     last = m5[-1]
     close_time = int(last["time"].timestamp()) + TF_SECONDS["m5"]
@@ -332,6 +359,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     if side is None:
         res["reasons"].append("last closed M5 candle is a doji")
         return res
+    rep["confirm"] = f"closed M5 {_ohlc(last)} ({'bullish' if side == 'buy' else 'bearish'})"
+    rep["m1"] = m1_timing(m1, side)
 
     ok_c, strong, why = confirmation(m5, side)
     checks = res["checks"]
@@ -339,50 +368,116 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     if not ok_c:
         res["reasons"].append(why)
         return res
-    ok_h, label = htf_alignment(h4, h1, m15, side, cfg)
-    checks["htf"] = ok_h
-    if not ok_h:
-        res["reasons"].append(label)
-        return res
+    if strong:
+        rep["confirm"] += ", closed beyond the previous candle"
 
     want = "bull" if side == "buy" else "bear"
     role = "support" if side == "buy" else "resistance"
+    fv_all = fvg_candidates(m15, cfg)
+    ob_all = ob_candidates(m15, cfg)
+    rev = ict_engine.reversal_sequence(m15, side, fv_all, ob_all, calendar)
+    ev15 = st.structure_events(m15, 2)
+    if rev["sweep"]:
+        sw = rev["sweep"]
+        rep["liquidity"] = (f"{sw['type']} {sw['level']} at {sw['price']:.5g} swept "
+                            f"(extreme {sw['extreme']:.5g}, {sw['scope']})")
+    else:
+        rep["liquidity"] = "no confirmed sweep"
+    if rev["event"]:
+        e = rev["event"]
+        rep["structure"] = f"{e['type']} {e['side']} with displacement = MSS"
+    else:
+        tr = st.current_trend(ev15)
+        last_ev = ev15[-1] if ev15 else None
+        rep["structure"] = (f"M15 trend {tr or 'unknown'}; last event "
+                            f"{last_ev['type'] + ' ' + last_ev['side'] if last_ev else 'none'}")
+    rep["reversal"] = f"stage {rev['stage']}/4" + (" complete" if rev["complete"] else
+                                                   ": " + "; ".join(rev["reasons"][:2]))
+    rep["zones"] = [f"{z['kind']} {z['side']} {z['low']:.5g}-{z['high']:.5g}"
+                    f"{' valid' if z['valid'] else ' rejected: ' + ', '.join(z['reasons'])}"
+                    for z in sorted(fv_all + ob_all, key=lambda z: -z["idx"])[:6] if z["side"] == want]
+
+    # --- trend, D1 context
+    ok_h, label = htf_alignment(h4, h1, m15, side, cfg)
+    d1_trend, d1_label = ict_engine.d1_context(d1)
+    rep["htf"] = label if ok_h else f"{label}"
+    rep["d1"] = d1_label
+    checks["htf"] = ok_h
+
     atr5 = st.atr_at(m5, len(m5))
     atr15 = st.atr_at(m15, len(m15))
     tested, notes = [], []
 
-    def try_zone(z, name):
+    def try_zone(z, name, tag):
         ok, why_not = retest(m5, z, side, cfg)
         if ok:
-            tested.append(dict(z, name=name))
+            tested.append(dict(z, name=name, tag=tag))
         else:
             notes.append(f"{name}: {why_not}")
 
-    sr_all = [dict(z, tf=tf) for tf, b in (("H1", h1), ("H4", h4)) for z in sr_zones(b, cfg)]
-    for z in sr_all:
-        if z["role"] == role:
-            try_zone(z, f"{z['tf']} {role} ({z['strength']}, {z['touches']} touches)")
-    fv = [f for f in fvg_candidates(m15, cfg) if f["side"] == want and f["valid"]]
-    ob = [o for o in ob_candidates(m15, cfg) if o["side"] == want and o["valid"]]
-    for f in fv:
-        try_zone(f, f"M15 FVG {f['status']}")
-    for o in ob:
-        try_zone(o, f"M15 order block ({o['event']})")
+    seq_ok, seq_notes = False, []
+    if rev["complete"]:
+        eq = rev["leg"]["eq"]
+        rep["premium_discount"] = (f"leg {rev['leg']['low']:.5g}-{rev['leg']['high']:.5g}, "
+                                   f"equilibrium {eq:.5g}")
+        for z in rev["zones"]:
+            right_half, half = ict_engine.in_correct_half(z, rev["leg"], side)
+            if not right_half:
+                seq_notes.append(f"{z['kind']} is in {half}: wrong side of the range for a {side}")
+                continue
+            try_zone(z, f"M15 {z['kind']} after sweep", "seq")
+        seq_ok = any(t["tag"] == "seq" for t in tested)
+    mode = "reversal" if seq_ok else "continuation"
+    rep["mode"] = mode
+
+    if mode == "continuation":
+        if not ok_h:
+            res["reasons"].append(label)
+            if rev["stage"] >= 1 and not rev["complete"]:
+                res["reasons"].append("no complete reversal sequence: " + "; ".join(rev["reasons"][:2]))
+            elif rev["complete"]:
+                res["reasons"].extend(seq_notes + notes[:2])
+            return res
+        if d1_trend and d1_trend != ("up" if side == "buy" else "down"):
+            res["reasons"].append(f"{d1_label} opposes a continuation {side}")
+            return res
+        sr_all = [dict(z, tf=tf) for tf, b in (("H1", h1), ("H4", h4)) for z in sr_zones(b, cfg)]
+        for z in sr_all:
+            if z["role"] == role:
+                try_zone(z, f"{z['tf']} {role} ({z['strength']}, {z['touches']} touches)", "sr")
+        for f in fv_all:
+            if f["side"] == want and f["valid"]:
+                try_zone(f, f"M15 FVG {f['status']}", "fvg")
+        for o in ob_all:
+            if o["side"] == want and o["valid"]:
+                try_zone(o, f"M15 order block ({o['event']})", "ob")
+    else:
+        label = ("reversal with the trend (" + label + ")" if ok_h
+                 else "counter-trend reversal: complete sequence (" + label + ")")
+        rep["htf"] = label
+        sr_all = [dict(z, tf=tf) for tf, b in (("H1", h1), ("H4", h4)) for z in sr_zones(b, cfg)]
+        for z in sr_all:
+            if z["role"] == role:
+                try_zone(z, f"{z['tf']} {role} ({z['strength']}, {z['touches']} touches)", "sr")
+
     sr_hit = [z for z in tested if z["kind"] == "SR"]
     fo_hit = [z for z in tested if z["kind"] in ("FVG", "OB")]
-
-    sweeps = [s for s in st.find_sweeps(m15, recent=12, calendar=calendar) if s["side"] == side]
+    sweeps = [s for s in ict_engine.find_liquidity_sweeps(m15, 12, calendar)
+              if s["side"] == side and ict_engine.sweep_status(m15, s)[0] == "valid"]
     recent_break = any(e["side"] == want and len(m15) - 1 - e["idx"] <= 20 and
-                       (e["type"] == "BOS" or e["mss"]) for e in st.structure_events(m15, 2))
-    checks.update({"sr": bool(sr_hit), "liquidity": bool(sweeps),
-                   "bos_mss": recent_break or any(z.get("event") for z in fo_hit),
+                       (e["type"] == "BOS" or e["mss"]) for e in ev15)
+    checks.update({"sr": bool(sr_hit), "liquidity": bool(sweeps) or bool(rev["sweep"] and seq_ok),
+                   "bos_mss": recent_break or bool(rev["event"] and seq_ok)
+                   or any(z.get("event") for z in fo_hit),
                    "fvg_ob": bool(fo_hit), "retest": bool(tested)})
+    rep["retest"] = ("; ".join(f"{z['name']} retested" for z in tested) if tested
+                     else "no valid zone retested")
     if not tested:
         res["reasons"].append("no valid zone has been retested")
-        res["reasons"].extend(notes[:4])
+        res["reasons"].extend(notes[:4] + seq_notes[:2])
         return res
 
-    # stop, target, costs
+    # --- stop, target, costs
     primary = (fo_hit or sr_hit)[0]
     entry = last["close"]
     w = m5[-cfg.retest_window:]
@@ -391,6 +486,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         sl = min(primary["low"], min(c["low"] for c in w)) - buf
     else:
         sl = max(primary["high"], max(c["high"] for c in w)) + buf
+    invalidation = rev["sweep"]["extreme"] if mode == "reversal" else (
+        primary["low"] if side == "buy" else primary["high"])
     risk = abs(entry - sl)
     if atr15 and risk > cfg.max_risk_atr * atr15:
         res["reasons"].append(f"stop too wide ({risk / atr15:.1f} M15 ATR)")
@@ -409,31 +506,64 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                 res["reasons"].append(f"target blocked by a strong {z['tf']} {z['role']}")
                 return res
 
+    hard_htf = mode == "continuation"       # a complete reversal sequence may go against H4/H1
     score = sum(1 for k in ("htf", "sr", "liquidity", "bos_mss", "fvg_ob", "retest", "confirm", "cost")
                 if checks.get(k))
     res["score"] = score
+    if hard_htf and not checks["htf"]:
+        res["reasons"].append(label)
+        return res
     if score < cfg.min_confluence:
         res["reasons"].append(f"confluence {score}/8 is under {cfg.min_confluence}")
         return res
+    uses = [_zone_id(z) for z in fo_hit]
+    if mode == "reversal" and rev["event_id"]:
+        uses.append(rev["event_id"])
     res["action"] = side.upper()
-    res["setup"] = {"side": side, "entry": entry, "sl": sl, "tp": tp,
+    res["setup"] = {"side": side, "entry": entry, "sl": sl, "tp": tp, "mode": mode,
                     "bar_time": int(last["time"].timestamp()), "cost": cost,
-                    "cost_note": note, "strong_confirmation": strong,
-                    "zones": [z["name"] for z in tested], "htf": label}
+                    "cost_note": note, "strong_confirmation": strong, "uses": uses,
+                    "zones": [z["name"] for z in tested], "htf": rep["htf"],
+                    "invalidation": invalidation}
+    rep["levels"] = (f"entry {entry:.5g}, invalidation {invalidation:.5g}, SL {sl:.5g}, TP {tp:.5g}, "
+                     f"R:R 1:{cfg.rr:g} before costs")
     return res
+
+
+def explain(res):
+    """Plain-text report for a signal or a WAIT: every step and the exact reasons."""
+    r = res["report"]
+    head = (f"{res['action']} {res['market']} [{r['mode'] or 'no setup'}] data {res['status']}"
+            + (f", confluence {res['score']}/8" if "score" in res else ""))
+    lines = [head,
+             f"HTF trend: {r['htf']}   |   {r['d1']}",
+             f"Liquidity: {r['liquidity']}",
+             f"Structure: {r['structure']}",
+             f"Reversal sequence: {r.get('reversal', 'not evaluated')}"]
+    if r["premium_discount"]:
+        lines.append(f"Premium/discount: {r['premium_discount']}")
+    lines.append("FVG/OB: " + ("; ".join(r["zones"]) if r["zones"] else "none"))
+    lines += [f"Retest: {r['retest']}", f"M5 confirmation: {r['confirm']}", f"M1: {r['m1']}"]
+    if r["levels"]:
+        lines.append("Levels: " + r["levels"])
+    if res["reasons"]:
+        lines.append("Waiting because: " + " | ".join(res["reasons"]))
+    return "\n".join(lines)
 
 
 def format_signal(market, res, digits=2):
     s = res["setup"]
     c = res["checks"]
     mark = lambda k: "yes" if c.get(k) else "no"  # noqa: E731
-    lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [data {res['status']}]",
-             f"Entry: {s['entry']:.{digits}f}  SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:2 before costs)",
+    lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}]",
+             f"Entry: {s['entry']:.{digits}f}  Invalidation: {s['invalidation']:.{digits}f}  "
+             f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:2 before costs)",
              f"Confluence {res['score']}/8: HTF {mark('htf')}, S/R {mark('sr')}, liquidity {mark('liquidity')}, "
              f"BOS/MSS {mark('bos_mss')}, FVG/OB {mark('fvg_ob')}, retest {mark('retest')}, "
              f"M5 close {mark('confirm')}{' (strong)' if s['strong_confirmation'] else ''}, cost {mark('cost')}",
-             f"Trend: {s['htf']}", "Zones: " + "; ".join(s["zones"]),
+             "Zones: " + "; ".join(s["zones"]),
              f"Cost assumed: {s['cost']:.4g} price units" + (f" ({s['cost_note']})" if s["cost_note"] else ""),
+             explain(res),
              "Signal only. Place the order yourself. This is not a promised win rate."]
     return "\n".join(lines)
 

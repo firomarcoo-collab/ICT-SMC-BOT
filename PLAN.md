@@ -67,3 +67,6 @@
 ## المحرك الانتقائي (تم)
 selective.py + signal_store.py + backtest_selective.py + tests (test_selective.py).
 المتبقي: تشغيل backtest على بيانات تاريخية حقيقية (تحتاج بيانات M5/M15/H1/H4 لفترة طويلة)، forward paper trading، مواصفات الرموز (السبريد/العمولة)، internal/external structure.
+
+## وحدة ICT/SMC (تم)
+ict_engine.py + وضعا reversal/continuation في selective.py + test_ict_engine.py. المتبقي: backtest على بيانات حقيقية، forward paper trading، internal/external structure، DST للجلسات.
