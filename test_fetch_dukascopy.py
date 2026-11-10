@@ -132,7 +132,7 @@ def test_skip_failed_continues_and_reports_the_gap(tmp_path):
     assert n == 2 and any("SKIPPED" in m for m in logs)
 
 
-def test_pause_and_tries_are_used_and_the_wait_is_capped():
+def test_delay_and_tries_are_used_and_the_wait_is_capped():
     waits, calls = [], []
 
     def always_503(symbol, when):
@@ -145,5 +145,5 @@ def test_pause_and_tries_are_used_and_the_wait_is_capped():
     pauses = []
     files = {H0.replace(hour=10): bi5([(0, 2000.0)])}
     fd.download("XAUUSD", 1, "/dev/null", fetch=lambda s, w: files.get(w, b""), now=H0.replace(hour=12),
-                sleep=pauses.append, log=lambda m: None, pause=1.5)
-    assert pauses == [1.5, 1.5]
+                sleep=pauses.append, log=lambda m: None, delay=1.5)
+    assert len(pauses) == 24 and set(pauses) == {1.5}                       # one pause per hour of the day

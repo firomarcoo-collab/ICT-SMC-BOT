@@ -105,7 +105,7 @@ def last_saved(path):
 
 
 def download(symbol, days, out, scale=None, fetch=fetch_hour, now=None, sleep=time.sleep, log=print,
-             skip_failed=False, delay=1.0):
+             skip_failed=False, delay=1.0, tries=7):
     scale = scale or SCALES.get(symbol)
     if not scale:
         raise SystemExit(f"price scale for {symbol} is unknown: pass --scale (XAUUSD is 1000)")
@@ -155,14 +155,13 @@ def main(argv=None):
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--scale", type=float, help="integer price divisor (XAUUSD = 1000)")
     ap.add_argument("--delay", type=float, default=1.0, help="seconds between requests (default 1; raise it if the server keeps refusing)")
-    ap.add_argument("--pause", type=float, default=0.3, help="seconds between requests (slower = fewer 503s)")
-    ap.add_argument("--tries", type=int, default=5, help="attempts per hour before stopping")
+    ap.add_argument("--tries", type=int, default=7, help="attempts per hour before stopping")
     ap.add_argument("--skip-failed", action="store_true",
                     help="skip hours that keep failing (leaves GAPS in the data; off by default)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     try:
-        n = download(a.symbol, a.days, a.out, a.scale, skip_failed=a.skip_failed, delay=a.delay)
+        n = download(a.symbol, a.days, a.out, a.scale, skip_failed=a.skip_failed, delay=a.delay, tries=a.tries)
     except DownloadStopped as e:
         raise SystemExit(f"STOPPED: {e}\nThe file is complete up to that hour. Wait a few minutes and run the "
                          "same command again: it continues from there.")
