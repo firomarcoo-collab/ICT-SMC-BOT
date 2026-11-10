@@ -66,12 +66,13 @@ def daily_loss_limit_r(cfg):
 def make_config(profile="strict", **overrides):
     """strict = the default, highly selective rules. active = a looser profile that gives more
     signals: lower confluence minimum (4/8), a longer retest window (5 M5 candles), zones may be
-    older (192 M15 candles) and FVGs up to 70% filled. The hard rules (closed M5 candle, HTF
+    older (192 M15 candles), FVGs up to 70% filled and a score of 80+ (strict needs 86+; a signal
+    scoring 80-85 is labelled REDUCED CONFIDENCE). The hard rules (closed M5 candle, HTF
     alignment or a complete reversal sequence, retest, cost, locks, risk guard) are NOT relaxed.
     More signals means lower average quality; no measured result supports either profile yet."""
     if profile == "active":
         base = dict(profile="active", min_confluence=4, retest_window=5, max_zone_age=192,
-                    fvg_max_fill=0.7)
+                    fvg_max_fill=0.7, ready_score=80)
     elif profile == "strict":
         base = {}
     else:
@@ -670,6 +671,8 @@ def format_signal(market, res, digits=2):
     c = res["checks"]
     mark = lambda k: "yes" if c.get(k) else "no"  # noqa: E731
     tag = ", ACTIVE profile (looser filter)" if s.get("profile") == "active" else ""
+    if s.get("score100", 100) < 86:
+        tag += ", REDUCED CONFIDENCE (score below 86)"
     lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}]",
              f"Entry: {s['entry']:.{digits}f}  Invalidation: {s['invalidation']:.{digits}f}  "
              f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:2 before costs)",
@@ -722,7 +725,8 @@ def format_signal_ar(market, res, digits=2):
         cost += " (غير موثّقة: السبريد غير معروف، تحقق منه في MT5)"
     lines = [f"إشارة دخول: {side} {name} ({market})",
              f"النوع: {mode} | حالة البيانات: {res['status']}"
-             + (" | ملف نشط (فلتر أخف)" if s.get("profile") == "active" else ""),
+             + (" | ملف نشط (فلتر أخف)" if s.get("profile") == "active" else "")
+             + (" | ثقة أقل (التقييم أقل من 86)" if s.get("score100", 100) < 86 else ""),
              f"الدخول: {s['entry']:.{digits}f}",
              f"الإبطال: {s['invalidation']:.{digits}f}",
              f"وقف الخسارة: {s['sl']:.{digits}f}",

@@ -454,3 +454,19 @@ def test_a_complete_reversal_with_the_trend_is_ready_and_a_counter_trend_one_is_
     assert ready["action"] == "BUY" and ready["band"] == "READY" and ready["score100"] >= 86
     watch = sl.evaluate("X", against, NOW, cfg, spread=.2)
     assert watch["action"] == "WAIT" and watch["band"] == "WATCH" and watch["score_parts"]["htf"] == 10
+
+
+def test_active_profile_accepts_80_to_85_with_a_reduced_confidence_label_but_strict_does_not():
+    from test_ict_engine import reversal_scenario
+    against = reversal_scenario("valid", h_up=False)[0]               # scores 83: WATCH under strict
+    strict, active = sl.make_config("strict"), sl.make_config("active")
+    assert (strict.ready_score, active.ready_score) == (86, 80)
+    assert sl.evaluate("X", against, NOW, strict, spread=.2)["action"] == "WAIT"
+    res = sl.evaluate("X", against, NOW, active, spread=.2)
+    assert res["action"] == "BUY" and 80 <= res["score100"] < 86
+    assert "REDUCED CONFIDENCE" in sl.format_signal("X", res) and "ثقة أقل" in sl.format_signal_ar("X", res)
+    # the safety rules are the same under both profiles
+    assert sl.evaluate("X", against, NOW, active, spread=None)["action"] == "WAIT"          # unknown cost
+    assert sl.evaluate("X", against, NOW - 250, active, spread=.2)["action"] == "WAIT"      # unclosed candle
+    assert sl.evaluate("X", against, NOW, active, spread=.2, status="STALE")["action"] == "WAIT"
+    assert (active.max_daily_losses, active.max_daily_loss_pct, active.risk_percent) == (3, 1.5, 0.25)
