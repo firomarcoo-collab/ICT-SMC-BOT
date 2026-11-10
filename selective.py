@@ -45,7 +45,8 @@ class SelectiveConfig:
     slippage: float = 0.0           # price units, added to the cost
     allow_unknown_cost: bool = False
     max_signal_age: int = 180       # seconds after the confirmation candle closed
-    profile: str = "strict"         # "strict" (default) or "active" (see make_config)
+    profile: str = "strict"         # "strict" (default), "active" or "loose" (see make_config)
+    strong_body_frac: float = None  # also count a closed M5 candle with body >= this share of its range as strong
     risk_percent: float = 0.25      # paper-trading risk per trade, % of the account (research setting)
     max_daily_losses: int = 3       # stop for the day after this many losses in a row (0 = off)
     max_daily_loss_pct: float = 1.5  # ... or after losing this % of the account in a UTC day
@@ -63,6 +64,9 @@ def daily_loss_limit_r(cfg):
     return cfg.max_daily_loss_pct / cfg.risk_percent if cfg.risk_percent and cfg.max_daily_loss_pct else 0.0
 
 
+PROFILES = ("strict", "active", "loose")
+
+
 def make_config(profile="strict", **overrides):
     """strict = the default, highly selective rules. active = a looser profile that gives more
     signals: lower confluence minimum (4/8), a longer retest window (5 M5 candles), zones may be
@@ -73,10 +77,16 @@ def make_config(profile="strict", **overrides):
     if profile == "active":
         base = dict(profile="active", min_confluence=4, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, ready_score=80)
+    elif profile == "loose":
+        # the most permissive profile: a score of 60+, a strong confirmation candle may also be one whose
+        # body is at least 60% of its range. 60% of the 8 confluence checks is 5, which is what strict
+        # already needs, so the loose profile keeps active's 4. Nothing mandatory is relaxed.
+        base = dict(profile="loose", min_confluence=4, retest_window=5, max_zone_age=192,
+                    fvg_max_fill=0.7, ready_score=60, strong_body_frac=0.6)
     elif profile == "strict":
         base = {}
     else:
-        raise ValueError("PROFILE must be strict or active")
+        raise ValueError("PROFILE must be strict, active or loose")
     base.update(overrides)
     return SelectiveConfig(**base)
 
@@ -120,19 +130,25 @@ def classify_break(bar, level, side):
     return "wick" if bar["low"] < level else None
 
 
-def confirmation(m5, side):
+def confirmation(m5, side, body_frac=None):
     """Checks the LAST candle of `m5` (must already be closed). Returns (ok, strong, reason).
-    strong = it also closed beyond the previous candle's high (buy) / low (sell)."""
+    strong = it also closed beyond the previous candle's high (buy) / low (sell), or, when `body_frac`
+    is given, its body is at least that share of its high-low range."""
     if len(m5) < 2:
         return False, False, "not enough M5 candles"
     c, p = m5[-1], m5[-2]
     if side == "buy":
         if not c["close"] > c["open"]:
             return False, False, "last closed M5 candle is not bullish"
-        return True, c["close"] > p["high"], ""
+        return True, c["close"] > p["high"] or _body_strong(c, body_frac), ""
     if not c["close"] < c["open"]:
         return False, False, "last closed M5 candle is not bearish"
-    return True, c["close"] < p["low"], ""
+    return True, c["close"] < p["low"] or _body_strong(c, body_frac), ""
+
+
+def _body_strong(c, frac):
+    rng = c["high"] - c["low"]
+    return bool(frac) and rng > 0 and abs(c["close"] - c["open"]) >= frac * rng
 
 
 # ===== Support / resistance (H1 and H4) =====
@@ -441,7 +457,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     rep["confirm"] = f"closed M5 {_ohlc(last)} ({'bullish' if side == 'buy' else 'bearish'})"
     rep["m1"] = m1_timing(m1, side)
 
-    ok_c, strong, why = confirmation(m5, side)
+    ok_c, strong, why = confirmation(m5, side, cfg.strong_body_frac)
     checks = res["checks"]
     checks["confirm"] = ok_c
     if not ok_c:
@@ -670,7 +686,8 @@ def format_signal(market, res, digits=2):
     s = res["setup"]
     c = res["checks"]
     mark = lambda k: "yes" if c.get(k) else "no"  # noqa: E731
-    tag = ", ACTIVE profile (looser filter)" if s.get("profile") == "active" else ""
+    tag = {"active": ", ACTIVE profile (looser filter)",
+           "loose": ", LOOSE profile (lowest filter, score 60+)"}.get(s.get("profile"), "")
     if s.get("score100", 100) < 86:
         tag += ", REDUCED CONFIDENCE (score below 86)"
     lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}]",
@@ -725,7 +742,7 @@ def format_signal_ar(market, res, digits=2):
         cost += " (غير موثّقة: السبريد غير معروف، تحقق منه في MT5)"
     lines = [f"إشارة دخول: {side} {name} ({market})",
              f"النوع: {mode} | حالة البيانات: {res['status']}"
-             + (" | ملف نشط (فلتر أخف)" if s.get("profile") == "active" else "")
+             + {"active": " | ملف نشط (فلتر أخف)", "loose": " | ملف متساهل (أقل فلتر، تقييم 60+)"}.get(s.get("profile"), "")
              + (" | ثقة أقل (التقييم أقل من 86)" if s.get("score100", 100) < 86 else ""),
              f"الدخول: {s['entry']:.{digits}f}",
              f"الإبطال: {s['invalidation']:.{digits}f}",

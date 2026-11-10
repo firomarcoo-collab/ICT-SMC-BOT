@@ -1,4 +1,5 @@
 """Robustness / safety tests added after the full audit. Run: python test_audit.py"""
+import pytest
 import contextlib
 import io
 import random
@@ -470,3 +471,53 @@ def test_active_profile_accepts_80_to_85_with_a_reduced_confidence_label_but_str
     assert sl.evaluate("X", against, NOW - 250, active, spread=.2)["action"] == "WAIT"      # unclosed candle
     assert sl.evaluate("X", against, NOW, active, spread=.2, status="STALE")["action"] == "WAIT"
     assert (active.max_daily_losses, active.max_daily_loss_pct, active.risk_percent) == (3, 1.5, 0.25)
+
+
+def test_live_config_keeps_each_profile_defaults_unless_a_variable_is_set():
+    """Regression: an unset READY_SCORE used to override the active profile's 80 with 86."""
+    c = ict_alerts.build_selective_config({"PROFILE": "active"})
+    assert (c.profile, c.ready_score, c.min_confluence) == ("active", 80, 4)
+    assert ict_alerts.build_selective_config({}).ready_score == 86
+    assert ict_alerts.build_selective_config({"PROFILE": "active", "READY_SCORE": "70"}).ready_score == 70
+    assert ict_alerts.build_selective_config({"PROFILE": "strict", "MIN_CONFLUENCE": "4"}).min_confluence == 4
+    risk = ict_alerts.build_selective_config({"PROFILE": "loose"})
+    assert (risk.max_daily_losses, risk.max_daily_loss_pct, risk.risk_percent) == (3, 1.5, 0.25)
+    assert ict_alerts.build_selective_config({"ALLOW_UNKNOWN_COST": "1"}).allow_unknown_cost is True
+    for bad in ({"PROFILE": "wild"}, {"READY_SCORE": "abc"}):
+        with pytest.raises(SystemExit):
+            ict_alerts.build_selective_config(bad)
+
+
+def test_loose_profile_is_the_most_permissive_and_changes_no_mandatory_rule():
+    s, a, lo = (sl.make_config(p) for p in ("strict", "active", "loose"))
+    assert (s.ready_score, a.ready_score, lo.ready_score) == (86, 80, 60)
+    assert lo.strong_body_frac == 0.6 and s.strong_body_frac is None and a.strong_body_frac is None
+    assert lo.min_confluence == 4          # 60% of 8 checks = 5, which is what strict already needs
+    assert sl.PROFILES == ("strict", "active", "loose")
+    with pytest.raises(ValueError):
+        sl.make_config("wild")
+
+
+def test_strong_confirmation_by_body_share_of_range():
+    def c(o, h, l, cl):
+        return {"open": o, "high": h, "low": l, "close": cl}
+    prev = c(100, 101, 99, 100.5)
+    big_body = c(100.2, 100.9, 100.1, 100.8)          # bullish, closes below prev high (101): not strong by close
+    assert sl.confirmation([prev, big_body], "buy") == (True, False, "")
+    assert sl.confirmation([prev, big_body], "buy", 0.6) == (True, True, "")        # body 0.6 of 0.8 range
+    wicky = c(100.2, 101.0, 99.8, 100.5)               # body 0.3 of 1.2 range
+    assert sl.confirmation([prev, wicky], "buy", 0.6) == (True, False, "")
+    assert sl.confirmation([prev, c(100, 100.2, 99.1, 99.2)], "sell", 0.6)[1] is True
+    assert sl.confirmation([prev, c(100, 100, 100, 100)], "buy", 0.6)[0] is False   # doji is not bullish
+
+
+def test_loose_profile_signals_a_setup_that_active_rejects_and_keeps_the_safety_rules():
+    from test_ict_engine import reversal_scenario
+    d = reversal_scenario("valid", h_up=False)[0]
+    loose = sl.make_config("loose")
+    res = sl.evaluate("X", d, NOW, loose, spread=.2)
+    assert res["action"] == "BUY" and "LOOSE profile" in sl.format_signal("X", res)
+    assert "ملف متساهل" in sl.format_signal_ar("X", res)
+    assert sl.evaluate("X", d, NOW, loose, spread=None)["action"] == "WAIT"
+    assert sl.evaluate("X", d, NOW - 250, loose, spread=.2)["action"] == "WAIT"
+    assert sl.evaluate("X", d, NOW, loose, spread=.2, status="STALE")["action"] == "WAIT"

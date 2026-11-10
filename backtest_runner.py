@@ -314,7 +314,7 @@ def main(argv=None):
     ap.add_argument("--tz-offset", type=float, default=0.0, help="hours the CSV clock is ahead of UTC")
     ap.add_argument("--spread", type=float, default=None, help="spread in PRICE units (None = unknown -> WAIT)")
     ap.add_argument("--commission", type=float, default=0.0, help="commission per round trip, price units")
-    ap.add_argument("--profile", default="strict", choices=["strict", "active"])
+    ap.add_argument("--profile", default="strict", choices=list(sl.PROFILES))
     ap.add_argument("--out", help="write the full report as JSON")
     a = ap.parse_args(argv)
     m5, problems = load_csv(a.m5, a.tz_offset)

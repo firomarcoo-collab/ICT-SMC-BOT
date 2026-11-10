@@ -548,6 +548,32 @@ def restore_tracking(store, track, names):
     return unfollowed
 
 
+def build_selective_config(env):
+    """SelectiveConfig from environment variables. The profile (strict / active / loose) sets its own
+    defaults; a variable only overrides them when it is actually set (an unset READY_SCORE must not
+    quietly replace the profile's score threshold)."""
+    def num(var, cast=float):
+        raw = env.get(var)
+        if not raw:
+            return None
+        try:
+            return cast(float(raw))
+        except ValueError:
+            raise SystemExit(f"{var} must be a number, got {raw!r}")
+
+    profile = env.get("PROFILE", "strict").lower()
+    if profile not in selective.PROFILES:
+        raise SystemExit("PROFILE must be strict, active or loose")
+    over = {"min_confluence": num("MIN_CONFLUENCE", int), "slippage": num("SLIPPAGE"),
+            "max_daily_losses": num("MAX_DAILY_LOSSES", int), "max_daily_loss_pct": num("MAX_DAILY_LOSS_PCT"),
+            "max_daily_loss_r": num("MAX_DAILY_LOSS_R"), "risk_percent": num("RISK_PERCENT"),
+            "ready_score": num("READY_SCORE", int)}
+    over = {k: v for k, v in over.items() if v is not None}
+    if env.get("ALLOW_UNKNOWN_COST") == "1":
+        over["allow_unknown_cost"] = True
+    return selective.make_config(profile, **over)
+
+
 def run():
     names = [markets.feed_name(n) for n in os.environ.get(
         "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD").split(",") if n.strip()]
@@ -607,17 +633,7 @@ def run():
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both
         cfg.classic_enabled = False
         cfg.rct_enabled = False
-    profile = os.environ.get("PROFILE", "strict").lower()
-    if profile not in ("strict", "active"):
-        raise SystemExit("PROFILE must be strict or active")
-    base_conf = 4 if profile == "active" else 5
-    scfg = selective.make_config(
-        profile, min_confluence=int(number("MIN_CONFLUENCE", base_conf)), slippage=number("SLIPPAGE", 0.0),
-        max_daily_losses=int(number("MAX_DAILY_LOSSES", 3)),
-        max_daily_loss_pct=number("MAX_DAILY_LOSS_PCT", 1.5),
-        max_daily_loss_r=number("MAX_DAILY_LOSS_R", None) if os.environ.get("MAX_DAILY_LOSS_R") else None,
-        risk_percent=number("RISK_PERCENT", 0.25), ready_score=int(number("READY_SCORE", 86)),
-        allow_unknown_cost=os.environ.get("ALLOW_UNKNOWN_COST") == "1")
+    scfg = build_selective_config(os.environ)
     spreads = {n: number(f"SPREAD_{n}", None) for n in names if os.environ.get(f"SPREAD_{n}")}
     store = signal_store.SignalStore(os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE)) \
         if use_selective else None
