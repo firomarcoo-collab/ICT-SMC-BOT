@@ -531,3 +531,14 @@ def test_startup_line_states_the_active_rules():
     strict = ict_alerts.describe_config(ict_alerts.build_selective_config({}), "selective")
     assert "profile STRICT" in strict and "score 86+" in strict and "UNVERIFIED" not in strict
     assert ict_alerts.describe_config(None, "legacy") == "Engine: legacy"
+
+
+def test_wait_line_marks_a_setup_that_only_missed_the_score_as_watch():
+    from test_ict_engine import reversal_scenario
+    against = reversal_scenario("valid", h_up=False)[0]               # scores 83 under strict
+    res = sl.evaluate("X", against, NOW, sl.make_config("strict"), spread=.2)
+    line = ict_alerts.wait_line("BTCUSD", res)
+    assert line.startswith("BTCUSD: WATCH (score 83/100") and "needs 86" in line and "Parts" not in line
+    plain = {"reasons": ["M15 structure is up, against a sell"], "report": {}}
+    assert ict_alerts.wait_line("US30", plain) == "US30: SELECTIVE WAIT (M15 structure is up, against a sell)"
+    assert ict_alerts.wait_line("US30", {"reasons": [], "report": {}}) == "US30: SELECTIVE WAIT (no setup)"

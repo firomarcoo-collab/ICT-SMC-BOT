@@ -387,6 +387,20 @@ SELECTIVE_TFS = (("5m", "m5"), ("15m", "m15"), ("1h", "h1"), ("4h", "h4"))
 OPTIONAL_TFS = (("1d", "d1"), ("1m", "m1"))  # context / timing only; a failure here never blocks
 
 
+def wait_line(name, res):
+    """The screen line for a WAIT. A setup that passed every rule and only missed the score gate is shown
+    as WATCH (print-only, no sound): it is the closest thing to an entry the engine has seen."""
+    why = res["reasons"][0] if res["reasons"] else "no setup"
+    if res.get("band") in ("WATCH", "REJECT") and "score100" in res and why.startswith("score "):
+        line = f"{name}: {'WATCH' if res['band'] == 'WATCH' else 'near miss'} ({why.split('. Parts')[0]})"
+    else:
+        line = f"{name}: SELECTIVE WAIT ({why})"
+    stage = res["report"].get("reversal", "")
+    if stage.startswith("stage") and not stage.startswith(("stage 0", "stage 1")):
+        line += f" [setup forming: reversal {stage.split(':')[0].split(' complete')[0]}]"
+    return line
+
+
 def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None, lang="en",
                    news=None, news_block=False, balance=0.0, risk_percent=0.5, contracts=None):
     """Runs the selective engine for one market.
@@ -443,10 +457,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
                             calendar=structure.calendar_for(inst["source"]))
     d = inst["digits"]
     if res["action"] == "WAIT":
-        line = f"{name}: SELECTIVE WAIT ({res['reasons'][0] if res['reasons'] else 'no setup'})"
-        stage = res["report"].get("reversal", "")
-        if stage.startswith("stage") and not stage.startswith(("stage 0", "stage 1")):
-            line += f" [setup forming: reversal {stage.split(':')[0].split(' complete')[0]}]"
+        line = wait_line(name, res)
         if os.environ.get("VERBOSE") == "1":  # full report: HTF, liquidity, structure, zones, retest, M5 candle
             line += "\n" + selective.explain(res)
         return line, None, False

@@ -11,9 +11,10 @@ Last update: 2026-11-11 | Branch: `phase2-restart-persistence` (not merged into 
 - Backtest runner (`backtest_runner.py`) + downloaders: Binance (`fetch_binance_history.py`),
   Dukascopy gold (`fetch_dukascopy_history.py`, unstable from the user's network).
 - Startup line now prints profile, score gate and risk limits.
+- Screen line `WATCH (score N/100 ...)` for a setup that passed every rule and only missed the score gate (print-only, no sound).
 
 ## Tests
-- Quick suite: 187 passed. Full suite incl. slow backtest tests: 201 passed on the previous commit
+- Quick suite: 188 passed. Full suite incl. slow backtest tests: 201 passed on the previous commit
   (this commit changed only `ict_alerts.py` startup text + one test; slow tests not re-run).
 
 ## Measured so far
