@@ -89,6 +89,9 @@ def test_transient_errors_are_retried_with_waits():
 
     assert fd.fetch_with_retry(flaky, "XAUUSD", H0, sleep=waits.append, log=lambda m: None) == b"ok"
     assert len(calls) == 3 and waits == [3, 6]
+    with pytest.raises(fd.DownloadStopped):
+        fd.fetch_with_retry(lambda s, w: (_ for _ in ()).throw(http_error(503)), "X", H0, sleep=waits.append, log=lambda m: None)
+    assert waits[2:] == [3, 6, 12, 24, 48, 60]            # capped at a minute, 7 tries
 
 
 def test_a_persistent_failure_stops_without_leaving_a_gap_and_resumes(tmp_path):
@@ -127,3 +130,20 @@ def test_skip_failed_continues_and_reports_the_gap(tmp_path):
     n = fd.download("XAUUSD", 1, out, fetch=fetch, now=H0.replace(hour=13), sleep=lambda s: None,
                     log=logs.append, skip_failed=True)
     assert n == 2 and any("SKIPPED" in m for m in logs)
+
+
+def test_pause_and_tries_are_used_and_the_wait_is_capped():
+    waits, calls = [], []
+
+    def always_503(symbol, when):
+        calls.append(1)
+        raise http_error(503)
+
+    with pytest.raises(fd.DownloadStopped):
+        fd.fetch_with_retry(always_503, "XAUUSD", H0, tries=8, sleep=waits.append, log=lambda m: None)
+    assert len(calls) == 8 and waits == [3, 6, 12, 24, 48, 60, 60]
+    pauses = []
+    files = {H0.replace(hour=10): bi5([(0, 2000.0)])}
+    fd.download("XAUUSD", 1, "/dev/null", fetch=lambda s, w: files.get(w, b""), now=H0.replace(hour=12),
+                sleep=pauses.append, log=lambda m: None, pause=1.5)
+    assert pauses == [1.5, 1.5]
