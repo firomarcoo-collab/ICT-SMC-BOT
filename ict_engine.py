@@ -95,8 +95,27 @@ def classify_liquidity_event(bar, level):
     return None
 
 
+_SWEEP_CACHE = {}
+
+
 def find_liquidity_sweeps(bars, lookback=SWEEP_LOOKBACK, calendar="utc"):
-    """Confirmed sweeps on the last `lookback` closed bars. Levels for bar i come from bars[:i]."""
+    """Confirmed sweeps on the last `lookback` closed bars. Levels for bar i come from bars[:i].
+    Pure function of the candles, so the result is memoised on a hash of every candle in the
+    window (time and OHLC): the same closed window asked twice (buy side, sell side, or a later
+    minute with no new candle) is computed once."""
+    key = (hash(tuple((b["time"], b["open"], b["high"], b["low"], b["close"]) for b in bars)),
+           len(bars), lookback, calendar) if bars else None
+    if key is not None and key in _SWEEP_CACHE:
+        return [dict(x) for x in _SWEEP_CACHE[key]]
+    out = _find_liquidity_sweeps(bars, lookback, calendar)
+    if key is not None:
+        if len(_SWEEP_CACHE) >= 64:
+            _SWEEP_CACHE.pop(next(iter(_SWEEP_CACHE)))
+        _SWEEP_CACHE[key] = [dict(x) for x in out]
+    return out
+
+
+def _find_liquidity_sweeps(bars, lookback, calendar):
     out = []
     for i in range(max(30, len(bars) - lookback), len(bars)):
         c, hist = bars[i], bars[:i]
