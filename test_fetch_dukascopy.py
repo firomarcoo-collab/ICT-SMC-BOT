@@ -69,3 +69,61 @@ def test_download_skips_missing_hours_resumes_and_feeds_the_backtest_loader(tmp_
 def test_an_unknown_scale_is_refused(tmp_path):
     with pytest.raises(SystemExit):
         fd.download("US30", 1, str(tmp_path / "y.csv"), fetch=lambda s, w: b"")
+
+
+def http_error(code):
+    import urllib.error
+    return urllib.error.HTTPError("u", code, "Service Unavailable", {}, None)
+
+
+def test_transient_errors_are_retried_with_waits():
+    calls, waits = [], []
+
+    def flaky(symbol, when):
+        calls.append(1)
+        if len(calls) == 1:
+            raise http_error(503)
+        if len(calls) == 2:
+            raise TimeoutError("The read operation timed out")
+        return b"ok"
+
+    assert fd.fetch_with_retry(flaky, "XAUUSD", H0, sleep=waits.append, log=lambda m: None) == b"ok"
+    assert len(calls) == 3 and waits == [3, 6]
+
+
+def test_a_persistent_failure_stops_without_leaving_a_gap_and_resumes(tmp_path):
+    files = {H0.replace(hour=h): bi5([(0, 2000 + h), (60_000, 2001 + h)]) for h in (10, 11, 12)}
+    broken = {H0.replace(hour=11)}
+
+    def fetch(symbol, when):
+        if when in broken:
+            raise http_error(503)
+        return files.get(when, b"")
+
+    out = str(tmp_path / "g.csv")
+    now = H0.replace(hour=13)
+    with pytest.raises(fd.DownloadStopped) as e:
+        fd.download("XAUUSD", 1, out, fetch=fetch, now=now, sleep=lambda s: None, log=lambda m: None)
+    assert "11h" in str(e.value)
+    saved = [int(r[0]) for r in list(csv.reader(open(out)))[1:]]
+    assert saved and max(saved) < int(H0.replace(hour=11).timestamp())      # hour 12 was NOT written past the gap
+    broken.clear()                                                          # the server recovers
+    fd.download("XAUUSD", 1, out, fetch=fetch, now=now, sleep=lambda s: None, log=lambda m: None)
+    times = [int(r[0]) for r in list(csv.reader(open(out)))[1:]]
+    assert times == sorted(set(times)) and int(H0.replace(hour=12).timestamp()) in times
+    assert int(H0.replace(hour=11).timestamp()) in times                    # no gap left
+
+
+def test_skip_failed_continues_and_reports_the_gap(tmp_path):
+    logs = []
+    files = {H0.replace(hour=h): bi5([(0, 2000 + h)]) for h in (10, 12)}
+
+    def fetch(symbol, when):
+        if when.hour == 11:
+            raise http_error(503)
+        return files.get(when, b"")
+
+    out = str(tmp_path / "s.csv")
+    n = fd.download("XAUUSD", 1, out, fetch=fetch, now=H0.replace(hour=13), sleep=lambda s: None,
+                    log=logs.append, skip_failed=True)
+    assert n == 2 and any("SKIPPED" in m for m in logs)

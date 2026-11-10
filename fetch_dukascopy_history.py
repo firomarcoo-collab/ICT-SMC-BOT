@@ -12,7 +12,7 @@ so check the first run): one file per hour at
   https://datafeed.dukascopy.com/datafeed/<SYMBOL>/<YYYY>/<MM zero-based>/<DD>/<HH>h_ticks.bi5
 LZMA-compressed, 20 bytes per tick, big endian: ms since the hour, ask, bid (integers, price x scale),
 ask volume, bid volume (float32). Candles are built from the BID, like a broker chart. Times are UTC.
-A missing hour (weekend, holiday, 404) is normal and skipped.
+A 404 (weekend, holiday) is normal and skipped. Any other failure (503, time-out, 403) is retried with waits and, if it persists, the run STOPS at that hour so the file never has hidden gaps; run it again later to continue.
 
 Price scale: XAUUSD uses 1000. Other symbols differ and are NOT known here: pass --scale yourself and
 compare the printed sample price with the real price before trusting a file. Symbol codes for other
@@ -41,9 +41,30 @@ def fetch_hour(symbol, when, opener=urllib.request.urlopen):
         with opener(urllib.request.Request(url, headers={"User-Agent": "ict-smc-bot-backtest"}), timeout=30) as r:
             return r.read()
     except urllib.error.HTTPError as e:
-        if e.code in (404, 403):
+        if e.code == 404:                                          # no data for that hour: normal
             return b""
         raise
+
+
+class DownloadStopped(Exception):
+    """A required hour could not be downloaded even after retries. Nothing after it was saved, so the
+    file has no gap: run the command again later and it continues from this hour."""
+
+
+def fetch_with_retry(fetch, symbol, when, tries=5, sleep=time.sleep, log=print):
+    """fetch_hour with retries and growing waits for 429/5xx errors, time-outs and dropped connections.
+    A 404 (no data for that hour) is not an error: fetch_hour returns b'' for it."""
+    last = None
+    for n in range(tries):
+        try:
+            return fetch(symbol, when)
+        except (OSError, ValueError) as e:                       # URLError, HTTPError, TimeoutError, ...
+            last = e
+            if n < tries - 1:
+                wait = 3 * 2 ** n                                  # 3, 6, 12, 24 seconds
+                log(f"  {when:%Y-%m-%d %H}h: {e}; retry {n + 1}/{tries - 1} in {wait}s")
+                sleep(wait)
+    raise DownloadStopped(f"{when:%Y-%m-%d %H}h failed after {tries} tries: {last}")
 
 
 def parse_ticks(blob, hour_start, scale):
@@ -83,7 +104,8 @@ def last_saved(path):
     return int(float(rows[-1][0])) if len(rows) > 1 else None
 
 
-def download(symbol, days, out, scale=None, fetch=fetch_hour, now=None, sleep=time.sleep, log=print):
+def download(symbol, days, out, scale=None, fetch=fetch_hour, now=None, sleep=time.sleep, log=print,
+             skip_failed=False):
     scale = scale or SCALES.get(symbol)
     if not scale:
         raise SystemExit(f"price scale for {symbol} is unknown: pass --scale (XAUUSD is 1000)")
@@ -100,9 +122,13 @@ def download(symbol, days, out, scale=None, fetch=fetch_hour, now=None, sleep=ti
             w.writerow(["time", "open", "high", "low", "close"])
         while cur + timedelta(hours=1) <= now:                    # only hours that are over
             try:
-                ticks = parse_ticks(fetch(symbol, cur), cur, scale)
-            except (ValueError, urllib.error.URLError) as e:
-                log(f"  {cur:%Y-%m-%d %H}h skipped: {e}")
+                blob = fetch_with_retry(fetch, symbol, cur, sleep=sleep, log=log)
+                ticks = parse_ticks(blob, cur, scale)
+            except (DownloadStopped, ValueError) as e:
+                if not skip_failed:
+                    f.flush()
+                    raise e if isinstance(e, DownloadStopped) else DownloadStopped(f"{cur:%Y-%m-%d %H}h: {e}")
+                log(f"  {cur:%Y-%m-%d %H}h SKIPPED (gap in the data): {e}")
                 ticks = []
             for k, (o, h, l, c) in sorted(to_m5(ticks).items()):
                 if resume and k <= resume:
@@ -116,7 +142,7 @@ def download(symbol, days, out, scale=None, fetch=fetch_hour, now=None, sleep=ti
                 f.flush()
                 log(f"  {cur:%Y-%m-%d}: {saved} candles saved")
             cur += timedelta(hours=1)
-            sleep(0.05)
+            sleep(0.3)                                             # be gentle: the server throttles
     if sample:
         log(f"first prices saved: {', '.join(f'{p:.2f}' for p in sample)}  "
             "<- compare with the real price of that time; a wrong --scale makes them wildly off")
@@ -128,9 +154,16 @@ def main(argv=None):
     ap.add_argument("--symbol", default="XAUUSD")
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--scale", type=float, help="integer price divisor (XAUUSD = 1000)")
+    ap.add_argument("--skip-failed", action="store_true",
+                    help="skip hours that keep failing (leaves GAPS in the data; off by default)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    print(f"done: {download(a.symbol, a.days, a.out, a.scale)} new candles in {a.out}")
+    try:
+        n = download(a.symbol, a.days, a.out, a.scale, skip_failed=a.skip_failed)
+    except DownloadStopped as e:
+        raise SystemExit(f"STOPPED: {e}\nThe file is complete up to that hour. Wait a few minutes and run the "
+                         "same command again: it continues from there.")
+    print(f"done: {n} new candles in {a.out}")
 
 
 if __name__ == "__main__":
