@@ -574,6 +574,16 @@ def build_selective_config(env):
     return selective.make_config(profile, **over)
 
 
+def describe_config(scfg, engine):
+    """One startup line that states which rules are really active (profile, score gate, risk limits)."""
+    if engine == "legacy":
+        return "Engine: legacy"
+    return (f"Engine: selective | profile {scfg.profile.upper()} | signal needs score {scfg.ready_score}+/100 "
+            f"and {scfg.min_confluence}/8 checks | risk {scfg.risk_percent}%/trade, stop after "
+            f"{scfg.max_daily_losses} losses or {scfg.max_daily_loss_pct}% a day"
+            + (" | cost UNVERIFIED allowed" if scfg.allow_unknown_cost else ""))
+
+
 def run():
     names = [markets.feed_name(n) for n in os.environ.get(
         "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD").split(",") if n.strip()]
@@ -651,6 +661,7 @@ def run():
     news_fetched = 0
     seen = set()
     print(f"ICT SMC alerts started for: {', '.join(names)} on {', '.join(tfs)}", flush=True)
+    print(describe_config(scfg, engine), flush=True)
     if offsets:
         print(f"Price offsets: {offsets}", flush=True)
 

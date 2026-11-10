@@ -521,3 +521,13 @@ def test_loose_profile_signals_a_setup_that_active_rejects_and_keeps_the_safety_
     assert sl.evaluate("X", d, NOW, loose, spread=None)["action"] == "WAIT"
     assert sl.evaluate("X", d, NOW - 250, loose, spread=.2)["action"] == "WAIT"
     assert sl.evaluate("X", d, NOW, loose, spread=.2, status="STALE")["action"] == "WAIT"
+
+
+def test_startup_line_states_the_active_rules():
+    line = ict_alerts.describe_config(ict_alerts.build_selective_config({"PROFILE": "loose",
+                                                                       "ALLOW_UNKNOWN_COST": "1"}), "selective")
+    assert "profile LOOSE" in line and "score 60+/100" in line and "4/8" in line
+    assert "0.25%/trade" in line and "3 losses" in line and "1.5% a day" in line and "UNVERIFIED" in line
+    strict = ict_alerts.describe_config(ict_alerts.build_selective_config({}), "selective")
+    assert "profile STRICT" in strict and "score 86+" in strict and "UNVERIFIED" not in strict
+    assert ict_alerts.describe_config(None, "legacy") == "Engine: legacy"
