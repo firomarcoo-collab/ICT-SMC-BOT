@@ -496,25 +496,27 @@ SIDE_STYLE = {"buy": ("\U0001F535", "\033[1;94m", "0066FF"),    # blue
               "sell": ("\U0001F534", "\033[1;91m", "FF0000")}   # red
 
 
-def notify(text, entry=False, side=None):
+def notify(text, entry=False, side=None, alert=False):
     """Shows the message. Only entry=True (a trade ready to enter) makes a sound; everything
     else (sessions, news, results, heads-up events) is only printed on the Termux screen
     (INFO_NOTIFY=1 also shows it as a silent phone notification).
     side 'buy' / 'sell' colours the alert: blue for BUY, red for SELL (terminal colour, a coloured
-    circle in the notification and Telegram text, and the phone's notification light)."""
+    circle in the notification and Telegram text, and the phone's notification light).
+    alert=True (trade management: move the stop, reinforcement) shows a phone notification but never
+    plays the entry tone."""
     emoji, ansi, led = SIDE_STYLE.get(side, ("", "", ""))
     print(f"{ansi}{text}\033[0m" if ansi else text, flush=True)
-    if not entry and os.environ.get("INFO_NOTIFY") != "1":
+    if not entry and not alert and os.environ.get("INFO_NOTIFY") != "1":
         return  # info messages stay in the Termux screen only: no phone notification, no sound
     if emoji:
         text = f"{emoji} {text}"
     sound = sound_path() if entry and shutil.which("termux-media-player") else None
     if shutil.which("termux-notification"):
-        title = "ICT SMC" if entry else "ICT SMC (info)"
+        title = "ICT SMC" if entry else "ICT SMC (manage)" if alert else "ICT SMC (info)"
         if side:
             title = f"{emoji} {side.upper()} - ICT SMC"
         cmd = ["termux-notification", "--title", title,
-               "--content", text, "--priority", "high" if entry else "low"]
+               "--content", text, "--priority", "high" if entry or alert else "low"]
         if led:
             cmd += ["--led-color", led]
         if entry and not sound:
@@ -533,7 +535,7 @@ def notify(text, entry=False, side=None):
     if token and chat:
         try:
             fields = {"chat_id": chat, "text": text}
-            if not entry:
+            if not (entry or alert):
                 fields["disable_notification"] = "true"  # no sound on the Telegram side either
             body = urllib.parse.urlencode(fields).encode()
             urllib.request.urlopen(
@@ -752,7 +754,7 @@ def run():
                             track.add(name, tf, alert["kind"], alert["setup"], alert["bar_time"])
                     if track and (name, tf) in LAST_R:
                         for note in track.update(name, tf, LAST_R[(name, tf)]):
-                            notify(note)
+                            notify(note, alert=note.startswith(tracker.MANAGE_PREFIXES))
                 except Exception as e:
                     print(f"[{stamp} {tf}] {name}: error: {e}", flush=True)
         # wake up shortly after the next minute starts

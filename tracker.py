@@ -10,12 +10,20 @@ import os
 from datetime import datetime, timezone
 
 MAX_WAIT_BARS = 24
+# Trade management alerts (messages only, nothing is ever sent to the broker):
+BE_ARM_R = 0.5       # once the trade has been this many R in profit ...
+RETRACE_FRAC = 0.5   # ... and a closed candle gives back this share of that best profit: move SL to entry
+MANAGE_PREFIXES = ("TRADE +", "REVERSAL WARNING")   # messages that are management alerts, not results
+ADD_R = 1.0          # a candle CLOSES this many R in profit: milestone (protect + optional add-on)
 DEFAULT_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results.csv")
 
 
 class Tracker:
-    def __init__(self, path=DEFAULT_CSV):
+    def __init__(self, path=DEFAULT_CSV, be_arm_r=None, retrace_frac=None, add_r=None):
         self.path = path
+        self.be_arm_r = BE_ARM_R if be_arm_r is None else be_arm_r
+        self.retrace_frac = RETRACE_FRAC if retrace_frac is None else retrace_frac
+        self.add_r = ADD_R if add_r is None else add_r
         self.items = []
         self.on_done = None  # optional callback(item, outcome) with outcome win/loss/not_filled
         self.wins = self.losses = 0
@@ -49,7 +57,7 @@ class Tracker:
         it starts OPEN and the next candles are checked stop first. Otherwise it is a limit order."""
         self.items.append({"name": name, "tf": tf, "kind": kind, "setup": dict(setup),
                            "state": "open" if market else "pending", "waited": 0, "last": bar_time,
-                           "ref": ref})
+                           "ref": ref, "mfe": 0.0, "warned": False, "milestone": False})
 
     def _finish(self, it, outcome):
         if self.on_done:
@@ -76,6 +84,36 @@ class Tracker:
         return (f"{it['name']} {it['tf']} {it['kind'].upper()} {s['side'].upper()} "
                 f"(entry {s['entry']:.8g}, SL {s['sl']:.8g}, TP {s['tp']:.8g})")
 
+    def _manage(self, it, c, buy, risk):
+        """Alerts for an OPEN trade after a closed candle that hit neither stop nor target.
+        1) +ADD_R closed in profit: protect (stop to entry) and mention a possible add-on.
+        2) The trade was at least BE_ARM_R in profit, a closed candle gave back RETRACE_FRAC of the best
+           profit and is still in profit: reversal warning, stop to entry."""
+        if not risk:
+            return []
+        s = it["setup"]
+        fav = ((c["high"] - s["entry"]) if buy else (s["entry"] - c["low"])) / risk
+        now_r = ((c["close"] - s["entry"]) if buy else (s["entry"] - c["close"])) / risk
+        it["mfe"] = max(it["mfe"], fav)
+        out = []
+        if now_r >= self.add_r and not it["milestone"]:
+            it["milestone"] = True
+            out.append(
+                f"TRADE +{now_r:.1f}R: {self._label(it)}\n"
+                f"-> Move the stop to the entry {s['entry']:.8g} (risk-free). A reinforcement (add-on) in the "
+                f"same direction is only worth considering after a pullback and a NEW closed M5 confirmation, "
+                f"with a smaller size and its own stop.\n"
+                f"الصفقة +{now_r:.1f}R: حرّك الستوب إلى سعر الدخول. التعزيز بنفس الاتجاه فقط بعد تراجع وشمعة M5 تأكيد جديدة وبحجم أصغر.")
+        elif (it["mfe"] >= self.be_arm_r and not it["warned"] and not it["milestone"]
+              and 0 < now_r <= it["mfe"] * (1 - self.retrace_frac)):
+            it["warned"] = True
+            out.append(
+                f"REVERSAL WARNING: {self._label(it)}\n"
+                f"Best profit was +{it['mfe']:.1f}R, now +{now_r:.1f}R and turning back. "
+                f"-> Consider moving the stop to the entry {s['entry']:.8g} so it cannot become a loss.\n"
+                f"تحذير انعكاس: الربح الأعلى كان +{it['mfe']:.1f}R والآن +{now_r:.1f}R. فكّر بتحريك الستوب إلى سعر الدخول.")
+        return out
+
     def update(self, name, tf, r):
         """r: candles newest first (r[0] forming). Returns a list of messages to send."""
         notes = []
@@ -90,6 +128,7 @@ class Tracker:
                 if t <= it["last"]:
                     continue
                 it["last"] = t
+                fill_bar = False
                 stop_hit = c["low"] <= s["sl"] if buy else c["high"] >= s["sl"]
                 target_hit = c["high"] >= s["tp"] if buy else c["low"] <= s["tp"]
                 if it["state"] == "pending":
@@ -104,6 +143,7 @@ class Tracker:
                         continue
                     it["state"] = "open"
                     target_hit = False  # on the fill bar only the stop counts
+                    fill_bar = True     # ... and it is too early to manage the trade
                 if it["state"] == "open":
                     if stop_hit:
                         it["state"] = "done"
@@ -117,5 +157,7 @@ class Tracker:
                         self._finish(it, "win")
                         notes.append(f"RESULT: WIN +{reward:.1f}R | {self._label(it)}\n{self.tally()}")
                         break
+                    if not fill_bar:
+                        notes.extend(self._manage(it, c, buy, risk))
         self.items = [i for i in self.items if i["state"] != "done"]
         return notes
