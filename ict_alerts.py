@@ -502,15 +502,16 @@ def notify(text, entry=False, side=None, alert=False):
     (INFO_NOTIFY=1 also shows it as a silent phone notification).
     side 'buy' / 'sell' colours the alert: blue for BUY, red for SELL (terminal colour, a coloured
     circle in the notification and Telegram text, and the phone's notification light).
-    alert=True (trade management: move the stop, reinforcement) shows a phone notification but never
-    plays the entry tone."""
+    alert=True (trade management: move the stop, reinforcement) shows a phone notification and plays
+    the same tone as an entry (MANAGE_SOUND=0 makes it silent); plain info messages stay silent."""
     emoji, ansi, led = SIDE_STYLE.get(side, ("", "", ""))
     print(f"{ansi}{text}\033[0m" if ansi else text, flush=True)
     if not entry and not alert and os.environ.get("INFO_NOTIFY") != "1":
         return  # info messages stay in the Termux screen only: no phone notification, no sound
     if emoji:
         text = f"{emoji} {text}"
-    sound = sound_path() if entry and shutil.which("termux-media-player") else None
+    loud = entry or (alert and os.environ.get("MANAGE_SOUND", "1") != "0")
+    sound = sound_path() if loud and shutil.which("termux-media-player") else None
     if shutil.which("termux-notification"):
         title = "ICT SMC" if entry else "ICT SMC (manage)" if alert else "ICT SMC (info)"
         if side:
@@ -519,7 +520,7 @@ def notify(text, entry=False, side=None, alert=False):
                "--content", text, "--priority", "high" if entry or alert else "low"]
         if led:
             cmd += ["--led-color", led]
-        if entry and not sound:
+        if loud and not sound:
             cmd.append("--sound")  # no custom sound: use the phone's notification sound
         try:
             subprocess.run(cmd, timeout=10)

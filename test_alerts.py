@@ -253,23 +253,38 @@ if __name__ == "__main__":
             print("ok", name)
 
 
-def test_management_alerts_show_a_notification_but_never_play_the_entry_tone():
+def test_management_alerts_play_the_tone_unless_muted_and_info_stays_silent():
     import contextlib
     import io
+    import os
     calls = []
-    saved = (ict_alerts.shutil.which, ict_alerts.subprocess.run)
+    saved = (ict_alerts.shutil.which, ict_alerts.subprocess.run, os.environ.get("MANAGE_SOUND"))
     ict_alerts.shutil.which = lambda name: "/bin/" + name
     ict_alerts.subprocess.run = lambda cmd, **kw: calls.append(cmd)
-    try:
+
+    def sent(**env):
+        calls.clear()
+        os.environ.pop("MANAGE_SOUND", None)
+        os.environ.update(env)
         with contextlib.redirect_stdout(io.StringIO()):
             ict_alerts.notify("REVERSAL WARNING: move the stop", alert=True)
-            managed = list(calls)
-            calls.clear()
-            ict_alerts.notify("info only")                                  # a plain info message: nothing
-            plain = list(calls)
+        return list(calls)
+
+    try:
+        loud = sent()
+        muted = sent(MANAGE_SOUND="0")
+        calls.clear()
+        os.environ.pop("MANAGE_SOUND", None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            ict_alerts.notify("info only")
+        plain = list(calls)
     finally:
-        ict_alerts.shutil.which, ict_alerts.subprocess.run = saved
-    assert [c[0] for c in managed] == ["termux-notification"]              # no termux-media-player
-    assert "--sound" not in managed[0] and managed[0][managed[0].index("--priority") + 1] == "high"
-    assert managed[0][managed[0].index("--title") + 1] == "ICT SMC (manage)"
+        ict_alerts.shutil.which, ict_alerts.subprocess.run = saved[:2]
+        os.environ.pop("MANAGE_SOUND", None)
+        if saved[2] is not None:
+            os.environ["MANAGE_SOUND"] = saved[2]
+    assert sorted(c[0] for c in loud) == ["termux-media-player", "termux-notification"]   # tone + notification
+    note = [c for c in loud if c[0] == "termux-notification"][0]
+    assert note[note.index("--title") + 1] == "ICT SMC (manage)"
+    assert [c[0] for c in muted] == ["termux-notification"] and "--sound" not in muted[0]
     assert plain == []
