@@ -24,6 +24,8 @@ Environment variables (all optional):
     TRACK             0 = do not follow signals to report WIN / LOSS (results go to results.csv)
     CLASSIC           0 turns off the standalone classical alerts (default 1)
     ALERT_SOUND       path of your own sound file, or "off"; default is alert.wav next to this script
+    REVIEW_COPY       1 (default): every entry signal is copied to the clipboard with a review request,
+                      to paste into an AI assistant; 0 turns it off (also saved in last_signal_review.txt)
     TELEGRAM_TOKEN    Telegram bot token (to also get alerts in Telegram)
     TELEGRAM_CHAT_ID  your Telegram chat id
 """
@@ -496,6 +498,37 @@ SIDE_STYLE = {"buy": ("\U0001F535", "\033[1;94m", "0066FF"),    # blue
               "sell": ("\U0001F534", "\033[1;91m", "FF0000")}   # red
 
 
+REVIEW_FILE = os.environ.get("REVIEW_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                            "last_signal_review.txt")
+REVIEW_HEADER = (
+    "حلّل هذه الإشارة كمراجع مستقل قبل أن أدخل: هل تتوافق مع قواعد ICT/SMC المذكورة؟ ما نقاط الضعف "
+    "والمخاطر (التكلفة، جودة البيانات، الأخبار، الوقت)؟ وما الذي أتحقق منه في MT5 قبل الدخول؟ "
+    "لا تعدني بربح ولا تتنبأ بالسعر.\n"
+    "Review this signal as an independent second opinion before I enter. Does it match the ICT/SMC "
+    "rules it states? Weak points and risks (cost, data quality, news, time)? What should I verify in "
+    "MT5 first? Do not promise profit or predict price.\n\n")
+
+
+def save_for_review(text, path=None):
+    """Writes the signal with a review request to a file and copies it to the phone clipboard
+    (termux-clipboard-set) so it can be pasted to an AI assistant. REVIEW_COPY=0 turns it off.
+    Never raises: a problem here must not stop the alerts."""
+    if os.environ.get("REVIEW_COPY", "1") == "0":
+        return None
+    pack = REVIEW_HEADER + text
+    try:
+        with open(path or REVIEW_FILE, "w") as f:
+            f.write(pack)
+    except OSError:
+        log.exception("could not save the review file")
+    if shutil.which("termux-clipboard-set"):
+        try:
+            subprocess.run(["termux-clipboard-set"], input=pack.encode(), timeout=10)
+        except Exception:
+            log.exception("termux-clipboard-set failed")
+    return pack
+
+
 def notify(text, entry=False, side=None, alert=False):
     """Shows the message. Only entry=True (a trade ready to enter) makes a sound; everything
     else (sessions, news, results, heads-up events) is only printed on the Termux screen
@@ -732,6 +765,7 @@ def run():
                     print(f"[{stamp} sel] {status}", flush=True)
                     if alert:
                         notify(alert["text"], entry=True, side=alert["setup"]["side"])
+                        save_for_review(alert["text"])
                         if track:
                             track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],
                                       ref=alert["market"], market=True)

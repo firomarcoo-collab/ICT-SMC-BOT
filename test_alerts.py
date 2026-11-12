@@ -288,3 +288,30 @@ def test_management_alerts_play_the_tone_unless_muted_and_info_stays_silent():
     assert note[note.index("--title") + 1] == "ICT SMC (manage)"
     assert [c[0] for c in muted] == ["termux-notification"] and "--sound" not in muted[0]
     assert plain == []
+
+
+def test_every_entry_signal_is_saved_and_copied_for_an_ai_review(tmp_path):
+    import os
+    calls = []
+    saved = (ict_alerts.shutil.which, ict_alerts.subprocess.run, os.environ.get("REVIEW_COPY"))
+    ict_alerts.shutil.which = lambda name: "/bin/" + name
+    ict_alerts.subprocess.run = lambda cmd, **kw: calls.append((cmd, kw))
+    f = str(tmp_path / "review.txt")
+    try:
+        os.environ.pop("REVIEW_COPY", None)
+        pack = ict_alerts.save_for_review("XAUUSD BUY entry 4000", f)
+        assert open(f).read() == pack and "XAUUSD BUY entry 4000" in pack and "second opinion" in pack
+        assert "حلّل هذه الإشارة" in pack
+        assert calls[0][0] == ["termux-clipboard-set"] and calls[0][1]["input"] == pack.encode()
+        calls.clear()
+        os.environ["REVIEW_COPY"] = "0"
+        assert ict_alerts.save_for_review("x", f) is None and calls == []             # switched off
+        os.environ.pop("REVIEW_COPY")
+        ict_alerts.shutil.which = lambda name: None                                    # no Termux:API: file only
+        assert ict_alerts.save_for_review("y", f).endswith("y") and calls == []
+        assert ict_alerts.save_for_review("z", str(tmp_path / "nodir" / "r.txt")).endswith("z")  # no exception
+    finally:
+        ict_alerts.shutil.which, ict_alerts.subprocess.run = saved[:2]
+        os.environ.pop("REVIEW_COPY", None)
+        if saved[2] is not None:
+            os.environ["REVIEW_COPY"] = saved[2]

@@ -13,6 +13,9 @@ Last update: 2026-11-11 | Branch: `phase2-restart-persistence` (not merged into 
 - Startup line now prints profile, score gate and risk limits.
 - Screen line `WATCH (score N/100 ...)` for a setup that passed every rule and only missed the score gate (print-only, no sound).
 
+- AI review pack: every entry signal is copied to the clipboard (termux-clipboard-set) and saved to
+  `last_signal_review.txt` with a review request; `REVIEW_COPY=0` disables. No external AI service is called.
+
 ## Tests
 - Quick suite: 188 passed. Full suite incl. slow backtest tests: 201 passed on the previous commit
   (this commit changed only `ict_alerts.py` startup text + one test; slow tests not re-run).

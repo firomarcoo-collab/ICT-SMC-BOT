@@ -5,3 +5,4 @@ signals_state.json
 signals_state.json.tmp
 signals_state.json.bad
 signals_state.jsonl
+last_signal_review.txt
