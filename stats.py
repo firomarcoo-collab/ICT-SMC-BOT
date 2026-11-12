@@ -12,9 +12,15 @@ from tracker import DEFAULT_CSV
 def load(path=DEFAULT_CSV):
     try:
         with open(path, newline="") as f:
-            return list(csv.DictReader(f))
+            rows = list(csv.reader(f))
     except OSError:
         return []
+    # Older files may have no header line: read columns by position.
+    rows = [r for r in rows if len(r) >= 7 and r[0] != "time_utc"]
+    return [dict(zip(COLUMNS, r)) for r in rows]
+
+
+COLUMNS = ["time_utc", "symbol", "timeframe", "kind", "side", "result", "R"]
 
 
 def line(label, rows):
