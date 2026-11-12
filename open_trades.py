@@ -19,7 +19,8 @@ def describe(path=None):
     lines = []
     if not active:
         lines.append("No active signals.")
-    for market, s in active.items():
+    for _id, s in active.items():
+        market = s.get("market", _id)
         age = int((time.time() - s["created"]) / 60)
         lines.append(f"{market}: {s['side'].upper()} entry {s['entry']:.8g}  SL {s['sl']:.8g}  "
                      f"TP {s['tp']:.8g}  (issued {age} min ago, still being followed)")

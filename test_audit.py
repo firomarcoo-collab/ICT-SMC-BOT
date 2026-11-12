@@ -542,3 +542,40 @@ def test_wait_line_marks_a_setup_that_only_missed_the_score_as_watch():
     plain = {"reasons": ["M15 structure is up, against a sell"], "report": {}}
     assert ict_alerts.wait_line("US30", plain) == "US30: SELECTIVE WAIT (M15 structure is up, against a sell)"
     assert ict_alerts.wait_line("US30", {"reasons": [], "report": {}}) == "US30: SELECTIVE WAIT (no setup)"
+
+
+def _sig(side, bar, entry=100.0):
+    return {"side": side, "entry": entry, "sl": entry - 1, "tp": entry + 2, "bar_time": bar}
+
+
+def test_stacking_allows_more_signals_per_market():
+    store = signal_store.SignalStore(None, max_active=2, allow_opposite=True)
+    assert store.open("BTCUSD", _sig("buy", 1), 1000)[0]
+    assert store.open("BTCUSD", _sig("sell", 2), 1000)[0]          # opposite side allowed
+    ok, why = store.open("BTCUSD", _sig("buy", 3), 1000)           # third one: over the cap
+    assert not ok and "blocked" in why
+    store.close("BTCUSD-buy-1", "win", 1100)                        # closing by id frees one slot
+    assert store.open("BTCUSD", _sig("buy", 3), 1200)[0]
+    assert len(store.active_list("BTCUSD")) == 2
+
+
+def test_stacking_default_and_no_opposite():
+    store = signal_store.SignalStore(None)
+    assert store.open("BTCUSD", _sig("buy", 1), 1000)[0]
+    assert not store.open("BTCUSD", _sig("buy", 2), 1000)[0]        # default: one lock per market
+    store2 = signal_store.SignalStore(None, max_active=3, allow_opposite=False)
+    assert store2.open("BTCUSD", _sig("buy", 1), 1000)[0]
+    assert store2.open("BTCUSD", _sig("buy", 2), 1000)[0]
+    assert not store2.open("BTCUSD", _sig("sell", 3), 1000)[0]
+    store2.close("BTCUSD", "loss", 1100)                            # a market name closes its oldest
+    assert [s["bar_time"] for s in store2.active_list("BTCUSD")] == [2]
+
+
+def test_old_state_file_keyed_by_market_still_loads(tmp_path):
+    import json
+    path = str(tmp_path / "s.json")
+    old = {"id": "BTCUSD-buy-5", "market": "BTCUSD", "side": "buy", "entry": 1.0, "sl": 0.5,
+           "tp": 2.0, "bar_time": 5, "created": 0, "state": "ACTIVE"}
+    json.dump({"active": {"BTCUSD": old}, "seen": [], "used": [], "results": []}, open(path, "w"))
+    store = signal_store.SignalStore(path)
+    assert "BTCUSD-buy-5" in store.active_signals and store.active("BTCUSD")["id"] == "BTCUSD-buy-5"

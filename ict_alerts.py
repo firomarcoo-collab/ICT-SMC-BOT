@@ -473,7 +473,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     if lot:
         text += "\n" + lot
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market,
-                                                  "bar_time": setup["bar_time"]}, False
+                                                  "id": res.get("id"), "bar_time": setup["bar_time"]}, False
 
 
 # ===== Notifications =====
@@ -586,11 +586,12 @@ def restore_tracking(store, track, names):
     locks stay until the store's TTL expires them."""
     track.on_done = lambda it, outcome: store.close(it["ref"], outcome) if it.get("ref") else None
     unfollowed = []
-    for market, sig in list(store.active_signals.items()):
+    for sid, sig in list(store.active_signals.items()):
+        market = sig.get("market", sid)
         feed = markets.feed_name(market)
         if feed in names:
-            track.add(feed, "5m", "selective", sig, sig["bar_time"], ref=market, market=True)
-        else:
+            track.add(feed, "5m", "selective", sig, sig["bar_time"], ref=sid, market=True)
+        elif market not in unfollowed:
             unfollowed.append(market)
     return unfollowed
 
@@ -692,8 +693,12 @@ def run():
         cfg.rct_enabled = False
     scfg = build_selective_config(os.environ)
     spreads = {n: number(f"SPREAD_{n}", None) for n in names if os.environ.get(f"SPREAD_{n}")}
-    store = signal_store.SignalStore(os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE)) \
-        if use_selective else None
+    # MAX_ACTIVE signals may be open on one market at once (1 = old one-signal lock);
+    # ALLOW_OPPOSITE=0 keeps a BUY and a SELL from being open together on the same market.
+    store = signal_store.SignalStore(
+        os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE),
+        max_active=int(os.environ.get("MAX_ACTIVE") or 3),
+        allow_opposite=os.environ.get("ALLOW_OPPOSITE", "1") != "0") if use_selective else None
     track = tracker.Tracker(os.environ.get("RESULTS_FILE", tracker.DEFAULT_CSV)) \
         if os.environ.get("TRACK", "1") != "0" else None
     last_bucket = {}
@@ -768,7 +773,7 @@ def run():
                         save_for_review(alert["text"])
                         if track:
                             track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],
-                                      ref=alert["market"], market=True)
+                                      ref=alert["id"], market=True)
                 except Exception as e:
                     print(f"[{stamp} sel] {name}: error: {e}", flush=True)
         for tf in tfs:

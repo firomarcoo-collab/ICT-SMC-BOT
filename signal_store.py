@@ -32,9 +32,12 @@ DEFAULT_TTL = 6 * 3600  # an active signal older than this is expired (tracker n
 
 
 class SignalStore:
-    def __init__(self, path=DEFAULT_FILE, ttl=DEFAULT_TTL, log_path=None):
+    def __init__(self, path=DEFAULT_FILE, ttl=DEFAULT_TTL, log_path=None,
+                 max_active=1, allow_opposite=False):
         self.path = path
         self.ttl = ttl
+        self.max_active = max(1, int(max_active))   # open signals allowed per market (default 1 = lock)
+        self.allow_opposite = allow_opposite        # may a BUY and a SELL be open together on one market
         self.log_path = log_path if log_path is not None else (path + "l" if path else None)
         self.active_signals = {}
         self.seen = []
@@ -49,7 +52,8 @@ class SignalStore:
         try:
             with open(self.path) as f:
                 data = json.load(f)
-            self.active_signals = dict(data.get("active", {}))
+            # keyed by signal id; older files were keyed by market name (one signal per market)
+            self.active_signals = {v.get("id", k): v for k, v in dict(data.get("active", {})).items()}
             self.seen = list(data.get("seen", []))[-MAX_SEEN:]
             self.used = list(data.get("used", []))[-MAX_SEEN:]
             self.results = list(data.get("results", []))[-200:]
@@ -81,16 +85,26 @@ class SignalStore:
         except OSError:
             pass
 
+    def active_list(self, market):
+        return [v for v in self.active_signals.values() if v.get("market") == market]
+
     def active(self, market):
-        return self.active_signals.get(market)
+        """The newest active signal of the market, or None."""
+        sigs = self.active_list(market)
+        return sigs[-1] if sigs else None
 
     def open(self, market, setup, now_ts=None):
         """Try to take the market's lock. Returns (ok, reason)."""
         now_ts = int(now_ts if now_ts is not None else time.time())
         self.expire(now_ts)
         sid = f"{market}-{setup['side']}-{setup['bar_time']}"
-        cur = self.active_signals.get(market)
-        if cur:
+        cur_list = self.active_list(market)
+        for cur in cur_list:
+            if cur["side"] != setup["side"] and not self.allow_opposite:
+                return False, (f"conflicting signal blocked: {market} already has an active "
+                               f"{cur['side'].upper()} ({cur['id']})")
+        if len(cur_list) >= self.max_active:
+            cur = cur_list[-1]
             kind = "duplicate" if cur["side"] == setup["side"] else "conflicting"
             return False, f"{kind} signal blocked: {market} already has an active {cur['side'].upper()} ({cur['id']})"
         if sid in self.seen:
@@ -102,20 +116,24 @@ class SignalStore:
         sig = {"id": sid, "market": market, "side": setup["side"], "entry": setup["entry"],
                "sl": setup["sl"], "tp": setup["tp"], "bar_time": setup["bar_time"],
                "created": now_ts, "state": "ACTIVE"}
-        self.active_signals[market] = sig
+        self.active_signals[sid] = sig
         self.seen.append(sid)
         self.used.extend(uses)
         self._save()
         self._log("OPEN", sig, now_ts)
         return True, ""
 
-    def close(self, market, outcome, now_ts=None):
-        """Release the market's lock with a final state (TP_HIT, SL_HIT, CANCELLED, EXPIRED; the
+    def close(self, key, outcome, now_ts=None):
+        """`key` is a signal id (or a market name: its oldest active signal). Release the lock with a final state (TP_HIT, SL_HIT, CANCELLED, EXPIRED; the
         names win, loss, not_filled, expired and manual are accepted too)."""
         now_ts = int(now_ts if now_ts is not None else time.time())
         state = final_state(outcome)
         outcome = _STATE_TO_OUTCOME.get(state, outcome)   # win / loss keep feeding the risk guard
-        sig = self.active_signals.pop(market, None)
+        if key not in self.active_signals:
+            older = self.active_list(key)
+            key = older[0]["id"] if older else key
+        sig = self.active_signals.pop(key, None)
+        market = sig["market"] if sig else key
         if sig:
             sig = dict(sig, state=state)
             if outcome in ("win", "loss"):
@@ -145,6 +163,6 @@ class SignalStore:
         return ""
 
     def expire(self, now_ts):
-        for market, sig in list(self.active_signals.items()):
+        for sid, sig in list(self.active_signals.items()):
             if now_ts - sig["created"] > self.ttl:
-                self.close(market, "expired", now_ts)
+                self.close(sid, "expired", now_ts)

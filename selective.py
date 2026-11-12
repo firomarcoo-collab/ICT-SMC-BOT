@@ -775,5 +775,5 @@ def process(market, data, now_ts, store, cfg=None, spread=None, commission_price
             res["action"], res["setup"] = "WAIT", None
             res["reasons"].append(why)
         else:
-            res["id"] = store.active(market)["id"]
+            res["id"] = f"{market}-{res['setup']['side']}-{res['setup']['bar_time']}"
     return res

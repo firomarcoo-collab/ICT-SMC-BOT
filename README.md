@@ -273,3 +273,7 @@ python backtest_runner.py --market XAUUSD --m5 XAUUSD_M5.csv --spread 0.26 --tz-
 ## مراجعة الإشارة بالذكاء الاصطناعي قبل الدخول
 - عند كل **إشارة دخول** ينسخ البوت إلى حافظة هاتفك نصاً جاهزاً: طلب مراجعة + الإشارة كاملة (يحتاج تطبيق Termux:API)، ويحفظه أيضاً في `last_signal_review.txt`. الصقه في محادثة مع المساعد ليحلّله كرأي ثانٍ: مدى توافقه مع القواعد، نقاط الضعف والمخاطر، وما تتحقق منه في MT5.
 - هذا رأي مراجع وليس تنبؤاً بالسعر ولا ضماناً. `REVIEW_COPY=0` يلغيه. لا يتصل البوت بأي خدمة ذكاء اصطناعي (لا تكلفة ولا مفاتيح).
+
+
+## Several signals per market
+`MAX_ACTIVE` (default 3) = open signals allowed on one market at once; `ALLOW_OPPOSITE=0` stops a BUY and a SELL being open together. `MAX_ACTIVE=1` restores the old one-signal lock. The daily risk guard still counts every loss, so stacking cannot bypass it.
