@@ -277,3 +277,6 @@ python backtest_runner.py --market XAUUSD --m5 XAUUSD_M5.csv --spread 0.26 --tz-
 
 ## Several signals per market
 `MAX_ACTIVE` (default 3) = open signals allowed on one market at once; `ALLOW_OPPOSITE=0` stops a BUY and a SELL being open together. `MAX_ACTIVE=1` restores the old one-signal lock. The daily risk guard still counts every loss, so stacking cannot bypass it.
+
+## Scalp profile
+`PROFILE=scalp`: quick trades. Target 1:1.2 (strict is 1:2), stop at most 2 M15 ATR, score gate 73, net R:R after costs 0.9+. Entry rules are active's; mandatory rules are unchanged. Not measured yet: backtest it before trusting it (`python backtest_runner.py ... --profile scalp`).

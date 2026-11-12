@@ -493,7 +493,7 @@ def test_loose_profile_is_the_most_permissive_and_changes_no_mandatory_rule():
     assert (s.ready_score, a.ready_score, lo.ready_score) == (86, 80, 60)
     assert lo.strong_body_frac == 0.6 and s.strong_body_frac is None and a.strong_body_frac is None
     assert lo.min_confluence == 4          # 60% of 8 checks = 5, which is what strict already needs
-    assert sl.PROFILES == ("strict", "active", "loose")
+    assert sl.PROFILES == ("strict", "active", "loose", "scalp")
     with pytest.raises(ValueError):
         sl.make_config("wild")
 
@@ -579,3 +579,13 @@ def test_old_state_file_keyed_by_market_still_loads(tmp_path):
     json.dump({"active": {"BTCUSD": old}, "seen": [], "used": [], "results": []}, open(path, "w"))
     store = signal_store.SignalStore(path)
     assert "BTCUSD-buy-5" in store.active_signals and store.active("BTCUSD")["id"] == "BTCUSD-buy-5"
+
+
+def test_scalp_profile_has_near_target_and_labels():
+    from selective import make_config, PROFILES
+    assert "scalp" in PROFILES
+    cfg = make_config("scalp")
+    assert cfg.rr == 1.2 and cfg.min_net_rr == 0.9 and cfg.ready_score == 73 and cfg.max_risk_atr == 2.0
+    assert make_config("strict").rr == 2.0
+    import ict_alerts
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).rr == 1.2

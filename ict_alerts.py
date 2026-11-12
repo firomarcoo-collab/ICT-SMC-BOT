@@ -611,7 +611,7 @@ def build_selective_config(env):
 
     profile = env.get("PROFILE", "strict").lower()
     if profile not in selective.PROFILES:
-        raise SystemExit("PROFILE must be strict, active or loose")
+        raise SystemExit("PROFILE must be strict, active, loose or scalp")
     over = {"min_confluence": num("MIN_CONFLUENCE", int), "slippage": num("SLIPPAGE"),
             "max_daily_losses": num("MAX_DAILY_LOSSES", int), "max_daily_loss_pct": num("MAX_DAILY_LOSS_PCT"),
             "max_daily_loss_r": num("MAX_DAILY_LOSS_R"), "risk_percent": num("RISK_PERCENT"),

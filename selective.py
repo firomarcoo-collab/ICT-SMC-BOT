@@ -64,7 +64,7 @@ def daily_loss_limit_r(cfg):
     return cfg.max_daily_loss_pct / cfg.risk_percent if cfg.risk_percent and cfg.max_daily_loss_pct else 0.0
 
 
-PROFILES = ("strict", "active", "loose")
+PROFILES = ("strict", "active", "loose", "scalp")
 
 
 def make_config(profile="strict", **overrides):
@@ -83,10 +83,17 @@ def make_config(profile="strict", **overrides):
         # already needs, so the loose profile keeps active's 4. Nothing mandatory is relaxed.
         base = dict(profile="loose", min_confluence=4, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, ready_score=60, strong_body_frac=0.6)
+    elif profile == "scalp":
+        # quick trades: a near target (1:1.2 instead of 1:2) and tighter stops (at most 2 M15 ATR),
+        # otherwise active's looser entry rules. The score gate is 73 because a near target earns
+        # fewer execution points (max 93 instead of 100). Nothing mandatory is relaxed; the net R:R
+        # after costs must still be 0.9+. A higher hit rate is the aim, NOT a measured result.
+        base = dict(profile="scalp", min_confluence=4, retest_window=5, max_zone_age=192,
+                    fvg_max_fill=0.7, ready_score=73, rr=1.2, min_net_rr=0.9, max_risk_atr=2.0)
     elif profile == "strict":
         base = {}
     else:
-        raise ValueError("PROFILE must be strict, active or loose")
+        raise ValueError("PROFILE must be strict, active, loose or scalp")
     base.update(overrides)
     return SelectiveConfig(**base)
 
@@ -687,12 +694,14 @@ def format_signal(market, res, digits=2):
     c = res["checks"]
     mark = lambda k: "yes" if c.get(k) else "no"  # noqa: E731
     tag = {"active": ", ACTIVE profile (looser filter)",
-           "loose": ", LOOSE profile (lowest filter, score 60+)"}.get(s.get("profile"), "")
-    if s.get("score100", 100) < 86:
+           "loose": ", LOOSE profile (lowest filter, score 60+)",
+           "scalp": ", SCALP (quick near target)"}.get(s.get("profile"), "")
+    rr = abs(s["tp"] - s["entry"]) / abs(s["entry"] - s["sl"]) if s["entry"] != s["sl"] else 2.0
+    if s.get("profile") != "scalp" and s.get("score100", 100) < 86:
         tag += ", REDUCED CONFIDENCE (score below 86)"
     lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}]",
              f"Entry: {s['entry']:.{digits}f}  Invalidation: {s['invalidation']:.{digits}f}  "
-             f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:2 before costs)",
+             f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:{rr:g} before costs)",
              f"Score {res['score100']}/100 ({res['band']}; a quality ranking, NOT a win probability) | "
              + ", ".join(f"{k} {v}/{SCORE_MAX[k]}" for k, v in res["score_parts"].items()),
              f"Confluence {res['score']}/8: HTF {mark('htf')}, S/R {mark('sr')}, liquidity {mark('liquidity')}, "
@@ -733,6 +742,7 @@ def _ar(text):
 def format_signal_ar(market, res, digits=2):
     """Arabic entry alert (terms such as FVG, OB, MSS stay in English as traders use them)."""
     s, c, r = res["setup"], res["checks"], res["report"]
+    rr = abs(s["tp"] - s["entry"]) / abs(s["entry"] - s["sl"]) if s["entry"] != s["sl"] else 2.0
     yn = lambda k: "نعم" if c.get(k) else "لا"  # noqa: E731
     side = "شراء" if s["side"] == "buy" else "بيع"
     mode = "انعكاس بعد سحب سيولة" if s["mode"] == "reversal" else "استمرار الاتجاه"
@@ -742,12 +752,13 @@ def format_signal_ar(market, res, digits=2):
         cost += " (غير موثّقة: السبريد غير معروف، تحقق منه في MT5)"
     lines = [f"إشارة دخول: {side} {name} ({market})",
              f"النوع: {mode} | حالة البيانات: {res['status']}"
-             + {"active": " | ملف نشط (فلتر أخف)", "loose": " | ملف متساهل (أقل فلتر، تقييم 60+)"}.get(s.get("profile"), "")
-             + (" | ثقة أقل (التقييم أقل من 86)" if s.get("score100", 100) < 86 else ""),
+             + {"active": " | ملف نشط (فلتر أخف)", "loose": " | ملف متساهل (أقل فلتر، تقييم 60+)",
+                "scalp": " | سكالبينج (هدف قريب وسريع)"}.get(s.get("profile"), "")
+             + (" | ثقة أقل (التقييم أقل من 86)" if s.get("profile") != "scalp" and s.get("score100", 100) < 86 else ""),
              f"الدخول: {s['entry']:.{digits}f}",
              f"الإبطال: {s['invalidation']:.{digits}f}",
              f"وقف الخسارة: {s['sl']:.{digits}f}",
-             f"الهدف: {s['tp']:.{digits}f}  (نسبة 1:2 قبل التكاليف)",
+             f"الهدف: {s['tp']:.{digits}f}  (نسبة 1:{rr:g} قبل التكاليف)",
              f"التقييم {res['score100']}/100 (ترتيب لجودة الإعداد وليس احتمال ربح)",
              f"التوافق {res['score']}/8: الاتجاه {yn('htf')}، دعم/مقاومة {yn('sr')}، سيولة {yn('liquidity')}، "
              f"BOS/MSS {yn('bos_mss')}، FVG/OB {yn('fvg_ob')}، إعادة اختبار {yn('retest')}، "
