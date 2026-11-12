@@ -156,7 +156,7 @@ def test_only_entry_alerts_may_make_a_sound():
     assert 'notify(alert["text"], entry=True, side=alert["setup"]["side"])' in src                       # selective entry
     assert 'entry=alert["kind"] in ENTRY_KINDS' in src                      # legacy: ict / classic / rct only
     assert "event" not in ict_alerts.ENTRY_KINDS
-    for call in ("notify(f\"US OPEN", "notify(\"US MARKET", "notify(f\"SESSION", "notify(f\"NEWS", "notify(note)"):
+    for call in ("notify(f\"US OPEN", "notify(\"US MARKET", "notify(f\"SESSION", "notify(f\"NEWS", "notify(note, alert="):
         line = [ln for ln in src.splitlines() if call in ln][0]
         assert "entry=True" not in line, call                               # info messages stay silent
 
@@ -251,3 +251,25 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_management_alerts_show_a_notification_but_never_play_the_entry_tone():
+    import contextlib
+    import io
+    calls = []
+    saved = (ict_alerts.shutil.which, ict_alerts.subprocess.run)
+    ict_alerts.shutil.which = lambda name: "/bin/" + name
+    ict_alerts.subprocess.run = lambda cmd, **kw: calls.append(cmd)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ict_alerts.notify("REVERSAL WARNING: move the stop", alert=True)
+            managed = list(calls)
+            calls.clear()
+            ict_alerts.notify("info only")                                  # a plain info message: nothing
+            plain = list(calls)
+    finally:
+        ict_alerts.shutil.which, ict_alerts.subprocess.run = saved
+    assert [c[0] for c in managed] == ["termux-notification"]              # no termux-media-player
+    assert "--sound" not in managed[0] and managed[0][managed[0].index("--priority") + 1] == "high"
+    assert managed[0][managed[0].index("--title") + 1] == "ICT SMC (manage)"
+    assert plain == []
