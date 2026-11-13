@@ -659,3 +659,15 @@ def test_fib_format_shows_levels_ote_and_price_position():
     assert "61.8%=103.82" in text and "INSIDE the OTE zone" in text and "1.618=116.18" in text
     pd["price"] = 108.0
     assert "above the OTE zone" in analyze_now.fib_format(pd)
+
+
+def test_require_sweep_counter_trend_and_tf_agreement_options(monkeypatch):
+    import ict_alerts
+    assert sl.make_config("scalp").require_sweep and not sl.make_config("active").require_sweep
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp", "REQUIRE_SWEEP": "0"}).require_sweep is False
+    assert ict_alerts.build_selective_config({"PROFILE": "active", "REQUIRE_SWEEP": "1"}).require_sweep is True
+    ev = lambda side: [{"side": side, "mss": False, "idx": 0}]      # noqa: E731
+    monkeypatch.setattr(sl.st, "structure_events", lambda bars, k: bars)
+    cfg = sl.make_config("strict")
+    line = sl.tf_agreement("buy", ev("bull"), ev("bull"), ev("bull"), ev("bear"), [], cfg)
+    assert line == "M1 ✓ M5 ✓ M15 ✓ H1 ✗ H4 ?"

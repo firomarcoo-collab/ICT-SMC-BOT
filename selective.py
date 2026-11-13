@@ -46,6 +46,7 @@ class SelectiveConfig:
     allow_unknown_cost: bool = False
     max_signal_age: int = 180       # seconds after the confirmation candle closed
     profile: str = "strict"         # "strict" (default), "active" or "loose" (see make_config)
+    require_sweep: bool = False     # an entry needs a valid liquidity sweep (scalp profile)
     ltf_bias: bool = False          # scalp: direction from M15 + M5 structure instead of H4 + H1 alignment
     strong_body_frac: float = None  # also count a closed M5 candle with body >= this share of its range as strong
     risk_percent: float = 0.25      # paper-trading risk per trade, % of the account (research setting)
@@ -90,7 +91,7 @@ def make_config(profile="strict", **overrides):
         # fewer execution points (max 93 instead of 100). Nothing mandatory is relaxed; the net R:R
         # after costs must still be 0.9+. A higher hit rate is the aim, NOT a measured result.
         base = dict(profile="scalp", min_confluence=4, retest_window=5, max_zone_age=192,
-                    fvg_max_fill=0.7, ready_score=73, rr=1.2, min_net_rr=0.9, max_risk_atr=2.0, ltf_bias=True)
+                    fvg_max_fill=0.7, ready_score=73, rr=1.2, min_net_rr=0.9, max_risk_atr=2.0, ltf_bias=True, require_sweep=True)
     elif profile == "strict":
         base = {}
     else:
@@ -359,6 +360,20 @@ def htf_alignment(h4, h1, m15, side, cfg, m5=None):
     return False, f"higher-timeframe conflict: H4 {t4}, H1 {t1}"
 
 
+def tf_agreement(side, m1, m5, m15, h1, h4, cfg):
+    """Structure direction of every timeframe against the trade: '✓' agrees, '✗' against, '?' unknown.
+    Information for the reader (M1 is timing only); it never blocks a signal by itself."""
+    want = "up" if side == "buy" else "down"
+    out = []
+    for label, bars, k in (("M1", m1, 2), ("M5", m5, 2), ("M15", m15, 2), ("H1", h1, cfg.htf_k), ("H4", h4, cfg.htf_k)):
+        try:
+            tr = st.current_trend(st.structure_events(bars, k)) if bars else None
+        except Exception:
+            tr = None
+        out.append(f"{label} {'?' if tr is None else '✓' if tr == want else '✗'}")
+    return " ".join(out)
+
+
 def cost_check(risk, spread, commission_price, cfg):
     """(ok, cost, note). cost = spread + commission + slippage in price units."""
     if spread is None and not cfg.allow_unknown_cost:
@@ -589,6 +604,10 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         res["reasons"].extend(notes[:4] + seq_notes[:2])
         return res
 
+    if cfg.require_sweep and not checks["liquidity"]:
+        res["reasons"].append("no valid liquidity sweep: this profile only enters after a sweep")
+        return res
+
     # --- stop, target, costs
     primary = (fo_hit or sr_hit)[0]
     entry = last["close"]
@@ -671,6 +690,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "cost_note": note, "strong_confirmation": strong, "uses": uses,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
                     "invalidation": invalidation, "profile": cfg.profile,
+                    "counter_trend": mode == "reversal" and not ok_h,
+                    "tf": tf_agreement(side, m1, m5, m15, h1, h4, cfg),
                     "score100": score100, "score_parts": parts}
     rep["levels"] = (f"entry {entry:.5g}, invalidation {invalidation:.5g}, SL {sl:.5g}, TP {tp:.5g}, "
                      f"R:R 1:{cfg.rr:g} before costs")
@@ -709,7 +730,7 @@ def format_signal(market, res, digits=2):
     rr = abs(s["tp"] - s["entry"]) / abs(s["entry"] - s["sl"]) if s["entry"] != s["sl"] else 2.0
     if s.get("profile") != "scalp" and s.get("score100", 100) < 86:
         tag += ", REDUCED CONFIDENCE (score below 86)"
-    lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}]",
+    lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}{', COUNTER-TREND' if s.get('counter_trend') else ''}]",
              f"Entry: {s['entry']:.{digits}f}  Invalidation: {s['invalidation']:.{digits}f}  "
              f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:{rr:g} before costs)",
              f"Score {res['score100']}/100 ({res['band']}; a quality ranking, NOT a win probability) | "
@@ -718,6 +739,7 @@ def format_signal(market, res, digits=2):
              f"BOS/MSS {mark('bos_mss')}, FVG/OB {mark('fvg_ob')}, retest {mark('retest')}, "
              f"M5 close {mark('confirm')}{' (strong)' if s['strong_confirmation'] else ''}, cost {mark('cost')}",
              "Zones: " + "; ".join(s["zones"]),
+             f"Timeframes (structure vs the trade): {s['tf']}",
              f"Cost assumed: {s['cost']:.4g} price units" + (f" ({s['cost_note']})" if s["cost_note"] else ""),
              explain(res),
              "Signal only. Place the order yourself. This is not a promised win rate."]
@@ -764,7 +786,8 @@ def format_signal_ar(market, res, digits=2):
              f"النوع: {mode} | حالة البيانات: {res['status']}"
              + {"active": " | ملف نشط (فلتر أخف)", "loose": " | ملف متساهل (أقل فلتر، تقييم 60+)",
                 "scalp": " | سكالبينج (هدف قريب وسريع)"}.get(s.get("profile"), "")
-             + (" | ثقة أقل (التقييم أقل من 86)" if s.get("profile") != "scalp" and s.get("score100", 100) < 86 else ""),
+             + (" | ثقة أقل (التقييم أقل من 86)" if s.get("profile") != "scalp" and s.get("score100", 100) < 86 else "")
+             + (" | عكس الاتجاه" if s.get("counter_trend") else ""),
              f"الدخول: {s['entry']:.{digits}f}",
              f"الإبطال: {s['invalidation']:.{digits}f}",
              f"وقف الخسارة: {s['sl']:.{digits}f}",
@@ -774,6 +797,7 @@ def format_signal_ar(market, res, digits=2):
              f"BOS/MSS {yn('bos_mss')}، FVG/OB {yn('fvg_ob')}، إعادة اختبار {yn('retest')}، "
              f"شمعة M5 مغلقة {yn('confirm')}{' (قوية)' if s['strong_confirmation'] else ''}، التكلفة {yn('cost')}",
              f"المناطق: {_ar('; '.join(s['zones']))}",
+             f"الفريمات (البنية مقابل الصفقة): {s['tf']}",
              f"اتجاه الفريمات الكبيرة: {_ar(r['htf'])} | {_ar(r['d1'])}",
              f"السيولة: {_ar(r['liquidity'])}",
              f"الهيكل: {_ar(r['structure'])}",

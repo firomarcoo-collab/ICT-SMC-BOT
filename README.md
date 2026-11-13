@@ -293,3 +293,6 @@ US30 and US100 use free Yahoo feeds that are only live in the US cash session (0
 `python analyze_now.py` also prints a `Direction:` line (M15, M5, M1 structure) and says if M15 and M5 agree.
 
 `python analyze_now.py` also prints the Fibonacci of the latest M15 leg: 50 / 61.8 / 70.5 / 78.6% retracements, the 62-79% OTE zone, 1.0 / 1.272 / 1.618 extension targets and whether price is inside the OTE. Informational only: it does not create or block signals.
+
+## Sweep, counter-trend, timeframes
+`PROFILE=scalp` now requires a valid liquidity sweep before an entry (`REQUIRE_SWEEP=0/1` overrides it for any profile). A reversal entry (sweep, MSS, FVG/OB, retest) against H4/H1 is labelled COUNTER-TREND in the alert. Every alert has a `Timeframes` line with the structure of M1, M5, M15, H1 and H4 against the trade (check = agrees, cross = against, ? = unknown). Information only: M1 never blocks.

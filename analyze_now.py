@@ -19,28 +19,34 @@ import ict_alerts  # noqa: E402
 import signal_store  # noqa: E402
 
 
+TF_SECS = {"4h": 14400, "1h": 3600, "15m": 900, "5m": 300, "1m": 60}
+
+
 def directions(name, now):
-    """Structure direction on M15, M5 and M1 (M1 is timing only: it never decides the direction)."""
+    """Structure direction on H4, H1, M15, M5 and M1 (M1 is timing only: it never decides the direction)."""
     import structure as st
     inst = ict_alerts.INSTRUMENTS.get(name)
     if inst is None:
         return ""
-    parts = []
-    for tf, k in (("15m", 2), ("5m", 2), ("1m", 2)):
+    got = {}
+    for tf, k in (("4h", 3), ("1h", 3), ("15m", 2), ("5m", 2), ("1m", 2)):
         try:
             candles = ict_alerts.get_candles(inst, tf)
-            closed = [c for c in candles if int(c["time"].timestamp()) + {"15m": 900, "5m": 300, "1m": 60}[tf] <= now]
+            closed = [c for c in candles if int(c["time"].timestamp()) + TF_SECS[tf] <= now]
             tr = st.current_trend(st.structure_events(closed, k))
-            parts.append(f"{tf} {'UP' if tr == 'up' else 'DOWN' if tr == 'down' else '?'}")
+            got[tf] = "UP" if tr == "up" else "DOWN" if tr == "down" else "?"
         except Exception:
-            parts.append(f"{tf} n/a")
-    m15, m5, m1 = (p.split()[1] for p in parts)
+            got[tf] = "n/a"
+    m15, m5, m1 = got["15m"], got["5m"], got["1m"]
     if m15 == m5 and m15 in ("UP", "DOWN"):
         verdict = f"M15 and M5 agree {m15}: look for a {'buy' if m15 == 'UP' else 'sell'}" + (
             f"; M1 timing {'confirms' if m1 == m15 else 'does not confirm yet (wait)'}")
+        htf = [got["4h"], got["1h"]]
+        if all(h in ("UP", "DOWN") and h != m15 for h in htf):
+            verdict += "; H4 and H1 are against it = counter-trend, needs sweep + MSS + retest"
     else:
         verdict = "M15 and M5 disagree or unknown: no scalp direction, wait"
-    return "Direction: " + " | ".join(parts) + f"  ->  {verdict}"
+    return ("Direction: " + " | ".join(f"{tf} {v}" for tf, v in got.items()) + f"  ->  {verdict}")
 
 
 def fib_text(name, now, digits=2):

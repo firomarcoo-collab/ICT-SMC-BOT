@@ -642,6 +642,8 @@ def build_selective_config(env):
             "max_daily_loss_r": num("MAX_DAILY_LOSS_R"), "risk_percent": num("RISK_PERCENT"),
             "ready_score": num("READY_SCORE", int)}
     over = {k: v for k, v in over.items() if v is not None}
+    if env.get("REQUIRE_SWEEP") in ("0", "1"):
+        over["require_sweep"] = env["REQUIRE_SWEEP"] == "1"
     if env.get("ALLOW_UNKNOWN_COST") == "1":
         over["allow_unknown_cost"] = True
     return selective.make_config(profile, **over)
