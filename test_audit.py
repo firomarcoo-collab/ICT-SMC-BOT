@@ -649,3 +649,13 @@ def test_scalp_bias_uses_m15_and_m5_and_keeps_the_both_htf_against_rule(monkeypa
     assert not ok and "H4 and H1 are both" in why                   # both higher TFs against -> blocked
     ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", cfg, ev("bear"))
     assert not ok and "M5" in why                                   # M5 against -> blocked
+
+
+def test_fib_format_shows_levels_ote_and_price_position():
+    import analyze_now, structure
+    pd = {"low": 100.0, "high": 110.0, "direction": "up", "zone": "discount", "eq": 105.0,
+          "ote": (102.1, 103.8), "price": 103.0, "fib": structure.fib_levels(100.0, 110.0, "up")}
+    text = analyze_now.fib_format(pd)
+    assert "61.8%=103.82" in text and "INSIDE the OTE zone" in text and "1.618=116.18" in text
+    pd["price"] = 108.0
+    assert "above the OTE zone" in analyze_now.fib_format(pd)

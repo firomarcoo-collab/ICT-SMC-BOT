@@ -253,7 +253,7 @@ def premium_discount(bars, k=3):
         ote = (dr["high"] - OTE[1] * rng, dr["high"] - OTE[0] * rng)
     else:
         ote = (dr["low"] + OTE[0] * rng, dr["low"] + OTE[1] * rng)
-    return dict(dr, zone=zone, eq=eq, ote=ote, fib=fib_levels(dr["low"], dr["high"], dr["direction"]))
+    return dict(dr, zone=zone, eq=eq, ote=ote, price=price, fib=fib_levels(dr["low"], dr["high"], dr["direction"]))
 
 
 # ===== FVG, order blocks, breakers, inducement =====
