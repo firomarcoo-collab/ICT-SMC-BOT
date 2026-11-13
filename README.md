@@ -298,3 +298,6 @@ US30 and US100 use free Yahoo feeds that are only live in the US cash session (0
 `PROFILE=scalp` now requires a valid liquidity sweep before an entry (`REQUIRE_SWEEP=0/1` overrides it for any profile). A reversal entry (sweep, MSS, FVG/OB, retest) against H4/H1 is labelled COUNTER-TREND in the alert. Every alert has a `Timeframes` line with the structure of M1, M5, M15, H1 and H4 against the trade (check = agrees, cross = against, ? = unknown). Information only: M1 never blocks.
 
 `python calc_offset.py XAUUSD <MT5 Bid now>` prints the OFFSET_XAUUSD value (broker price minus the feed price).
+
+## Hourly "why no signal" summary
+Every hour the bot prints `LAST HOUR: N signal(s)` and, per market, the top 3 reasons its scans waited (for example `7x scalp bias: M# down, M# up ...`). Use it to see which rule blocks the signals before changing anything.

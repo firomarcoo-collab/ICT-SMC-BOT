@@ -677,3 +677,15 @@ def test_calc_offset_line():
     import calc_offset
     text = calc_offset.offset_line("XAUUSD", 4012.35, 3884.10)
     assert "OFFSET_XAUUSD=128.25" in text
+
+
+def test_wait_summary_counts_reasons_without_numbers():
+    import ict_alerts as a
+    k1 = a.reason_key("XAUUSD: SELECTIVE WAIT (scalp bias: M15 down, M5 up, need both up for a buy)")
+    k2 = a.reason_key("US30: MARKET CLOSED (US session 09:30-16:00 New York, opens in 1h 30m)")
+    assert "M# down" in k1 and k2 == "market closed"
+    assert a.reason_key("X: SELECTIVE WAIT (stop too wide (3.4 M15 ATR))") == a.reason_key(
+        "X: SELECTIVE WAIT (stop too wide (5.1 M15 ATR))")
+    text = a.wait_summary({"XAUUSD": {"no retest": 7, "stop too wide": 2, "x": 1, "y": 1}}, 0)
+    assert "0 signal(s)" in text and "XAUUSD (11 scans)" in text and "7x no retest" in text
+    assert text.count("x ") <= 3

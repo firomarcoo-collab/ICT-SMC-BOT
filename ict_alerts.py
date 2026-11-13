@@ -406,6 +406,26 @@ def wait_line(name, res):
     return line
 
 
+def reason_key(status):
+    """The short reason of a scan line, numbers removed, so equal blockers are counted together."""
+    import re
+    m = re.search(r"\((.*?)\)", status)
+    why = m.group(1) if m else status.split(":", 1)[-1]
+    if "MARKET CLOSED" in status:
+        why = "market closed"
+    return re.sub(r"[-+]?\d+(\.\d+)?", "#", why).strip()[:70]
+
+
+def wait_summary(stats, signals=0):
+    """Hourly 'why no signal' text from {market: {reason: count}}."""
+    lines = [f"LAST HOUR: {signals} signal(s). Why the rest waited:"]
+    for market, reasons in sorted(stats.items()):
+        total = sum(reasons.values())
+        top = sorted(reasons.items(), key=lambda kv: -kv[1])[:3]
+        lines.append(f"  {market} ({total} scans): " + "; ".join(f"{n}x {r}" for r, n in top))
+    return "\n".join(lines)
+
+
 def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None, lang="en",
                    news=None, news_block=False, balance=0.0, risk_percent=0.5, contracts=None):
     """Runs the selective engine for one market.
@@ -745,9 +765,13 @@ def run():
         print(f"Price offsets: {offsets}", flush=True)
 
     last_beat = 0
+    wait_stats, hour_signals = {}, 0
     while True:
         now_ts = int(time.time())
         if now_ts - last_beat >= 3600:
+            if last_beat and use_selective:
+                print(wait_summary(wait_stats, hour_signals), flush=True)
+            wait_stats, hour_signals = {}, 0
             last_beat = now_ts
             print(f"[{datetime.fromtimestamp(now_ts, tz=timezone.utc):%H:%M UTC}] bot is running", flush=True)
         if use_news and now_ts - news_fetched > 3600:
@@ -795,7 +819,11 @@ def run():
                     if not lagging:
                         last_bucket[("sel", name)] = bucket
                     print(f"[{stamp} sel] {status}", flush=True)
+                    if not alert and not lagging:
+                        key = reason_key(status)
+                        wait_stats.setdefault(name, {})[key] = wait_stats.setdefault(name, {}).get(key, 0) + 1
                     if alert:
+                        hour_signals += 1
                         notify(alert["text"], entry=True, side=alert["setup"]["side"])
                         save_for_review(alert["text"])
                         if track:
