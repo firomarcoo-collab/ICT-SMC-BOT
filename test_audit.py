@@ -615,3 +615,10 @@ def test_selective_scan_says_market_closed_for_us_indices_without_fetching(monke
     scfg = ict_alerts.build_selective_config({})
     line, alert, lagging = ict_alerts.selective_scan("US30", _utc(2026, 11, 13, 22, 0), scfg, None)
     assert "MARKET CLOSED" in line and alert is None and lagging is False
+
+
+def test_analyze_now_prints_closed_market_and_saves_nothing(monkeypatch):
+    import analyze_now
+    monkeypatch.setattr(analyze_now.time, "time", lambda: _utc(2026, 11, 14, 15, 0))   # Saturday
+    text = analyze_now.analyze("US30", {})
+    assert "US30" in text and "MARKET CLOSED" in text and "No entry now" in text

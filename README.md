@@ -286,3 +286,6 @@ Green `TRADE +1R` = in profit, move the stop to the entry. Yellow `REVERSAL WARN
 
 ## US index hours
 US30 and US100 use free Yahoo feeds that are only live in the US cash session (09:30-16:00 New York, Mon-Fri). Outside it the bot prints `MARKET CLOSED (... opens in Xh Ym)` and does not scan or fetch. `US_HOURS_ONLY=0` turns this off. Holidays are not listed (the stale-data check still blocks them).
+
+## Analyse now
+`python analyze_now.py XAUUSD` runs the full selective analysis once and prints the report (nothing saved, no sound). Works with `PROFILE=scalp` etc.
