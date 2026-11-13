@@ -622,3 +622,15 @@ def test_analyze_now_prints_closed_market_and_saves_nothing(monkeypatch):
     monkeypatch.setattr(analyze_now.time, "time", lambda: _utc(2026, 11, 14, 15, 0))   # Saturday
     text = analyze_now.analyze("US30", {})
     assert "US30" in text and "MARKET CLOSED" in text and "No entry now" in text
+
+
+def test_analyze_now_lifts_the_freshness_gate(monkeypatch):
+    import analyze_now, ict_alerts
+    seen = {}
+
+    def fake_scan(name, now, scfg, store, **k):
+        seen["age"] = scfg.max_signal_age
+        return f"{name}: SELECTIVE WAIT (x)", None, False
+    monkeypatch.setattr(ict_alerts, "selective_scan", fake_scan)
+    analyze_now.analyze("BTCUSD", {})
+    assert seen["age"] > 10 ** 6
