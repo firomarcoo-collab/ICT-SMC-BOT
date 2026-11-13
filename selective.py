@@ -47,7 +47,7 @@ class SelectiveConfig:
     max_signal_age: int = 180       # seconds after the confirmation candle closed
     profile: str = "strict"         # "strict" (default), "active" or "loose" (see make_config)
     require_sweep: bool = False     # an entry needs a valid liquidity sweep (scalp profile)
-    ltf_bias: bool = False          # scalp: direction from M15 + M5 structure instead of H4 + H1 alignment
+    ltf_bias: bool = False          # scalp: direction from M5 + M1 structure instead of H4 + H1 alignment
     strong_body_frac: float = None  # also count a closed M5 candle with body >= this share of its range as strong
     risk_percent: float = 0.25      # paper-trading risk per trade, % of the account (research setting)
     max_daily_losses: int = 3       # stop for the day after this many losses in a row (0 = off)
@@ -328,22 +328,26 @@ def retest(m5, zone, side, cfg):
     return True, ""
 
 
-def htf_alignment(h4, h1, m15, side, cfg, m5=None):
+def htf_alignment(h4, h1, m15, side, cfg, m5=None, m1=None):
     """(ok, label). H4 and H1 must agree with the trade and M15 must be in the same direction.
     A trade against H4 is allowed only after a recent H1 MSS in its direction (confirmed reversal).
-    With cfg.ltf_bias (scalp profile) the direction comes from M15 and M5 structure instead; the only
-    higher-timeframe rule kept is that H4 and H1 must not BOTH be against the trade."""
+    With cfg.ltf_bias (scalp profile) the direction comes from M5 and M1 structure instead (M1 counts
+    when its candles are available; without them M5 alone decides); the only higher-timeframe rule kept
+    is that H4 and H1 must not BOTH be against the trade."""
     want = "up" if side == "buy" else "down"
     e4, e1, e15 = (st.structure_events(h4, cfg.htf_k), st.structure_events(h1, cfg.htf_k),
                    st.structure_events(m15, 2))
     t4, t1, t15 = st.current_trend(e4), st.current_trend(e1), st.current_trend(e15)
     if cfg.ltf_bias and m5 is not None:
         t5 = st.current_trend(st.structure_events(m5, 2))
-        if t15 != want or t5 != want:
-            return False, f"scalp bias: M15 {t15 or 'unknown'}, M5 {t5 or 'unknown'}, need both {want} for a {side}"
+        t1m = st.current_trend(st.structure_events(m1, 2)) if m1 else None
+        if t5 != want or (t1m is not None and t1m != want):
+            return False, (f"scalp bias: M5 {t5 or 'unknown'}, M1 {t1m or 'unavailable'}, "
+                           f"need both {want} for a {side}")
         if t4 is not None and t4 == t1 and t4 != want:
             return False, f"scalp bias: H4 and H1 are both {t4}, against a {side}"
-        return True, f"scalp bias: M15 and M5 {want} (H4 {t4 or '?'}, H1 {t1 or '?'})"
+        return True, (f"scalp bias: M5 {want}" + (f" and M1 {want}" if t1m else " (M1 unavailable)")
+                      + f" (M15 {t15 or '?'}, H4 {t4 or '?'}, H1 {t1 or '?'})")
     if t4 is None or t1 is None:
         return False, "higher-timeframe structure unknown"
     if t15 != want:
@@ -525,7 +529,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     for z in sorted(fv_all + ob_all, key=lambda z: -z["idx"])[:6] if z["side"] == want]
 
     # --- trend, D1 context
-    ok_h, label = htf_alignment(h4, h1, m15, side, cfg, m5)
+    ok_h, label = htf_alignment(h4, h1, m15, side, cfg, m5, m1)
     d1_trend, d1_label = ict_engine.d1_context(d1)
     rep["htf"] = label if ok_h else f"{label}"
     rep["d1"] = d1_label

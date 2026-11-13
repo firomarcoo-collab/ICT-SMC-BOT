@@ -38,14 +38,14 @@ def directions(name, now):
         except Exception:
             got[tf] = "n/a"
     m15, m5, m1 = got["15m"], got["5m"], got["1m"]
-    if m15 == m5 and m15 in ("UP", "DOWN"):
-        verdict = f"M15 and M5 agree {m15}: look for a {'buy' if m15 == 'UP' else 'sell'}" + (
-            f"; M1 timing {'confirms' if m1 == m15 else 'does not confirm yet (wait)'}")
-        htf = [got["4h"], got["1h"]]
-        if all(h in ("UP", "DOWN") and h != m15 for h in htf):
-            verdict += "; H4 and H1 are against it = counter-trend, needs sweep + MSS + retest"
+    if m5 == m1 and m5 in ("UP", "DOWN"):
+        verdict = f"M5 and M1 agree {m5}: look for a {'buy' if m5 == 'UP' else 'sell'} (scalp)"
+        if all(h in ("UP", "DOWN") and h != m5 for h in (got["4h"], got["1h"])):
+            verdict += "; H4 and H1 are both against it = blocked, even for a scalp"
+        elif m15 in ("UP", "DOWN") and m15 != m5:
+            verdict += "; M15 is against it (higher risk, a quick target only)"
     else:
-        verdict = "M15 and M5 disagree or unknown: no scalp direction, wait"
+        verdict = "M5 and M1 disagree or unknown: no scalp direction, wait"
     return ("Direction: " + " | ".join(f"{tf} {v}" for tf, v in got.items()) + f"  ->  {verdict}")
 
 

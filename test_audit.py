@@ -636,19 +636,23 @@ def test_analyze_now_lifts_the_freshness_gate(monkeypatch):
     assert seen["age"] > 10 ** 6
 
 
-def test_scalp_bias_uses_m15_and_m5_and_keeps_the_both_htf_against_rule(monkeypatch):
+def test_scalp_bias_uses_m5_and_m1_and_keeps_the_both_htf_against_rule(monkeypatch):
     ev = lambda side: [{"side": side, "mss": False, "idx": 0}]      # noqa: E731
     monkeypatch.setattr(sl.st, "structure_events", lambda bars, k: bars)
     cfg = sl.make_config("scalp")
     assert cfg.ltf_bias and not sl.make_config("active").ltf_bias
     ok, label = sl.htf_alignment(ev("bear"), ev("bear"), ev("bull"), "buy", sl.make_config("strict"), ev("bull"))
     assert not ok                                                   # strict: H4/H1 against -> blocked
-    ok, label = sl.htf_alignment(ev("bull"), ev("bear"), ev("bull"), "buy", cfg, ev("bull"))
-    assert ok and "scalp bias" in label                             # M15 + M5 up, H4 mixed -> allowed
-    ok, why = sl.htf_alignment(ev("bear"), ev("bear"), ev("bull"), "buy", cfg, ev("bull"))
+    ok, label = sl.htf_alignment(ev("bull"), ev("bear"), ev("bear"), "buy", cfg, ev("bull"), ev("bull"))
+    assert ok and "M5 up and M1 up" in label                        # M5 + M1 up; M15 down does not block
+    ok, why = sl.htf_alignment(ev("bear"), ev("bear"), ev("bull"), "buy", cfg, ev("bull"), ev("bull"))
     assert not ok and "H4 and H1 are both" in why                   # both higher TFs against -> blocked
-    ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", cfg, ev("bear"))
+    ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", cfg, ev("bear"), ev("bull"))
     assert not ok and "M5" in why                                   # M5 against -> blocked
+    ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", cfg, ev("bull"), ev("bear"))
+    assert not ok and "M1 down" in why                              # M1 against -> blocked
+    ok, label = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", cfg, ev("bull"), None)
+    assert ok and "M1 unavailable" in label                         # no M1 candles: M5 alone decides
 
 
 def test_fib_format_shows_levels_ote_and_price_position():
@@ -681,7 +685,7 @@ def test_calc_offset_line():
 
 def test_wait_summary_counts_reasons_without_numbers():
     import ict_alerts as a
-    k1 = a.reason_key("XAUUSD: SELECTIVE WAIT (scalp bias: M15 down, M5 up, need both up for a buy)")
+    k1 = a.reason_key("XAUUSD: SELECTIVE WAIT (scalp bias: M5 down, M1 up, need both up for a buy)")
     k2 = a.reason_key("US30: MARKET CLOSED (US session 09:30-16:00 New York, opens in 1h 30m)")
     assert "M# down" in k1 and k2 == "market closed"
     assert a.reason_key("X: SELECTIVE WAIT (stop too wide (3.4 M15 ATR))") == a.reason_key(
