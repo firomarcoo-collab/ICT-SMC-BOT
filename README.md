@@ -279,7 +279,7 @@ python backtest_runner.py --market XAUUSD --m5 XAUUSD_M5.csv --spread 0.26 --tz-
 `MAX_ACTIVE` (default 3) = open signals allowed on one market at once; `ALLOW_OPPOSITE=0` stops a BUY and a SELL being open together. `MAX_ACTIVE=1` restores the old one-signal lock. The daily risk guard still counts every loss, so stacking cannot bypass it.
 
 ## Scalp profile
-`PROFILE=scalp`: quick trades. Target 1:1.2 (strict is 1:2), stop at most 2 M15 ATR, score gate 73, net R:R after costs 0.9+. Entry rules are active's; mandatory rules are unchanged. Not measured yet: backtest it before trusting it (`python backtest_runner.py ... --profile scalp`).
+`PROFILE=scalp`: quick trades. Target 1:1.2 (strict is 1:2), stop at most 2 M15 ATR, score gate 73, net R:R after costs 0.9+. Entry rules are active's. Direction comes from M15 + M5 structure (`ltf_bias`) instead of H4 + H1; only a trade with BOTH H4 and H1 against it is still blocked, and D1 no longer blocks. M1 is timing only. Not measured yet: backtest it before trusting it (`python backtest_runner.py ... --profile scalp`).
 
 ## Coloured management alerts
 Green `TRADE +1R` = in profit, move the stop to the entry. Yellow `REVERSAL WARNING` = profit is fading, consider moving the stop to the entry. Red band `CLOSE NOW` = profit (at least +0.5R earlier) is gone and price is back at the entry: close by hand. `RESULT: WIN` is green, `RESULT: LOSS` red. Entries stay blue (BUY) / red (SELL). Messages only, never orders; `MANAGE_SOUND=0` mutes the tone.
@@ -289,3 +289,5 @@ US30 and US100 use free Yahoo feeds that are only live in the US cash session (0
 
 ## Analyse now
 `python analyze_now.py XAUUSD` runs the full selective analysis once and prints the report (nothing saved, no sound). Works with `PROFILE=scalp` etc.
+
+`python analyze_now.py` also prints a `Direction:` line (M15, M5, M1 structure) and says if M15 and M5 agree.

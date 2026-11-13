@@ -634,3 +634,18 @@ def test_analyze_now_lifts_the_freshness_gate(monkeypatch):
     monkeypatch.setattr(ict_alerts, "selective_scan", fake_scan)
     analyze_now.analyze("BTCUSD", {})
     assert seen["age"] > 10 ** 6
+
+
+def test_scalp_bias_uses_m15_and_m5_and_keeps_the_both_htf_against_rule(monkeypatch):
+    ev = lambda side: [{"side": side, "mss": False, "idx": 0}]      # noqa: E731
+    monkeypatch.setattr(sl.st, "structure_events", lambda bars, k: bars)
+    cfg = sl.make_config("scalp")
+    assert cfg.ltf_bias and not sl.make_config("active").ltf_bias
+    ok, label = sl.htf_alignment(ev("bear"), ev("bear"), ev("bull"), "buy", sl.make_config("strict"), ev("bull"))
+    assert not ok                                                   # strict: H4/H1 against -> blocked
+    ok, label = sl.htf_alignment(ev("bull"), ev("bear"), ev("bull"), "buy", cfg, ev("bull"))
+    assert ok and "scalp bias" in label                             # M15 + M5 up, H4 mixed -> allowed
+    ok, why = sl.htf_alignment(ev("bear"), ev("bear"), ev("bull"), "buy", cfg, ev("bull"))
+    assert not ok and "H4 and H1 are both" in why                   # both higher TFs against -> blocked
+    ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", cfg, ev("bear"))
+    assert not ok and "M5" in why                                   # M5 against -> blocked
