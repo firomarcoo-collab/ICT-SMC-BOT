@@ -191,3 +191,33 @@ def us_open_line(ts):
         return ""
     when = f"opens in {-m} min" if m < 0 else f"opened {m} min ago"
     return f"US OPEN window: US stocks {when}. Expect fast moves and wider spreads.\n"
+
+
+# ===== US stock-index feed hours =====
+# The free Yahoo feeds for the Dow (^DJI) and Nasdaq (^NDX) only update during the US cash session,
+# 09:30-16:00 New York time, Monday to Friday. Outside it the candles are stale, so the bot says
+# "market closed" instead of scanning. (The CFD on MT5 trades longer; this is about the DATA feed.
+# US holidays are not listed: on a holiday the normal stale-data check still blocks.)
+
+def _ny(ts):
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.astimezone(ZoneInfo("America/New_York"))
+    except Exception:  # no timezone database: winter time
+        return dt - timedelta(hours=5)
+
+
+def us_cash_closed(ts):
+    """'' while the US cash session is open, else a short text with the time until the next open."""
+    local = _ny(ts)
+    minutes = local.hour * 60 + local.minute
+    if local.weekday() < 5 and 9 * 60 + 30 <= minutes < 16 * 60:
+        return ""
+    day = local.replace(hour=9, minute=30, second=0, microsecond=0)
+    nxt = day if (local.weekday() < 5 and minutes < 9 * 60 + 30) else day + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    wait = int((nxt - local).total_seconds() // 60)
+    h, m = divmod(wait, 60)
+    return f"opens in {h}h {m:02d}m" if h < 48 else f"opens in {h // 24}d {h % 24}h"

@@ -283,3 +283,6 @@ python backtest_runner.py --market XAUUSD --m5 XAUUSD_M5.csv --spread 0.26 --tz-
 
 ## Coloured management alerts
 Green `TRADE +1R` = in profit, move the stop to the entry. Yellow `REVERSAL WARNING` = profit is fading, consider moving the stop to the entry. Red band `CLOSE NOW` = profit (at least +0.5R earlier) is gone and price is back at the entry: close by hand. `RESULT: WIN` is green, `RESULT: LOSS` red. Entries stay blue (BUY) / red (SELL). Messages only, never orders; `MANAGE_SOUND=0` mutes the tone.
+
+## US index hours
+US30 and US100 use free Yahoo feeds that are only live in the US cash session (09:30-16:00 New York, Mon-Fri). Outside it the bot prints `MARKET CLOSED (... opens in Xh Ym)` and does not scan or fetch. `US_HOURS_ONLY=0` turns this off. Holidays are not listed (the stale-data check still blocks them).

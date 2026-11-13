@@ -389,6 +389,9 @@ SELECTIVE_TFS = (("5m", "m5"), ("15m", "m15"), ("1h", "h1"), ("4h", "h4"))
 OPTIONAL_TFS = (("1d", "d1"), ("1m", "m1"))  # context / timing only; a failure here never blocks
 
 
+US_INDEX_MARKETS = ("US30", "NAS100")
+
+
 def wait_line(name, res):
     """The screen line for a WAIT. A setup that passed every rule and only missed the score gate is shown
     as WATCH (print-only, no sound): it is the closest thing to an entry the engine has seen."""
@@ -412,6 +415,10 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     if market not in markets.DEFAULTS:
         return f"{name}: the selective engine covers XAUUSD, NAS100, US30 and BTCUSD only", None, False
     inst = INSTRUMENTS[name]
+    if market in US_INDEX_MARKETS and inst["source"] == "yahoo" and os.environ.get("US_HOURS_ONLY", "1") != "0":
+        closed = extras.us_cash_closed(now_ts)
+        if closed:   # the free feed is only live in the US cash session: do not scan stale candles
+            return f"{name}: MARKET CLOSED (US session 09:30-16:00 New York, {closed})", None, False
     offset = (offsets or {}).get(name, 0.0)
     data = {}
     try:

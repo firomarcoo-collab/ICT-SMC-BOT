@@ -589,3 +589,29 @@ def test_scalp_profile_has_near_target_and_labels():
     assert make_config("strict").rr == 2.0
     import ict_alerts
     assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).rr == 1.2
+
+
+def _utc(y, mo, d, h, mi=0):
+    import calendar
+    return calendar.timegm((y, mo, d, h, mi, 0))
+
+
+def test_us_cash_hours():
+    import extras
+    assert extras.us_cash_closed(_utc(2026, 11, 13, 15, 0)) == ""                  # Fri 10:00 New York
+    assert extras.us_cash_closed(_utc(2026, 11, 13, 14, 30)) == ""                 # 09:30 sharp
+    assert extras.us_cash_closed(_utc(2026, 11, 13, 21, 0)) != ""                  # 16:00 = closed
+    assert extras.us_cash_closed(_utc(2026, 11, 13, 13, 0)) == "opens in 1h 30m"   # 08:00 New York
+    assert extras.us_cash_closed(_utc(2026, 11, 13, 22, 0)) == "opens in 2d 16h"   # Fri 17:00 -> Mon 09:30
+    assert extras.us_cash_closed(_utc(2026, 11, 14, 15, 0)).startswith("opens in")  # Saturday
+
+
+def test_selective_scan_says_market_closed_for_us_indices_without_fetching(monkeypatch):
+    import ict_alerts
+
+    def boom(*a, **k):
+        raise AssertionError("must not fetch candles while the market is closed")
+    monkeypatch.setattr(ict_alerts, "get_candles", boom)
+    scfg = ict_alerts.build_selective_config({})
+    line, alert, lagging = ict_alerts.selective_scan("US30", _utc(2026, 11, 13, 22, 0), scfg, None)
+    assert "MARKET CLOSED" in line and alert is None and lagging is False
