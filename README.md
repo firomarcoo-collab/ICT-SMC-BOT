@@ -280,3 +280,6 @@ python backtest_runner.py --market XAUUSD --m5 XAUUSD_M5.csv --spread 0.26 --tz-
 
 ## Scalp profile
 `PROFILE=scalp`: quick trades. Target 1:1.2 (strict is 1:2), stop at most 2 M15 ATR, score gate 73, net R:R after costs 0.9+. Entry rules are active's; mandatory rules are unchanged. Not measured yet: backtest it before trusting it (`python backtest_runner.py ... --profile scalp`).
+
+## Coloured management alerts
+Green `TRADE +1R` = in profit, move the stop to the entry. Yellow `REVERSAL WARNING` = profit is fading, consider moving the stop to the entry. Red band `CLOSE NOW` = profit (at least +0.5R earlier) is gone and price is back at the entry: close by hand. `RESULT: WIN` is green, `RESULT: LOSS` red. Entries stay blue (BUY) / red (SELL). Messages only, never orders; `MANAGE_SOUND=0` mutes the tone.

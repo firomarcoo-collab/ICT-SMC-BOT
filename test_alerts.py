@@ -285,7 +285,7 @@ def test_management_alerts_play_the_tone_unless_muted_and_info_stays_silent():
             os.environ["MANAGE_SOUND"] = saved[2]
     assert sorted(c[0] for c in loud) == ["termux-media-player", "termux-notification"]   # tone + notification
     note = [c for c in loud if c[0] == "termux-notification"][0]
-    assert note[note.index("--title") + 1] == "ICT SMC (manage)"
+    assert note[note.index("--title") + 1] == "\U0001F7E1 REVERSAL WARNING"
     assert [c[0] for c in muted] == ["termux-notification"] and "--sound" not in muted[0]
     assert plain == []
 

@@ -13,7 +13,8 @@ MAX_WAIT_BARS = 24
 # Trade management alerts (messages only, nothing is ever sent to the broker):
 BE_ARM_R = 0.5       # once the trade has been this many R in profit ...
 RETRACE_FRAC = 0.5   # ... and a closed candle gives back this share of that best profit: move SL to entry
-MANAGE_PREFIXES = ("TRADE +", "REVERSAL WARNING")   # messages that are management alerts, not results
+MANAGE_PREFIXES = ("TRADE +", "REVERSAL WARNING", "CLOSE NOW")   # messages that are management alerts, not results
+CLOSE_R = 0.1         # a trade that was in profit and is back at this many R or less: close it
 ADD_R = 1.0          # a candle CLOSES this many R in profit: milestone (protect + optional add-on)
 DEFAULT_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results.csv")
 
@@ -57,7 +58,8 @@ class Tracker:
         it starts OPEN and the next candles are checked stop first. Otherwise it is a limit order."""
         self.items.append({"name": name, "tf": tf, "kind": kind, "setup": dict(setup),
                            "state": "open" if market else "pending", "waited": 0, "last": bar_time,
-                           "ref": ref, "mfe": 0.0, "warned": False, "milestone": False})
+                           "ref": ref, "mfe": 0.0, "warned": False, "milestone": False,
+                           "close_warned": False})
 
     def _finish(self, it, outcome):
         if self.on_done:
@@ -112,6 +114,14 @@ class Tracker:
                 f"Best profit was +{it['mfe']:.1f}R, now +{now_r:.1f}R and turning back. "
                 f"-> Consider moving the stop to the entry {s['entry']:.8g} so it cannot become a loss.\n"
                 f"تحذير انعكاس: الربح الأعلى كان +{it['mfe']:.1f}R والآن +{now_r:.1f}R. فكّر بتحريك الستوب إلى سعر الدخول.")
+        if (it["mfe"] >= self.be_arm_r and not it.get("close_warned") and now_r <= CLOSE_R):
+            it["close_warned"] = True
+            out.append(
+                f"CLOSE NOW: {self._label(it)}\n"
+                f"The profit (best +{it['mfe']:.1f}R) is gone, price is back at the entry ({now_r:+.1f}R). "
+                f"-> Close the trade by hand if you did not move the stop (or keep the stop at the entry).\n"
+                f"أقفل الصفقة: الربح (الأعلى +{it['mfe']:.1f}R) ضاع والسعر رجع للدخول ({now_r:+.1f}R). "
+                f"أقفلها يدويًا إذا لم تحرّك الستوب.")
         return out
 
     def update(self, name, tf, r):

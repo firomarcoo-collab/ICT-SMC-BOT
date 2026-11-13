@@ -498,6 +498,22 @@ SIDE_STYLE = {"buy": ("\U0001F535", "\033[1;94m", "0066FF"),    # blue
               "sell": ("\U0001F534", "\033[1;91m", "FF0000")}   # red
 
 
+# management / result messages, coloured by the action wanted (side colours stay for entries)
+ACTION_STYLE = (("CLOSE NOW", ("\U0001F534", "\033[1;97;41m", "FF0000")),         # red band: close it
+                ("REVERSAL WARNING", ("\U0001F7E1", "\033[1;93m", "FFCC00")),     # yellow: move the stop
+                ("TRADE +", ("\U0001F7E2", "\033[1;92m", "00CC44")),              # green: in profit, protect it
+                ("RESULT: WIN", ("\U0001F7E2", "\033[1;92m", "00CC44")),
+                ("RESULT: LOSS", ("\U0001F534", "\033[1;91m", "FF0000")))
+
+
+def style_for(text, side=None):
+    """(emoji, ansi colour, led colour) for a message: the action prefix wins, then the side."""
+    for prefix, style in ACTION_STYLE:
+        if text.startswith(prefix):
+            return style
+    return SIDE_STYLE.get(side, ("", "", ""))
+
+
 REVIEW_FILE = os.environ.get("REVIEW_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                             "last_signal_review.txt")
 REVIEW_HEADER = (
@@ -537,7 +553,7 @@ def notify(text, entry=False, side=None, alert=False):
     circle in the notification and Telegram text, and the phone's notification light).
     alert=True (trade management: move the stop, reinforcement) shows a phone notification and plays
     the same tone as an entry (MANAGE_SOUND=0 makes it silent); plain info messages stay silent."""
-    emoji, ansi, led = SIDE_STYLE.get(side, ("", "", ""))
+    emoji, ansi, led = style_for(text, side)
     print(f"{ansi}{text}\033[0m" if ansi else text, flush=True)
     if not entry and not alert and os.environ.get("INFO_NOTIFY") != "1":
         return  # info messages stay in the Termux screen only: no phone notification, no sound
@@ -549,6 +565,8 @@ def notify(text, entry=False, side=None, alert=False):
         title = "ICT SMC" if entry else "ICT SMC (manage)" if alert else "ICT SMC (info)"
         if side:
             title = f"{emoji} {side.upper()} - ICT SMC"
+        elif emoji:
+            title = f"{emoji} {text.split(chr(10))[0].split(':')[0].replace(emoji + ' ', '')}"
         cmd = ["termux-notification", "--title", title,
                "--content", text, "--priority", "high" if entry or alert else "low"]
         if led:

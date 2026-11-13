@@ -33,7 +33,7 @@ def test_one_warning_only_and_none_without_enough_profit_or_when_back_under_entr
     shallow = [candle(1, 100, 100.3, 99.9, 100.2), candle(2, 100.2, 100.3, 100.05, 100.1)]   # best only 0.3R
     assert run(tmp_path, BUY, shallow)[0] == []
     under = [candle(1, 100, 100.8, 99.9, 100.7), candle(2, 100.7, 100.7, 99.6, 99.7)]        # closed below entry
-    assert run(tmp_path, BUY, under)[0] == []
+    assert [n.split(":")[0] for n in run(tmp_path, BUY, under)[0]] == ["CLOSE NOW"]   # profit gone: close it
     twice = [candle(1, 100, 100.8, 99.9, 100.7), candle(2, 100.7, 100.8, 100.2, 100.3),
              candle(3, 100.3, 100.4, 100.1, 100.15)]
     assert [n.split(":")[0] for n in run(tmp_path, BUY, twice)[0]] == ["REVERSAL WARNING"]
@@ -65,3 +65,25 @@ def test_management_alerts_are_marked_so_the_loop_can_notify_without_the_entry_t
     assert "TRADE +1.0R: x".startswith(tracker.MANAGE_PREFIXES)
     assert "REVERSAL WARNING: x".startswith(tracker.MANAGE_PREFIXES)
     assert not "RESULT: WIN +2R".startswith(tracker.MANAGE_PREFIXES)
+
+
+def test_close_now_alert_when_profit_is_gone_once():
+    import tracker
+    t = tracker.Tracker(path=None) if False else tracker.Tracker(path="/tmp/_cn.csv")
+    it = {"setup": {"side": "buy", "entry": 100.0, "sl": 99.0, "tp": 102.0}, "name": "BTCUSD", "tf": "5m",
+          "kind": "selective", "mfe": 0.0, "warned": False, "milestone": False, "close_warned": False}
+    c = lambda hi, lo, cl: {"high": hi, "low": lo, "close": cl}
+    assert t._manage(it, c(100.7, 100.2, 100.6), True, 1.0) == []       # in profit, nothing yet
+    out = t._manage(it, c(100.4, 99.95, 100.05), True, 1.0)             # back at the entry
+    assert any(m.startswith("CLOSE NOW") for m in out)
+    assert not any(m.startswith("CLOSE NOW") for m in t._manage(it, c(100.1, 99.9, 100.0), True, 1.0))
+
+
+def test_action_styles():
+    import ict_alerts as a
+    assert a.style_for("CLOSE NOW: x")[1].endswith("41m")
+    assert a.style_for("REVERSAL WARNING: x")[0] == "\U0001F7E1"
+    assert a.style_for("TRADE +1.0R: x")[0] == "\U0001F7E2"
+    assert a.style_for("RESULT: LOSS -1R")[0] == "\U0001F534"
+    assert a.style_for("hello", "buy") == a.SIDE_STYLE["buy"] and a.style_for("hello") == ("", "", "")
+    assert "CLOSE NOW" in __import__("tracker").MANAGE_PREFIXES
