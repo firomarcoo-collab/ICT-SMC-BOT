@@ -671,3 +671,9 @@ def test_require_sweep_counter_trend_and_tf_agreement_options(monkeypatch):
     cfg = sl.make_config("strict")
     line = sl.tf_agreement("buy", ev("bull"), ev("bull"), ev("bull"), ev("bear"), [], cfg)
     assert line == "M1 ✓ M5 ✓ M15 ✓ H1 ✗ H4 ?"
+
+
+def test_calc_offset_line():
+    import calc_offset
+    text = calc_offset.offset_line("XAUUSD", 4012.35, 3884.10)
+    assert "OFFSET_XAUUSD=128.25" in text
