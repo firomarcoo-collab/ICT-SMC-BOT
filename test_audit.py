@@ -748,3 +748,16 @@ def test_golden_profile_and_env_override():
     cfg = sl.make_config("golden")
     assert cfg.require_fib and cfg.ready_score == 75 and cfg.rr == 2.0 and not sl.make_config("active").require_fib
     assert ict_alerts.build_selective_configs({"PROFILE": "active", "REQUIRE_FIB": "1"})[0].require_fib
+
+
+def test_us_session_open_close_events():
+    import extras
+    fri_closed, mon_open = _utc(2026, 11, 13, 22, 0), _utc(2026, 11, 16, 14, 30)      # Fri 17:00 NY, Mon 09:30 NY
+    is_open, msg = extras.us_session_event(None, fri_closed, "US30")
+    assert not is_open and "market closed" in msg and "opens" in msg                   # first look: status line
+    assert extras.us_next_open_ts(fri_closed) == mon_open                                # the next open is Monday 09:30
+    is_open, msg = extras.us_session_event(False, mon_open, "US30 / US100")
+    assert is_open and msg.startswith("US MARKET OPEN")
+    assert extras.us_session_event(True, mon_open + 300, "US30") == (True, None)        # no repeat while open
+    is_open, msg = extras.us_session_event(True, _utc(2026, 11, 16, 21, 0), "US30")     # 16:00 NY
+    assert not is_open and "session closed" in msg

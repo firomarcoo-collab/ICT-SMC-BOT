@@ -534,7 +534,8 @@ SIDE_STYLE = {"buy": ("\U0001F535", "\033[1;94m", "0066FF"),    # blue
 
 
 # management / result messages, coloured by the action wanted (side colours stay for entries)
-ACTION_STYLE = (("CLOSE NOW", ("\U0001F534", "\033[1;97;41m", "FF0000")),         # red band: close it
+ACTION_STYLE = (("US MARKET OPEN", ("\U0001F7E2", "\033[1;92m", "00CC44")),
+                ("CLOSE NOW", ("\U0001F534", "\033[1;97;41m", "FF0000")),         # red band: close it
                 ("REVERSAL WARNING", ("\U0001F7E1", "\033[1;93m", "FFCC00")),     # yellow: move the stop
                 ("TRADE +", ("\U0001F7E2", "\033[1;92m", "00CC44")),              # green: in profit, protect it
                 ("RESULT: WIN", ("\U0001F7E2", "\033[1;92m", "00CC44")),
@@ -797,8 +798,14 @@ def run():
 
     last_beat = 0
     wait_stats, hour_signals = {}, 0
+    us_names = [n for n in names if markets.canonical(n) in US_INDEX_MARKETS and INSTRUMENTS[n]["source"] == "yahoo"]
+    us_open = None
     while True:
         now_ts = int(time.time())
+        if us_names and use_selective and os.environ.get("US_HOURS_ONLY", "1") != "0":
+            us_open, us_msg = extras.us_session_event(us_open, now_ts, " / ".join(us_names))
+            if us_msg:
+                notify(us_msg, alert=us_msg.startswith("US MARKET OPEN"))
         if now_ts - last_beat >= 3600:
             if last_beat and use_selective:
                 print(wait_summary(wait_stats, hour_signals), flush=True)

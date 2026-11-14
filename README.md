@@ -312,3 +312,5 @@ Every hour the bot prints `LAST HOUR: N signal(s)` and, per market, the top 3 re
 `PROFILE=golden` = active entry rules, but a signal is only given when the entry sits in the 62-79% golden zone of the latest M15 leg (an up leg for a buy, a down leg for a sell), target 1:2. `REQUIRE_FIB=1` adds the same rule to any profile. Every signal shows a `Fib:` line with the retracement of the entry. `PROFILE=all` includes golden (after strict and swing).
 
 `ALLOW_UNKNOWN_COST` now defaults to on: when a market has no verified spread the signal is still given and labelled `COST UNVERIFIED`. `ALLOW_UNKNOWN_COST=0` makes the cost check block it instead. Fill the real spread in markets.json (or SPREAD_<SYMBOL>) to remove the label.
+
+When the bot starts (and again at every US open and close) it prints the state of US30 / US100: `MARKET IS OPEN now`, `market closed, opens in ...` (with the opening time in your phone's own timezone). At the open it also shows a green `US MARKET OPEN` notification with the tone. `US_HOURS_ONLY=0` turns this and the closed-market skip off.

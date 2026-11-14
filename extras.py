@@ -221,3 +221,32 @@ def us_cash_closed(ts):
     wait = int((nxt - local).total_seconds() // 60)
     h, m = divmod(wait, 60)
     return f"opens in {h}h {m:02d}m" if h < 48 else f"opens in {h // 24}d {h % 24}h"
+
+
+def us_next_open_ts(ts):
+    """Unix time of the next 09:30 New York cash open after `ts` (Monday to Friday)."""
+    local = _ny(ts)
+    day = local.replace(hour=9, minute=30, second=0, microsecond=0)
+    if not (local.weekday() < 5 and local.hour * 60 + local.minute < 9 * 60 + 30):
+        day += timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return int(ts + (day - local).total_seconds())
+
+
+def us_session_event(was_open, now_ts, markets_text="US30 / US100"):
+    """(is_open, message_or_None): a message only when the US cash session just opened or closed.
+    was_open None = first look (a status line is returned instead of an event)."""
+    is_open = not us_cash_closed(now_ts)
+    if was_open is None:
+        if is_open:
+            return is_open, f"{markets_text}: MARKET IS OPEN now (US session until 16:00 New York): scanning"
+        nxt = datetime.fromtimestamp(us_next_open_ts(now_ts))
+        return is_open, (f"{markets_text}: market closed, {us_cash_closed(now_ts)} "
+                         f"(opens {nxt:%a %H:%M} your phone's time); the bot starts scanning them then")
+    if is_open and not was_open:
+        return is_open, f"US MARKET OPEN: {markets_text} are open now and being scanned (session until 16:00 New York)"
+    if was_open and not is_open:
+        nxt = datetime.fromtimestamp(us_next_open_ts(now_ts))
+        return is_open, f"{markets_text}: US session closed. Next open {nxt:%a %H:%M} your phone's time"
+    return is_open, None
