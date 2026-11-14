@@ -664,12 +664,14 @@ def build_selective_config(env):
 
     profile = env.get("PROFILE", "strict").lower()
     if profile not in selective.PROFILES:
-        raise SystemExit("PROFILE must be strict, active, loose, scalp or swing")
+        raise SystemExit("PROFILE must be strict, active, loose, scalp, swing or golden")
     over = {"min_confluence": num("MIN_CONFLUENCE", int), "slippage": num("SLIPPAGE"),
             "max_daily_losses": num("MAX_DAILY_LOSSES", int), "max_daily_loss_pct": num("MAX_DAILY_LOSS_PCT"),
             "max_daily_loss_r": num("MAX_DAILY_LOSS_R"), "risk_percent": num("RISK_PERCENT"),
             "ready_score": num("READY_SCORE", int)}
     over = {k: v for k, v in over.items() if v is not None}
+    if env.get("REQUIRE_FIB") in ("0", "1"):
+        over["require_fib"] = env["REQUIRE_FIB"] == "1"
     if env.get("REQUIRE_SWEEP") in ("0", "1"):
         over["require_sweep"] = env["REQUIRE_SWEEP"] == "1"
     if env.get("ALLOW_UNKNOWN_COST") == "1":
@@ -677,7 +679,7 @@ def build_selective_config(env):
     return selective.make_config(profile, **over)
 
 
-ALL_PROFILES = ("strict", "swing", "active", "scalp")   # PROFILE=all: most selective first
+ALL_PROFILES = ("strict", "swing", "golden", "active", "scalp")   # PROFILE=all: most selective first
 
 
 def build_selective_configs(env):

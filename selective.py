@@ -46,6 +46,7 @@ class SelectiveConfig:
     allow_unknown_cost: bool = False
     max_signal_age: int = 180       # seconds after the confirmation candle closed
     profile: str = "strict"         # "strict" (default), "active" or "loose" (see make_config)
+    require_fib: bool = False       # the entry must sit in the 62-79% golden zone of the M15 leg
     require_sweep: bool = False     # an entry needs a valid liquidity sweep (scalp profile)
     ltf_bias: bool = False          # scalp: direction from M5 + M1 structure instead of H4 + H1 alignment
     strong_body_frac: float = None  # also count a closed M5 candle with body >= this share of its range as strong
@@ -66,7 +67,7 @@ def daily_loss_limit_r(cfg):
     return cfg.max_daily_loss_pct / cfg.risk_percent if cfg.risk_percent and cfg.max_daily_loss_pct else 0.0
 
 
-PROFILES = ("strict", "active", "loose", "scalp", "swing")
+PROFILES = ("strict", "active", "loose", "scalp", "swing", "golden")
 
 
 def make_config(profile="strict", **overrides):
@@ -92,6 +93,11 @@ def make_config(profile="strict", **overrides):
         # after costs must still be 0.9+. A higher hit rate is the aim, NOT a measured result.
         base = dict(profile="scalp", min_confluence=4, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, ready_score=73, rr=1.2, min_net_rr=0.9, max_risk_atr=2.0, ltf_bias=True, require_sweep=True)
+    elif profile == "golden":
+        # active's entry rules, but only when price is in the Fibonacci golden zone (62-79% retracement
+        # of the latest M15 leg, in the trade's direction). Target 1:2. Not measured yet.
+        base = dict(profile="golden", min_confluence=4, retest_window=5, max_zone_age=192,
+                    fvg_max_fill=0.7, ready_score=75, require_fib=True)
     elif profile == "swing":
         # slower, bigger trades: the full rule set (H4/H1 alignment or a complete reversal, D1 context,
         # S/R, sweep, FVG/OB, retest, closed M5 confirmation) with a far target (1:3), room for a wider
@@ -101,7 +107,7 @@ def make_config(profile="strict", **overrides):
     elif profile == "strict":
         base = {}
     else:
-        raise ValueError("PROFILE must be strict, active, loose, scalp or swing")
+        raise ValueError("PROFILE must be strict, active, loose, scalp, swing or golden")
     base.update(overrides)
     return SelectiveConfig(**base)
 
@@ -370,6 +376,23 @@ def htf_alignment(h4, h1, m15, side, cfg, m5=None, m1=None):
     return False, f"higher-timeframe conflict: H4 {t4}, H1 {t1}"
 
 
+def fib_check(m15, side, entry):
+    """(inside, text): is `entry` in the 62-79% golden zone of the latest M15 leg in the trade's
+    direction (an up leg for a buy, a down leg for a sell)? inside is None when there is no leg."""
+    pd = st.premium_discount(m15, 3)
+    want = "up" if side == "buy" else "down"
+    if not pd:
+        return None, "Fib: no clear M15 leg yet"
+    if pd["direction"] != want:
+        return False, f"Fib: the latest M15 leg is {pd['direction']}, a {side} needs a {want} leg"
+    rng = pd["high"] - pd["low"]
+    ret = (pd["high"] - entry) / rng if want == "up" else (entry - pd["low"]) / rng
+    lo, hi = st.OTE
+    inside = lo - 0.02 <= ret <= hi + 0.02
+    return inside, (f"Fib: entry at {ret * 100:.0f}% of the M15 leg {pd['low']:.5g}-{pd['high']:.5g}, "
+                    f"{'INSIDE' if inside else 'outside'} the {int(lo * 100)}-{int(hi * 100)}% golden zone")
+
+
 def tf_agreement(side, m1, m5, m15, h1, h4, cfg):
     """Structure direction of every timeframe against the trade: '✓' agrees, '✗' against, '?' unknown.
     Information for the reader (M1 is timing only); it never blocks a signal by itself."""
@@ -618,6 +641,11 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         res["reasons"].append("no valid liquidity sweep: this profile only enters after a sweep")
         return res
 
+    fib_ok, fib_text = fib_check(m15, side, last["close"])
+    if cfg.require_fib and not fib_ok:
+        res["reasons"].append("not in the Fibonacci golden zone: " + fib_text.replace("Fib: ", ""))
+        return res
+
     # --- stop, target, costs
     primary = (fo_hit or sr_hit)[0]
     entry = last["close"]
@@ -700,7 +728,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "cost_note": note, "strong_confirmation": strong, "uses": uses,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
                     "invalidation": invalidation, "profile": cfg.profile,
-                    "counter_trend": mode == "reversal" and not ok_h,
+                    "counter_trend": mode == "reversal" and not ok_h, "fib": fib_text,
                     "tf": tf_agreement(side, m1, m5, m15, h1, h4, cfg),
                     "score100": score100, "score_parts": parts}
     rep["levels"] = (f"entry {entry:.5g}, invalidation {invalidation:.5g}, SL {sl:.5g}, TP {tp:.5g}, "
@@ -737,7 +765,8 @@ def format_signal(market, res, digits=2):
     tag = {"active": ", ACTIVE profile (looser filter)",
            "loose": ", LOOSE profile (lowest filter, score 60+)",
            "scalp": ", SCALP (quick near target)",
-           "swing": ", SWING (far target, hold longer)"}.get(s.get("profile"), "")
+           "swing": ", SWING (far target, hold longer)",
+           "golden": ", GOLDEN ZONE (Fibonacci 62-79%)"}.get(s.get("profile"), "")
     rr = abs(s["tp"] - s["entry"]) / abs(s["entry"] - s["sl"]) if s["entry"] != s["sl"] else 2.0
     if s.get("profile") != "scalp" and s.get("score100", 100) < 86:
         tag += ", REDUCED CONFIDENCE (score below 86)"
@@ -751,6 +780,7 @@ def format_signal(market, res, digits=2):
              f"M5 close {mark('confirm')}{' (strong)' if s['strong_confirmation'] else ''}, cost {mark('cost')}",
              "Zones: " + "; ".join(s["zones"]),
              f"Timeframes (structure vs the trade): {s['tf']}",
+             s.get("fib", ""),
              f"Cost assumed: {s['cost']:.4g} price units" + (f" ({s['cost_note']})" if s["cost_note"] else ""),
              explain(res),
              "Signal only. Place the order yourself. This is not a promised win rate."]
@@ -797,7 +827,8 @@ def format_signal_ar(market, res, digits=2):
              f"النوع: {mode} | حالة البيانات: {res['status']}"
              + {"active": " | ملف نشط (فلتر أخف)", "loose": " | ملف متساهل (أقل فلتر، تقييم 60+)",
                 "scalp": " | سكالبينج (هدف قريب وسريع)",
-                "swing": " | سوينغ (هدف بعيد، احتفظ بالصفقة أطول)"}.get(s.get("profile"), "")
+                "swing": " | سوينغ (هدف بعيد، احتفظ بالصفقة أطول)",
+                "golden": " | المنطقة الذهبية (فيبوناتشي 62-79%)"}.get(s.get("profile"), "")
              + (" | ثقة أقل (التقييم أقل من 86)" if s.get("profile") != "scalp" and s.get("score100", 100) < 86 else "")
              + (" | عكس الاتجاه" if s.get("counter_trend") else ""),
              f"الدخول: {s['entry']:.{digits}f}",
@@ -810,6 +841,8 @@ def format_signal_ar(market, res, digits=2):
              f"شمعة M5 مغلقة {yn('confirm')}{' (قوية)' if s['strong_confirmation'] else ''}، التكلفة {yn('cost')}",
              f"المناطق: {_ar('; '.join(s['zones']))}",
              f"الفريمات (البنية مقابل الصفقة): {s['tf']}",
+             (s.get("fib", "").replace("Fib:", "فيبوناتشي:").replace("INSIDE", "داخل").replace("outside", "خارج")
+              .replace("golden zone", "المنطقة الذهبية")),
              f"اتجاه الفريمات الكبيرة: {_ar(r['htf'])} | {_ar(r['d1'])}",
              f"السيولة: {_ar(r['liquidity'])}",
              f"الهيكل: {_ar(r['structure'])}",

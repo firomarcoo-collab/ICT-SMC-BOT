@@ -493,7 +493,7 @@ def test_loose_profile_is_the_most_permissive_and_changes_no_mandatory_rule():
     assert (s.ready_score, a.ready_score, lo.ready_score) == (86, 80, 60)
     assert lo.strong_body_frac == 0.6 and s.strong_body_frac is None and a.strong_body_frac is None
     assert lo.min_confluence == 4          # 60% of 8 checks = 5, which is what strict already needs
-    assert sl.PROFILES == ("strict", "active", "loose", "scalp", "swing")
+    assert sl.PROFILES == ("strict", "active", "loose", "scalp", "swing", "golden")
     with pytest.raises(ValueError):
         sl.make_config("wild")
 
@@ -709,7 +709,7 @@ def test_several_profiles_first_that_passes_wins(monkeypatch):
     cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp,swing"})
     assert [c.profile for c in cfgs] == ["scalp", "swing"]
     assert [c.profile for c in ict_alerts.build_selective_configs({"PROFILE": "all"})] == [
-        "strict", "swing", "active", "scalp"]
+        "strict", "swing", "golden", "active", "scalp"]
     assert [c.profile for c in ict_alerts.build_selective_configs({})] == ["strict"]
     assert "SCALP+SWING" in ict_alerts.describe_config(cfgs, "selective")
     seen = []
@@ -726,3 +726,23 @@ def test_several_profiles_first_that_passes_wins(monkeypatch):
                         lambda *a, **k: type("Q", (), {"blocked": False, "reason": ""})())
     line, alert, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 0), cfgs, None)
     assert seen == ["scalp", "swing"] and alert is None and "scalp waits" in line
+
+
+def test_fib_check_golden_zone(monkeypatch):
+    up = {"low": 100.0, "high": 110.0, "direction": "up"}
+    monkeypatch.setattr(sl.st, "premium_discount", lambda bars, k=3: dict(up))
+    ok, text = sl.fib_check([], "buy", 103.0)           # 70% retracement of 100-110 (from the high)
+    assert ok and "INSIDE" in text and "70%" in text
+    ok, text = sl.fib_check([], "buy", 107.0)           # only 30%: too shallow
+    assert ok is False and "outside" in text
+    ok, text = sl.fib_check([], "sell", 103.0)          # a sell needs a down leg
+    assert ok is False and "needs a down leg" in text
+    monkeypatch.setattr(sl.st, "premium_discount", lambda bars, k=3: None)
+    assert sl.fib_check([], "buy", 103.0)[0] is None
+
+
+def test_golden_profile_and_env_override():
+    import ict_alerts
+    cfg = sl.make_config("golden")
+    assert cfg.require_fib and cfg.ready_score == 75 and cfg.rr == 2.0 and not sl.make_config("active").require_fib
+    assert ict_alerts.build_selective_configs({"PROFILE": "active", "REQUIRE_FIB": "1"})[0].require_fib

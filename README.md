@@ -307,3 +307,6 @@ Every hour the bot prints `LAST HOUR: N signal(s)` and, per market, the top 3 re
 
 ## Several profiles at once
 `PROFILE=all` (or a list such as `PROFILE=scalp,swing`) checks every listed profile on each scan; the first one whose rules pass gives the signal (strict, swing, active, scalp in that order, so the most selective label wins). The same setup is never sent twice (shared signal ids and locks). More signals than any single profile, and each keeps its own rules; the daily risk guard still counts every loss. `python analyze_now.py` accepts the same list.
+
+## Fibonacci golden zone
+`PROFILE=golden` = active entry rules, but a signal is only given when the entry sits in the 62-79% golden zone of the latest M15 leg (an up leg for a buy, a down leg for a sell), target 1:2. `REQUIRE_FIB=1` adds the same rule to any profile. Every signal shows a `Fib:` line with the retracement of the entry. `PROFILE=all` includes golden (after strict and swing).
