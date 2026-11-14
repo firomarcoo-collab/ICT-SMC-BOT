@@ -304,3 +304,6 @@ Every hour the bot prints `LAST HOUR: N signal(s)` and, per market, the top 3 re
 
 ## Swing profile
 `PROFILE=swing`: slower, bigger trades with the full rule set (H4/H1 alignment or a complete reversal, D1 context, sweep, FVG/OB, retest, M5 confirmation). Target 1:3, stop up to 4 M15 ATR, score gate 80, 5 confluences, zones up to 4 days old. A signal stays open 72 h (`SIGNAL_TTL_HOURS` overrides). Fewer signals; not measured yet.
+
+## Several profiles at once
+`PROFILE=all` (or a list such as `PROFILE=scalp,swing`) checks every listed profile on each scan; the first one whose rules pass gives the signal (strict, swing, active, scalp in that order, so the most selective label wins). The same setup is never sent twice (shared signal ids and locks). More signals than any single profile, and each keeps its own rules; the daily risk guard still counts every loss. `python analyze_now.py` accepts the same list.

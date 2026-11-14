@@ -629,7 +629,7 @@ def test_analyze_now_lifts_the_freshness_gate(monkeypatch):
     seen = {}
 
     def fake_scan(name, now, scfg, store, **k):
-        seen["age"] = scfg.max_signal_age
+        seen["age"] = min(c.max_signal_age for c in (scfg if isinstance(scfg, list) else [scfg]))
         return f"{name}: SELECTIVE WAIT (x)", None, False
     monkeypatch.setattr(ict_alerts, "selective_scan", fake_scan)
     analyze_now.analyze("BTCUSD", {})
@@ -701,3 +701,28 @@ def test_swing_profile_far_target_wide_stop_and_labels():
     assert not cfg.ltf_bias and not cfg.require_sweep               # full H4/H1 rule set stays on
     import ict_alerts
     assert ict_alerts.build_selective_config({"PROFILE": "swing"}).rr == 3.0
+
+
+def test_several_profiles_first_that_passes_wins(monkeypatch):
+    import ict_alerts
+    monkeypatch.delenv("VERBOSE", raising=False)    # analyze_now (imported by other tests) sets it
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp,swing"})
+    assert [c.profile for c in cfgs] == ["scalp", "swing"]
+    assert [c.profile for c in ict_alerts.build_selective_configs({"PROFILE": "all"})] == [
+        "strict", "swing", "active", "scalp"]
+    assert [c.profile for c in ict_alerts.build_selective_configs({})] == ["strict"]
+    assert "SCALP+SWING" in ict_alerts.describe_config(cfgs, "selective")
+    seen = []
+
+    def fake_process(market, data, now, store, cfg, *a, **k):
+        seen.append(cfg.profile)
+        return {"action": "WAIT", "reasons": [cfg.profile + " waits"], "report": {}, "checks": {}} \
+            if cfg.profile == "scalp" else {"action": "WAIT", "reasons": ["x"], "report": {}, "checks": {}}
+    monkeypatch.setattr(ict_alerts.selective, "process", fake_process)
+    monkeypatch.setattr(ict_alerts, "get_candles", lambda inst, tf: [])
+    monkeypatch.setattr(ict_alerts.selective, "data_status", lambda *a, **k: "LIVE")
+    monkeypatch.setattr(ict_alerts.selective, "closed_only", lambda *a, **k: [])
+    monkeypatch.setattr(ict_alerts.data_layer, "check_candles",
+                        lambda *a, **k: type("Q", (), {"blocked": False, "reason": ""})())
+    line, alert, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 0), cfgs, None)
+    assert seen == ["scalp", "swing"] and alert is None and "scalp waits" in line

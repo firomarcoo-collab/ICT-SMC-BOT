@@ -84,14 +84,15 @@ def fib_format(pd, digits=2):
 def analyze(name, env=None):
     env = os.environ if env is None else env
     now = int(time.time())
-    scfg = ict_alerts.build_selective_config(env)
+    scfgs = ict_alerts.build_selective_configs(env)
     # the live bot only accepts a confirmation candle closed within the last 3 minutes; an on-demand
     # analysis looks at the last closed M5 candle whenever you run it, so that freshness gate is lifted
-    scfg = dataclasses.replace(scfg, max_signal_age=10 ** 9)
+    scfgs = [dataclasses.replace(c, max_signal_age=10 ** 9) for c in scfgs]
     store = signal_store.SignalStore(None)   # in memory: nothing is saved, nothing is locked
-    status, alert, _ = ict_alerts.selective_scan(name, now, scfg, store, lang="ar")
+    status, alert, _ = ict_alerts.selective_scan(name, now, scfgs, store, lang="ar")
     dirs = directions(name, now)
-    lines = [f"== {name} | profile {scfg.profile.upper()} | score gate {scfg.ready_score}+ ==",
+    lines = [f"== {name} | profile {'+'.join(c.profile.upper() for c in scfgs)} | score gate "
+             f"{'/'.join(str(c.ready_score) for c in scfgs)}+ ==",
              extras.session_text(now).strip(), dirs,
              fib_text(name, now, ict_alerts.INSTRUMENTS.get(name, {}).get('digits', 2)), status]
     if alert:

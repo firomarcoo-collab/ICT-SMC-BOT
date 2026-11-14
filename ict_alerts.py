@@ -482,8 +482,16 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     commission_price = None
     if spec is not None and spec.commission_per_lot is not None and spec.tick_size and spec.tick_value:
         commission_price = spec.commission_per_lot / (spec.tick_value / spec.tick_size)
-    res = selective.process(market, data, now_ts, store, scfg, spread, commission_price, status,
-                            calendar=structure.calendar_for(inst["source"]))
+    res = None
+    for cfg in (scfg if isinstance(scfg, (list, tuple)) else [scfg]):
+        # several profiles at once: the first one whose rules pass gives the signal (ids are shared, so
+        # the same setup is never sent twice); when all wait, the first profile's reason is shown
+        r = selective.process(market, data, now_ts, store, cfg, spread, commission_price, status,
+                              calendar=structure.calendar_for(inst["source"]))
+        if res is None or r["action"] != "WAIT":
+            res = r
+        if r["action"] != "WAIT":
+            break
     d = inst["digits"]
     if res["action"] == "WAIT":
         line = wait_line(name, res)
@@ -669,7 +677,25 @@ def build_selective_config(env):
     return selective.make_config(profile, **over)
 
 
+ALL_PROFILES = ("strict", "swing", "active", "scalp")   # PROFILE=all: most selective first
+
+
+def build_selective_configs(env):
+    """PROFILE may list several profiles ("scalp,swing") or be "all": every profile is checked on each
+    scan and the first one that passes gives the signal. Returns a list of SelectiveConfig."""
+    names = env.get("PROFILE", "strict").lower()
+    names = list(ALL_PROFILES) if names == "all" else [n.strip() for n in names.split(",") if n.strip()]
+    return [build_selective_config(dict(env, PROFILE=n)) for n in names] or [build_selective_config(env)]
+
+
 def describe_config(scfg, engine):
+    if isinstance(scfg, (list, tuple)):
+        if len(scfg) > 1:
+            first = scfg[0]
+            return (f"Engine: {engine} | profiles {'+'.join(c.profile.upper() for c in scfg)} (first that passes "
+                    f"gives the signal) | risk {first.risk_percent}%/trade, stop after "
+                    f"{first.max_daily_losses} losses or {first.max_daily_loss_pct}% a day")
+        scfg = scfg[0]
     """One startup line that states which rules are really active (profile, score gate, risk limits)."""
     if engine == "legacy":
         return "Engine: legacy"
@@ -738,7 +764,7 @@ def run():
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both
         cfg.classic_enabled = False
         cfg.rct_enabled = False
-    scfg = build_selective_config(os.environ)
+    scfg = build_selective_configs(os.environ)
     spreads = {n: number(f"SPREAD_{n}", None) for n in names if os.environ.get(f"SPREAD_{n}")}
     # MAX_ACTIVE signals may be open on one market at once (1 = old one-signal lock);
     # ALLOW_OPPOSITE=0 keeps a BUY and a SELL from being open together on the same market.
