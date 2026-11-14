@@ -301,3 +301,6 @@ US30 and US100 use free Yahoo feeds that are only live in the US cash session (0
 
 ## Hourly "why no signal" summary
 Every hour the bot prints `LAST HOUR: N signal(s)` and, per market, the top 3 reasons its scans waited (for example `7x scalp bias: M# down, M# up ...`). Use it to see which rule blocks the signals before changing anything.
+
+## Swing profile
+`PROFILE=swing`: slower, bigger trades with the full rule set (H4/H1 alignment or a complete reversal, D1 context, sweep, FVG/OB, retest, M5 confirmation). Target 1:3, stop up to 4 M15 ATR, score gate 80, 5 confluences, zones up to 4 days old. A signal stays open 72 h (`SIGNAL_TTL_HOURS` overrides). Fewer signals; not measured yet.

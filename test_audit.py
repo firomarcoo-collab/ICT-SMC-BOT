@@ -493,7 +493,7 @@ def test_loose_profile_is_the_most_permissive_and_changes_no_mandatory_rule():
     assert (s.ready_score, a.ready_score, lo.ready_score) == (86, 80, 60)
     assert lo.strong_body_frac == 0.6 and s.strong_body_frac is None and a.strong_body_frac is None
     assert lo.min_confluence == 4          # 60% of 8 checks = 5, which is what strict already needs
-    assert sl.PROFILES == ("strict", "active", "loose", "scalp")
+    assert sl.PROFILES == ("strict", "active", "loose", "scalp", "swing")
     with pytest.raises(ValueError):
         sl.make_config("wild")
 
@@ -693,3 +693,11 @@ def test_wait_summary_counts_reasons_without_numbers():
     text = a.wait_summary({"XAUUSD": {"no retest": 7, "stop too wide": 2, "x": 1, "y": 1}}, 0)
     assert "0 signal(s)" in text and "XAUUSD (11 scans)" in text and "7x no retest" in text
     assert text.count("x ") <= 3
+
+
+def test_swing_profile_far_target_wide_stop_and_labels():
+    cfg = sl.make_config("swing")
+    assert (cfg.rr, cfg.min_net_rr, cfg.max_risk_atr, cfg.ready_score, cfg.min_confluence) == (3.0, 2.0, 4.0, 80, 5)
+    assert not cfg.ltf_bias and not cfg.require_sweep               # full H4/H1 rule set stays on
+    import ict_alerts
+    assert ict_alerts.build_selective_config({"PROFILE": "swing"}).rr == 3.0

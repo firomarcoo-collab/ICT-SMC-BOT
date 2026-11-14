@@ -656,7 +656,7 @@ def build_selective_config(env):
 
     profile = env.get("PROFILE", "strict").lower()
     if profile not in selective.PROFILES:
-        raise SystemExit("PROFILE must be strict, active, loose or scalp")
+        raise SystemExit("PROFILE must be strict, active, loose, scalp or swing")
     over = {"min_confluence": num("MIN_CONFLUENCE", int), "slippage": num("SLIPPAGE"),
             "max_daily_losses": num("MAX_DAILY_LOSSES", int), "max_daily_loss_pct": num("MAX_DAILY_LOSS_PCT"),
             "max_daily_loss_r": num("MAX_DAILY_LOSS_R"), "risk_percent": num("RISK_PERCENT"),
@@ -742,8 +742,10 @@ def run():
     spreads = {n: number(f"SPREAD_{n}", None) for n in names if os.environ.get(f"SPREAD_{n}")}
     # MAX_ACTIVE signals may be open on one market at once (1 = old one-signal lock);
     # ALLOW_OPPOSITE=0 keeps a BUY and a SELL from being open together on the same market.
+    # an open signal expires after SIGNAL_TTL_HOURS (default 6, or 72 for the swing profile)
+    ttl_hours = float(os.environ.get("SIGNAL_TTL_HOURS") or (72 if os.environ.get("PROFILE", "").lower() == "swing" else 6))
     store = signal_store.SignalStore(
-        os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE),
+        os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE), ttl=ttl_hours * 3600,
         max_active=int(os.environ.get("MAX_ACTIVE") or 3),
         allow_opposite=os.environ.get("ALLOW_OPPOSITE", "1") != "0") if use_selective else None
     track = tracker.Tracker(os.environ.get("RESULTS_FILE", tracker.DEFAULT_CSV)) \

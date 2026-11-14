@@ -66,7 +66,7 @@ def daily_loss_limit_r(cfg):
     return cfg.max_daily_loss_pct / cfg.risk_percent if cfg.risk_percent and cfg.max_daily_loss_pct else 0.0
 
 
-PROFILES = ("strict", "active", "loose", "scalp")
+PROFILES = ("strict", "active", "loose", "scalp", "swing")
 
 
 def make_config(profile="strict", **overrides):
@@ -92,10 +92,16 @@ def make_config(profile="strict", **overrides):
         # after costs must still be 0.9+. A higher hit rate is the aim, NOT a measured result.
         base = dict(profile="scalp", min_confluence=4, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, ready_score=73, rr=1.2, min_net_rr=0.9, max_risk_atr=2.0, ltf_bias=True, require_sweep=True)
+    elif profile == "swing":
+        # slower, bigger trades: the full rule set (H4/H1 alignment or a complete reversal, D1 context,
+        # S/R, sweep, FVG/OB, retest, closed M5 confirmation) with a far target (1:3), room for a wider
+        # stop (up to 4 M15 ATR) and older zones. Fewer signals; hold for hours or days. Not measured yet.
+        base = dict(profile="swing", rr=3.0, min_net_rr=2.0, max_risk_atr=4.0, max_zone_age=384,
+                    ready_score=80, min_confluence=5, retest_window=8)
     elif profile == "strict":
         base = {}
     else:
-        raise ValueError("PROFILE must be strict, active, loose or scalp")
+        raise ValueError("PROFILE must be strict, active, loose, scalp or swing")
     base.update(overrides)
     return SelectiveConfig(**base)
 
@@ -730,7 +736,8 @@ def format_signal(market, res, digits=2):
     mark = lambda k: "yes" if c.get(k) else "no"  # noqa: E731
     tag = {"active": ", ACTIVE profile (looser filter)",
            "loose": ", LOOSE profile (lowest filter, score 60+)",
-           "scalp": ", SCALP (quick near target)"}.get(s.get("profile"), "")
+           "scalp": ", SCALP (quick near target)",
+           "swing": ", SWING (far target, hold longer)"}.get(s.get("profile"), "")
     rr = abs(s["tp"] - s["entry"]) / abs(s["entry"] - s["sl"]) if s["entry"] != s["sl"] else 2.0
     if s.get("profile") != "scalp" and s.get("score100", 100) < 86:
         tag += ", REDUCED CONFIDENCE (score below 86)"
@@ -789,7 +796,8 @@ def format_signal_ar(market, res, digits=2):
     lines = [f"إشارة دخول: {side} {name} ({market})",
              f"النوع: {mode} | حالة البيانات: {res['status']}"
              + {"active": " | ملف نشط (فلتر أخف)", "loose": " | ملف متساهل (أقل فلتر، تقييم 60+)",
-                "scalp": " | سكالبينج (هدف قريب وسريع)"}.get(s.get("profile"), "")
+                "scalp": " | سكالبينج (هدف قريب وسريع)",
+                "swing": " | سوينغ (هدف بعيد، احتفظ بالصفقة أطول)"}.get(s.get("profile"), "")
              + (" | ثقة أقل (التقييم أقل من 86)" if s.get("profile") != "scalp" and s.get("score100", 100) < 86 else "")
              + (" | عكس الاتجاه" if s.get("counter_trend") else ""),
              f"الدخول: {s['entry']:.{digits}f}",
