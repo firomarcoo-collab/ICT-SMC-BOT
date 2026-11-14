@@ -674,8 +674,9 @@ def build_selective_config(env):
         over["require_fib"] = env["REQUIRE_FIB"] == "1"
     if env.get("REQUIRE_SWEEP") in ("0", "1"):
         over["require_sweep"] = env["REQUIRE_SWEEP"] == "1"
-    if env.get("ALLOW_UNKNOWN_COST") == "1":
-        over["allow_unknown_cost"] = True
+    # no verified spread for a market: still give the signal, labelled "COST UNVERIFIED" (ALLOW_UNKNOWN_COST=0
+    # makes the cost check block instead). Fill markets.json / SPREAD_<SYMBOL> to replace the unknown.
+    over["allow_unknown_cost"] = env.get("ALLOW_UNKNOWN_COST", "1") != "0"
     return selective.make_config(profile, **over)
 
 
