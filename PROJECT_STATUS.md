@@ -42,3 +42,5 @@ Backup: git tag `backup-before-forex-upgrade` is local only (tag push gets HTTP 
 - Cannot be done on Android: reading symbols/Bid/Ask/specs/server time from MT5 (the MetaTrader5 Python package is Windows only; `MT5Provider` stays a stub). The broker symbol name, spread and contract spec must be copied by hand from MT5 into markets.json. Prices come from Yahoo feeds.
 - Stage 2 (planned, new `forex` profile, existing profiles untouched): H4/H1 bias, M15 primary closed-candle confirmation, M5 precision that never triggers alone; score 0-100 with the requested weights (15/15/15/10/10/15/10/5/5), bands 70/80/90; TP1 + TP2, pip distance, ATR volatility gate, spread gate.
 - Stage 3 (planned): backtests per pair with out-of-sample, session breakdown, costs; needs M5 history files from the phone (this sandbox has no market-data access).
+
+- Stage 2 (done): `forex` profile in selective.py (M15-primary confirmation, forex_score with the requested weights, bands 70/80/90, TP1/TP2, pips, ATR/volatility/liquidity gates, one active signal per symbol). Stage 3 (backtests per pair) still needs M5 history files.

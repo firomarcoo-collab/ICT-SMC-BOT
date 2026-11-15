@@ -314,3 +314,12 @@ Every hour the bot prints `LAST HOUR: N signal(s)` and, per market, the top 3 re
 `ALLOW_UNKNOWN_COST` now defaults to on: when a market has no verified spread the signal is still given and labelled `COST UNVERIFIED`. `ALLOW_UNKNOWN_COST=0` makes the cost check block it instead. Fill the real spread in markets.json (or SPREAD_<SYMBOL>) to remove the label.
 
 When the bot starts (and again at every US open and close) it prints the state of US30 / US100: `MARKET IS OPEN now`, `market closed, opens in ...` (with the opening time in your phone's own timezone). At the open it also shows a green `US MARKET OPEN` notification with the tone. `US_HOURS_ONLY=0` turns this and the closed-market skip off.
+
+## Forex profile (`PROFILE=forex`, EURUSD / GBPJPY / JPYGBP)
+- Direction and bias: H4 + H1. The signal is created by the **closed M15 candle** (primary confirmation); the closed M5 candle only adds precision points and can never trigger a signal alone. The M15 candle must have closed within the last 7 minutes.
+- Score 0-100: H4/H1 alignment 15, liquidity sweep 15, BOS/CHoCH 15, FVG 10, order block 10, retest 15, M15 confirmation 10, M5 confirmation 5, S/R alignment 5. Below 70: no signal. 70-79 moderate, 80-89 strong, 90+ very strong. It ranks setup quality; it is NOT a win probability.
+- Two targets: TP1 at 1:1.5 (take partial, move the stop to entry) and TP2 at 1:3. Results in `results.csv` are judged on TP2/stop.
+- Shown for every signal: stop distance in pips, the stop in M15 ATR, the cost assumed (spread unverified until `markets.json` is filled).
+- No signal during the weekend, the 21:00-24:00 UTC rollover, or when the M15 ATR is more than 2.5x its recent median. One open signal per symbol. Duplicate setups are blocked by the shared signal ids.
+- The forex profile is only applied to forex pairs; with `PROFILE=all` forex pairs use it and every other market keeps the other profiles. Run alone with `PROFILE=forex SYMBOLS=EURUSD,GBPJPY`.
+- Not yet verified: the broker symbol names/suffixes, spreads and specs (they must be copied from MT5 into `markets.json`), and the performance (no backtest has been run on forex data).

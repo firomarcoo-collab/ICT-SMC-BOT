@@ -493,7 +493,7 @@ def test_loose_profile_is_the_most_permissive_and_changes_no_mandatory_rule():
     assert (s.ready_score, a.ready_score, lo.ready_score) == (86, 80, 60)
     assert lo.strong_body_frac == 0.6 and s.strong_body_frac is None and a.strong_body_frac is None
     assert lo.min_confluence == 4          # 60% of 8 checks = 5, which is what strict already needs
-    assert sl.PROFILES == ("strict", "active", "loose", "scalp", "swing", "golden")
+    assert sl.PROFILES == ("strict", "active", "loose", "scalp", "swing", "golden", "forex")
     with pytest.raises(ValueError):
         sl.make_config("wild")
 
@@ -711,7 +711,7 @@ def test_several_profiles_first_that_passes_wins(monkeypatch):
     cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp,swing"})
     assert [c.profile for c in cfgs] == ["scalp", "swing"]
     assert [c.profile for c in ict_alerts.build_selective_configs({"PROFILE": "all"})] == [
-        "strict", "swing", "golden", "active", "scalp"]
+        "strict", "swing", "golden", "active", "scalp", "forex"]
     assert [c.profile for c in ict_alerts.build_selective_configs({})] == ["strict"]
     assert "SCALP+SWING" in ict_alerts.describe_config(cfgs, "selective")
     seen = []
@@ -772,3 +772,42 @@ def test_forex_symbols_and_pip_size():
         assert not markets.load_markets()[n].verified()                 # nothing is assumed about the broker
     assert ict_alerts.INSTRUMENTS["GBPJPY"]["digits"] == 3
     assert markets.feed_name("GBPJPY") == "GBPJPY"
+
+
+def test_forex_score_weights_bands_and_gates():
+    parts, total = sl.forex_score(True, "continuation", "external", True, True, True,
+                                  [{"kind": "FVG", "status": "fresh"}, {"kind": "OB", "status": "fresh"}],
+                                  True, True, True, True, True)
+    assert total == 100 == sum(sl.FOREX_SCORE_MAX.values()) and set(parts) == set(sl.FOREX_SCORE_MAX)
+    assert all(parts[k] <= sl.FOREX_SCORE_MAX[k] for k in parts)
+    assert [sl.forex_strength(x) for x in (69, 70, 79, 80, 89, 90, 100)] == [
+        "NONE", "MODERATE", "MODERATE", "STRONG", "STRONG", "VERY STRONG", "VERY STRONG"]
+    cfg = sl.make_config("forex")
+    assert cfg.forex and cfg.single_active and cfg.ready_score == 70 and cfg.rr == 3.0
+    assert sl.low_liquidity(_utc(2026, 11, 14, 12)) and sl.low_liquidity(_utc(2026, 11, 16, 22))
+    assert sl.low_liquidity(_utc(2026, 11, 16, 10)) == "" and sl.low_liquidity(_utc(2026, 11, 15, 22))   # Sunday evening: still thin
+
+
+def test_forex_m15_is_primary_and_m5_cannot_trigger_alone():
+    import test_selective as t
+    cfg = sl.make_config("forex", ready_score=0)
+    res = sl.evaluate("EURUSD", t.scenario(), t.NOW, cfg, spread=.2)
+    assert res["action"] == "BUY" and res["setup"]["tp1"] and res["setup"]["pip"] == 0.0001
+    s = res["setup"]
+    assert abs((s["tp1"] - s["entry"]) / (s["entry"] - s["sl"]) - 1.5) < 1e-9
+    assert abs((s["tp"] - s["entry"]) / (s["entry"] - s["sl"]) - 3.0) < 1e-9
+    assert "TP1" in sl.format_signal("EURUSD", res, 5) and "pips" in sl.format_signal("EURUSD", res, 5)
+    # a stale M15 candle (the M5 one is fresh) must not produce a signal: M5 never triggers by itself
+    late = sl.evaluate("EURUSD", t.scenario(), t.NOW + 600, cfg, spread=.2)
+    assert late["action"] == "WAIT" and any("M15" in r for r in late["reasons"])
+
+
+def test_forex_one_active_signal_per_symbol():
+    import signal_store
+    import test_selective as t
+    cfg = sl.make_config("forex", ready_score=0)
+    store = signal_store.SignalStore(None, max_active=3, allow_opposite=True)
+    first = sl.process("EURUSD", t.scenario(), t.NOW, store, cfg, spread=.2)
+    assert first["action"] == "BUY"
+    second = sl.process("EURUSD", t.scenario(), t.NOW + 60, store, cfg, spread=.2)
+    assert second["action"] == "WAIT"

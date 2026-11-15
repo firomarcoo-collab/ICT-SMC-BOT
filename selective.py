@@ -46,6 +46,8 @@ class SelectiveConfig:
     allow_unknown_cost: bool = False
     max_signal_age: int = 180       # seconds after the confirmation candle closed
     profile: str = "strict"         # "strict" (default), "active" or "loose" (see make_config)
+    forex: bool = False             # forex profile: M15 closed candle is the primary confirmation, own 0-100 score
+    single_active: bool = False     # at most one open signal per symbol, whatever MAX_ACTIVE says
     require_fib: bool = False       # the entry must sit in the 62-79% golden zone of the M15 leg
     require_sweep: bool = False     # an entry needs a valid liquidity sweep (scalp profile)
     ltf_bias: bool = False          # scalp: direction from M5 + M1 structure instead of H4 + H1 alignment
@@ -67,7 +69,7 @@ def daily_loss_limit_r(cfg):
     return cfg.max_daily_loss_pct / cfg.risk_percent if cfg.risk_percent and cfg.max_daily_loss_pct else 0.0
 
 
-PROFILES = ("strict", "active", "loose", "scalp", "swing", "golden")
+PROFILES = ("strict", "active", "loose", "scalp", "swing", "golden", "forex")
 
 
 def make_config(profile="strict", **overrides):
@@ -98,6 +100,13 @@ def make_config(profile="strict", **overrides):
         # of the latest M15 leg, in the trade's direction). Target 1:2. Not measured yet.
         base = dict(profile="golden", min_confluence=4, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, ready_score=75, require_fib=True)
+    elif profile == "forex":
+        # FX pairs (EURUSD, GBPJPY, JPYGBP): H4/H1 bias, the closed M15 candle is the PRIMARY confirmation
+        # (the signal direction comes from it), M5 only adds precision points and never triggers alone.
+        # Score 0-100 with its own weights; 70+ moderate, 80+ strong, 90+ very strong. TP1 1:1.5, TP2 1:3.
+        base = dict(profile="forex", forex=True, single_active=True, rr=3.0, min_net_rr=1.5, max_risk_atr=2.5,
+                    ready_score=70, watch_score=60, min_confluence=5, retest_window=5, max_zone_age=192,
+                    fvg_max_fill=0.7, max_signal_age=420, strong_body_frac=0.6)
     elif profile == "swing":
         # slower, bigger trades: the full rule set (H4/H1 alignment or a complete reversal, D1 context,
         # S/R, sweep, FVG/OB, retest, closed M5 confirmation) with a far target (1:3), room for a wider
@@ -107,7 +116,7 @@ def make_config(profile="strict", **overrides):
     elif profile == "strict":
         base = {}
     else:
-        raise ValueError("PROFILE must be strict, active, loose, scalp, swing or golden")
+        raise ValueError("PROFILE must be strict, active, loose, scalp, swing, golden or forex")
     base.update(overrides)
     return SelectiveConfig(**base)
 
@@ -429,6 +438,64 @@ SCORE_MAX = {"htf": 20, "liquidity": 15, "structure": 15, "displacement": 15, "z
              "confirm": 10, "execution": 10}
 
 
+FOREX_SCORE_MAX = {"htf_h4h1": 15, "liquidity_sweep": 15, "bos_choch": 15, "fvg": 10, "ob": 10,
+                   "retest": 15, "m15_confirm": 10, "m5_confirm": 5, "sr_alignment": 5}      # = 100
+
+
+def forex_score(htf_ok, mode, sweep_scope, mss, bos, zone_event, zones, retested, m15_strong, m5_ok, m5_strong,
+                sr_hit):
+    """The forex 0-100 score, each part from a fixed rule (never a win probability):
+    htf_h4h1 15 aligned / 8 complete reversal; liquidity_sweep 15 external or session / 12 internal / 10 swing;
+    bos_choch 15 MSS (CHoCH with displacement) / 12 BOS / 6 only the zone's own event; fvg 10 fresh / 7 other;
+    ob 10 fresh / 7 other; retest 15 when a valid zone was retested; m15_confirm 10 strong / 6 closed candle;
+    m5_confirm 5 strong / 3 agreeing (optional); sr_alignment 5."""
+    fvg = next((z for z in zones if z["kind"] == "FVG"), None)
+    ob = next((z for z in zones if z["kind"] == "OB"), None)
+    pts = lambda z: 0 if z is None else 10 if z.get("status", "fresh") == "fresh" else 7   # noqa: E731
+    parts = {"htf_h4h1": 15 if htf_ok else 8 if mode == "reversal" else 0,
+             "liquidity_sweep": {"external": 15, "session": 15, "internal": 12, "swing": 10}.get(sweep_scope, 0),
+             "bos_choch": 15 if mss else 12 if bos else 6 if zone_event else 0,
+             "fvg": pts(fvg), "ob": pts(ob), "retest": 15 if retested else 0,
+             "m15_confirm": 10 if m15_strong else 6, "m5_confirm": 5 if m5_strong else 3 if m5_ok else 0,
+             "sr_alignment": 5 if sr_hit else 0}
+    return parts, sum(parts.values())
+
+
+def markets_pip(market):
+    import markets
+    return markets.pip_size(market)
+
+
+def forex_strength(score):
+    """70-79 moderate, 80-89 strong, 90-100 very strong; below 70 no signal."""
+    return "VERY STRONG" if score >= 90 else "STRONG" if score >= 80 else "MODERATE" if score >= 70 else "NONE"
+
+
+def low_liquidity(now_ts):
+    """UTC weekend, or the 21:00-24:00 UTC daily rollover when spreads widen and liquidity is thin."""
+    import time as _t
+    g = _t.gmtime(now_ts)
+    if g.tm_wday >= 5 and not (g.tm_wday == 6 and g.tm_hour >= 21):
+        return "weekend (market closed)"
+    if g.tm_wday == 4 and g.tm_hour >= 21:
+        return "Friday close"
+    if 21 <= g.tm_hour < 24:
+        return "daily rollover (low liquidity, wide spreads)"
+    return ""
+
+
+def abnormal_volatility(m15, lookback=96, ratio=2.5):
+    """'' when the M15 ATR is normal, else a text: the current ATR is `ratio` times its recent median."""
+    if len(m15) < 40:
+        return ""
+    now = st.atr_at(m15, len(m15))
+    hist = sorted(st.atr_at(m15, i) for i in range(max(20, len(m15) - lookback), len(m15)))
+    med = hist[len(hist) // 2] if hist else 0
+    if med > 0 and now > ratio * med:
+        return f"abnormal volatility (M15 ATR {now:.5g} is {now / med:.1f}x its median)"
+    return ""
+
+
 def score_band(score, cfg=None):
     """READY (more than 85), WATCH (75 to 85) or REJECT. The score is NOT a probability of winning."""
     cfg = cfg or SelectiveConfig()
@@ -511,25 +578,36 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     m1 = closed_only(data.get("m1") or [], 60, now_ts)
     m5, m15, h1, h4 = bars["m5"], bars["m15"], bars["h1"], bars["h4"]
     last = m5[-1]
-    close_time = int(last["time"].timestamp()) + TF_SECONDS["m5"]
+    primary = m15[-1] if cfg.forex else last         # the candle that must have just closed
+    close_time = int(primary["time"].timestamp()) + TF_SECONDS["m15" if cfg.forex else "m5"]
     if now_ts - close_time > cfg.max_signal_age:
-        res["reasons"].append("the confirmation candle is too old")
+        res["reasons"].append(f"the confirmation candle is too old" + (" (M15)" if cfg.forex else ""))
         return res
-    side = "buy" if last["close"] > last["open"] else "sell" if last["close"] < last["open"] else None
+    if cfg.forex:
+        quiet = low_liquidity(now_ts) or abnormal_volatility(m15)
+        if quiet:
+            res["reasons"].append(f"no signal: {quiet}")
+            return res
+    side = "buy" if primary["close"] > primary["open"] else "sell" if primary["close"] < primary["open"] else None
     if side is None:
-        res["reasons"].append("last closed M5 candle is a doji")
+        res["reasons"].append(f"last closed {'M15' if cfg.forex else 'M5'} candle is a doji")
         return res
-    rep["confirm"] = f"closed M5 {_ohlc(last)} ({'bullish' if side == 'buy' else 'bearish'})"
+    rep["confirm"] = (f"closed {'M15' if cfg.forex else 'M5'} {_ohlc(primary)} "
+                      f"({'bullish' if side == 'buy' else 'bearish'})")
     rep["m1"] = m1_timing(m1, side)
 
-    ok_c, strong, why = confirmation(m5, side, cfg.strong_body_frac)
+    ok_c, strong, why = confirmation(m15 if cfg.forex else m5, side, cfg.strong_body_frac)
     checks = res["checks"]
     checks["confirm"] = ok_c
     if not ok_c:
-        res["reasons"].append(why)
+        res["reasons"].append(why.replace("M5", "M15") if cfg.forex else why)
         return res
     if strong:
-        rep["confirm"] += ", closed beyond the previous candle"
+        rep["confirm"] += ", strong (closed beyond the previous candle or a large body)"
+    m5_ok, m5_strong, _ = confirmation(m5, side, cfg.strong_body_frac) if cfg.forex else (False, False, "")
+    if cfg.forex:
+        rep["m5_precision"] = (f"M5 {'agrees' if m5_ok else 'does not agree yet'}"
+                               f"{' (strong)' if m5_strong else ''}: precision only, never a trigger")
 
     want = "bull" if side == "buy" else "bear"
     role = "support" if side == "buy" else "resistance"
@@ -705,19 +783,29 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         scope = sweeps[-1]["scope"]
     top = fo_hit[0] if fo_hit else None
     net_rr = (cfg.rr * risk - cost) / (risk + cost)
-    parts, score100 = score_breakdown(
-        checks["htf"], mode, scope,
-        mss=bool(rev["event"] and seq_ok) or any(e["mss"] for e in recent_ev),
-        bos=any(e["type"] == "BOS" for e in recent_ev), zone_event=any(z.get("event") for z in fo_hit),
-        disp_ratio=max(ratios, default=0.0), zone_status=top.get("status", "fresh") if top else None,
-        sr_hit=bool(sr_hit), confirm=ok_c, strong=strong, cost_ok=ok_cost, net_rr=net_rr,
-        cost_unverified=bool(note))
+    if cfg.forex:
+        parts, score100 = forex_score(
+            checks["htf"], mode, scope,
+            mss=bool(rev["event"] and seq_ok) or any(e["mss"] for e in recent_ev),
+            bos=any(e["type"] == "BOS" for e in recent_ev), zone_event=any(z.get("event") for z in fo_hit),
+            zones=fo_hit, retested=bool(tested), m15_strong=strong, m5_ok=m5_ok, m5_strong=m5_strong,
+            sr_hit=bool(sr_hit))
+    else:
+        parts, score100 = score_breakdown(
+            checks["htf"], mode, scope,
+            mss=bool(rev["event"] and seq_ok) or any(e["mss"] for e in recent_ev),
+            bos=any(e["type"] == "BOS" for e in recent_ev), zone_event=any(z.get("event") for z in fo_hit),
+            disp_ratio=max(ratios, default=0.0), zone_status=top.get("status", "fresh") if top else None,
+            sr_hit=bool(sr_hit), confirm=ok_c, strong=strong, cost_ok=ok_cost, net_rr=net_rr,
+            cost_unverified=bool(note))
     band = score_band(score100, cfg)
     res.update(score100=score100, score_parts=parts, band=band)
+    if cfg.forex:
+        res["strength"] = forex_strength(score100)
     if band != "READY":
         res["reasons"].append(f"score {score100}/100 is {band}: a signal needs {cfg.ready_score}+ "
                               f"(WATCH {cfg.watch_score}-{cfg.ready_score - 1}). Parts: "
-                              + ", ".join(f"{k} {v}/{SCORE_MAX[k]}" for k, v in parts.items()))
+                              + ", ".join(f"{k} {v}/{SCORE_MAX.get(k) or FOREX_SCORE_MAX[k]}" for k, v in parts.items()))
         return res
     uses = [_zone_id(z) for z in fo_hit]
     if mode == "reversal" and rev["event_id"]:
@@ -729,6 +817,10 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
                     "invalidation": invalidation, "profile": cfg.profile,
                     "counter_trend": mode == "reversal" and not ok_h, "fib": fib_text,
+                    "tp1": (entry + 0.5 * cfg.rr * risk if side == "buy" else entry - 0.5 * cfg.rr * risk)
+                    if cfg.forex else None,
+                    "strength": forex_strength(score100) if cfg.forex else None,
+                    "pip": markets_pip(market), "risk": risk, "atr15": atr15,
                     "tf": tf_agreement(side, m1, m5, m15, h1, h4, cfg),
                     "score100": score100, "score_parts": parts}
     rep["levels"] = (f"entry {entry:.5g}, invalidation {invalidation:.5g}, SL {sl:.5g}, TP {tp:.5g}, "
@@ -758,6 +850,16 @@ def explain(res):
     return "\n".join(lines)
 
 
+def risk_line(s):
+    """Pip distance and ATR assessment of the stop (forex signals); '' when there is no pip size."""
+    if not s.get("pip") or not s.get("risk"):
+        return ""
+    pips = s["risk"] / s["pip"]
+    atr = (f", stop = {s['risk'] / s['atr15']:.1f} M15 ATR ({s['atr15'] / s['pip']:.0f} pips)"
+           if s.get("atr15") else "")
+    return f"Stop distance: {pips:.1f} pips{atr}"
+
+
 def format_signal(market, res, digits=2):
     s = res["setup"]
     c = res["checks"]
@@ -766,15 +868,19 @@ def format_signal(market, res, digits=2):
            "loose": ", LOOSE profile (lowest filter, score 60+)",
            "scalp": ", SCALP (quick near target)",
            "swing": ", SWING (far target, hold longer)",
-           "golden": ", GOLDEN ZONE (Fibonacci 62-79%)"}.get(s.get("profile"), "")
+           "golden": ", GOLDEN ZONE (Fibonacci 62-79%)",
+           "forex": ", FOREX"}.get(s.get("profile"), "")
     rr = abs(s["tp"] - s["entry"]) / abs(s["entry"] - s["sl"]) if s["entry"] != s["sl"] else 2.0
-    if s.get("profile") != "scalp" and s.get("score100", 100) < 86:
+    if s.get("profile") not in ("scalp", "forex") and s.get("score100", 100) < 86:
         tag += ", REDUCED CONFIDENCE (score below 86)"
     lines = [f"SELECTIVE SIGNAL: {s['side'].upper()} {market}  [{s['mode']}, data {res['status']}{tag}{', COUNTER-TREND' if s.get('counter_trend') else ''}]",
              f"Entry: {s['entry']:.{digits}f}  Invalidation: {s['invalidation']:.{digits}f}  "
-             f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:{rr:g} before costs)",
-             f"Score {res['score100']}/100 ({res['band']}; a quality ranking, NOT a win probability) | "
-             + ", ".join(f"{k} {v}/{SCORE_MAX[k]}" for k, v in res["score_parts"].items()),
+             + (f"SL: {s['sl']:.{digits}f}  TP1: {s['tp1']:.{digits}f} (1:{rr / 2:g}, take partial and move SL to entry)  "
+                f"TP2: {s['tp']:.{digits}f} (1:{rr:g})" if s.get("tp1") else
+                f"SL: {s['sl']:.{digits}f}  TP: {s['tp']:.{digits}f}  (R:R 1:{rr:g} before costs)"),
+             risk_line(s),
+             f"Score {res['score100']}/100 ({res.get('strength') or res['band']}; a quality ranking, NOT a win probability) | "
+             + ", ".join(f"{k} {v}/{SCORE_MAX.get(k) or FOREX_SCORE_MAX[k]}" for k, v in res["score_parts"].items()),
              f"Confluence {res['score']}/8: HTF {mark('htf')}, S/R {mark('sr')}, liquidity {mark('liquidity')}, "
              f"BOS/MSS {mark('bos_mss')}, FVG/OB {mark('fvg_ob')}, retest {mark('retest')}, "
              f"M5 close {mark('confirm')}{' (strong)' if s['strong_confirmation'] else ''}, cost {mark('cost')}",
@@ -828,13 +934,17 @@ def format_signal_ar(market, res, digits=2):
              + {"active": " | ملف نشط (فلتر أخف)", "loose": " | ملف متساهل (أقل فلتر، تقييم 60+)",
                 "scalp": " | سكالبينج (هدف قريب وسريع)",
                 "swing": " | سوينغ (هدف بعيد، احتفظ بالصفقة أطول)",
-                "golden": " | المنطقة الذهبية (فيبوناتشي 62-79%)"}.get(s.get("profile"), "")
-             + (" | ثقة أقل (التقييم أقل من 86)" if s.get("profile") != "scalp" and s.get("score100", 100) < 86 else "")
+                "golden": " | المنطقة الذهبية (فيبوناتشي 62-79%)",
+                "forex": " | فوركس"}.get(s.get("profile"), "")
+             + (" | ثقة أقل (التقييم أقل من 86)" if s.get("profile") not in ("scalp", "forex") and s.get("score100", 100) < 86 else "")
              + (" | عكس الاتجاه" if s.get("counter_trend") else ""),
              f"الدخول: {s['entry']:.{digits}f}",
              f"الإبطال: {s['invalidation']:.{digits}f}",
              f"وقف الخسارة: {s['sl']:.{digits}f}",
-             f"الهدف: {s['tp']:.{digits}f}  (نسبة 1:{rr:g} قبل التكاليف)",
+             (f"الهدف الأول TP1: {s['tp1']:.{digits}f} (1:{rr / 2:g}، خذ جزءًا وانقل الستوب للدخول) | "
+              f"الهدف الثاني TP2: {s['tp']:.{digits}f} (1:{rr:g})" if s.get("tp1") else
+              f"الهدف: {s['tp']:.{digits}f}  (نسبة 1:{rr:g} قبل التكاليف)"),
+             (f"المسافة للستوب: {s['risk'] / s['pip']:.1f} نقطة" if s.get("pip") and s.get("risk") else ""),
              f"التقييم {res['score100']}/100 (ترتيب لجودة الإعداد وليس احتمال ربح)",
              f"التوافق {res['score']}/8: الاتجاه {yn('htf')}، دعم/مقاومة {yn('sr')}، سيولة {yn('liquidity')}، "
              f"BOS/MSS {yn('bos_mss')}، FVG/OB {yn('fvg_ob')}، إعادة اختبار {yn('retest')}، "
@@ -858,6 +968,9 @@ def process(market, data, now_ts, store, cfg=None, spread=None, commission_price
     signal is really issued."""
     res = evaluate(market, data, now_ts, cfg, spread, commission_price, status, calendar)
     cfg = cfg or SelectiveConfig()
+    if res["action"] != "WAIT" and cfg.single_active and store.active_list(market):
+        res["action"], res["setup"] = "WAIT", None
+        res["reasons"].append(f"one active signal per symbol: {market} already has one open")
     if res["action"] != "WAIT":
         stop = store.halted(now_ts, cfg.max_daily_losses, daily_loss_limit_r(cfg))
         ok, why = (False, stop) if stop else store.open(market, res["setup"], now_ts)

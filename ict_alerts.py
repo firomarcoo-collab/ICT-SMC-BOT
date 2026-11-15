@@ -485,7 +485,11 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     if spec is not None and spec.commission_per_lot is not None and spec.tick_size and spec.tick_value:
         commission_price = spec.commission_per_lot / (spec.tick_value / spec.tick_size)
     res = None
-    for cfg in (scfg if isinstance(scfg, (list, tuple)) else [scfg]):
+    cfgs = list(scfg) if isinstance(scfg, (list, tuple)) else [scfg]
+    # the forex profile is only for forex pairs, and a forex pair uses it whenever it is listed
+    fx_pair = market in markets.FOREX
+    matching = [c for c in cfgs if c.forex == fx_pair]
+    for cfg in (matching or cfgs):
         # several profiles at once: the first one whose rules pass gives the signal (ids are shared, so
         # the same setup is never sent twice); when all wait, the first profile's reason is shown
         r = selective.process(market, data, now_ts, store, cfg, spread, commission_price, status,
@@ -667,7 +671,7 @@ def build_selective_config(env):
 
     profile = env.get("PROFILE", "strict").lower()
     if profile not in selective.PROFILES:
-        raise SystemExit("PROFILE must be strict, active, loose, scalp, swing or golden")
+        raise SystemExit("PROFILE must be strict, active, loose, scalp, swing, golden or forex")
     over = {"min_confluence": num("MIN_CONFLUENCE", int), "slippage": num("SLIPPAGE"),
             "max_daily_losses": num("MAX_DAILY_LOSSES", int), "max_daily_loss_pct": num("MAX_DAILY_LOSS_PCT"),
             "max_daily_loss_r": num("MAX_DAILY_LOSS_R"), "risk_percent": num("RISK_PERCENT"),
@@ -683,7 +687,7 @@ def build_selective_config(env):
     return selective.make_config(profile, **over)
 
 
-ALL_PROFILES = ("strict", "swing", "golden", "active", "scalp")   # PROFILE=all: most selective first
+ALL_PROFILES = ("strict", "swing", "golden", "active", "scalp", "forex")   # PROFILE=all: most selective first
 
 
 def build_selective_configs(env):
