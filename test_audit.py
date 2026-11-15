@@ -761,3 +761,14 @@ def test_us_session_open_close_events():
     assert extras.us_session_event(True, mon_open + 300, "US30") == (True, None)        # no repeat while open
     is_open, msg = extras.us_session_event(True, _utc(2026, 11, 16, 21, 0), "US30")     # 16:00 NY
     assert not is_open and "session closed" in msg
+
+
+def test_forex_symbols_and_pip_size():
+    import markets, extras, ict_alerts
+    assert markets.pip_size("EURUSD") == 0.0001 and markets.pip_size("gbpjpy") == 0.01
+    assert markets.pip_size("JPYGBP") == 0.0001 and markets.pip_size("XAUUSD") is None
+    for n in ("EURUSD", "GBPJPY", "JPYGBP"):
+        assert n in ict_alerts.INSTRUMENTS and n in markets.load_markets() and n in extras.CURRENCIES
+        assert not markets.load_markets()[n].verified()                 # nothing is assumed about the broker
+    assert ict_alerts.INSTRUMENTS["GBPJPY"]["digits"] == 3
+    assert markets.feed_name("GBPJPY") == "GBPJPY"

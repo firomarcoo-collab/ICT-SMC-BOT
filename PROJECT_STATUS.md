@@ -34,3 +34,11 @@ Last update: 2026-11-11 | Branch: `phase2-restart-persistence` (not merged into 
 ## Next step
 - Get the MT5 gold Bid at the same moment as the bot's feed price to compute `OFFSET_XAUUSD`,
   then finish the gold history download and backtest it.
+
+
+## Forex upgrade (request of 2026-11-15) - staged
+Backup: git tag `backup-before-forex-upgrade` is local only (tag push gets HTTP 403); the branch `phase2-restart-persistence` on GitHub at 023a3ca is the restore point.
+- Stage 1 (done): symbols EURUSD (already present), GBPJPY (new, in the default list), JPYGBP (new, opt-in); pip size helper `markets.pip_size`; markets.json entries (all unverified, nothing assumed); news currencies.
+- Cannot be done on Android: reading symbols/Bid/Ask/specs/server time from MT5 (the MetaTrader5 Python package is Windows only; `MT5Provider` stays a stub). The broker symbol name, spread and contract spec must be copied by hand from MT5 into markets.json. Prices come from Yahoo feeds.
+- Stage 2 (planned, new `forex` profile, existing profiles untouched): H4/H1 bias, M15 primary closed-candle confirmation, M5 precision that never triggers alone; score 0-100 with the requested weights (15/15/15/10/10/15/10/5/5), bands 70/80/90; TP1 + TP2, pip distance, ATR volatility gate, spread gate.
+- Stage 3 (planned): backtests per pair with out-of-sample, session breakdown, costs; needs M5 history files from the phone (this sandbox has no market-data access).

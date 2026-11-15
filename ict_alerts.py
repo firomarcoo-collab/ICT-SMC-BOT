@@ -4,7 +4,7 @@ Runs on Termux with the Python standard library only (no pip install needed).
 Prices come from free public sources, so they can differ from your broker's prices.
 
 Environment variables (all optional):
-    SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30
+    SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY (JPYGBP is opt-in)
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
     FUTURES           1 = futures for gold/indices instead of spot; or a list: FUTURES=US100,US30
@@ -74,6 +74,8 @@ INSTRUMENTS = {
     "US100": {"source": "yahoo", "id": "^NDX", "digits": 1},
     "US30": {"source": "yahoo", "id": "^DJI", "digits": 1},
     "EURUSD": {"source": "yahoo", "id": "EURUSD=X", "digits": 5},
+    "GBPJPY": {"source": "yahoo", "id": "GBPJPY=X", "digits": 3},
+    "JPYGBP": {"source": "yahoo", "id": "JPYGBP=X", "digits": 6},   # opt-in: SYMBOLS=...,JPYGBP
 }
 FUTURES_IDS = {"XAUUSD": "GC=F", "US100": "NQ=F", "US30": "YM=F"}
 for _n in INSTRUMENTS:  # FALLBACK_XAUUSD=GC=F,binance:PAXGUSDT overrides the stand-in order ("none" = no fallback)
@@ -711,7 +713,7 @@ def describe_config(scfg, engine):
 
 def run():
     names = [markets.feed_name(n) for n in os.environ.get(
-        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD").split(",") if n.strip()]
+        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY").split(",") if n.strip()]
     unknown = [n for n in names if n not in INSTRUMENTS]
     if unknown:
         raise SystemExit(f"Unknown symbols: {unknown}. Choose from {list(INSTRUMENTS)}")

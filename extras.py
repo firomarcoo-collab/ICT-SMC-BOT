@@ -10,7 +10,8 @@ NEWS_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 
 # Which news currencies matter for each symbol.
 CURRENCIES = {"BTCUSD": {"USD"}, "XAUUSD": {"USD"}, "US100": {"USD"},
-              "US30": {"USD"}, "EURUSD": {"USD", "EUR"}}
+              "US30": {"USD"}, "EURUSD": {"USD", "EUR"}, "GBPJPY": {"GBP", "JPY"},
+              "JPYGBP": {"GBP", "JPY"}}
 
 
 # ===== Sessions =====

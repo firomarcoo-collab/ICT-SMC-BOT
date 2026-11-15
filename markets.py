@@ -50,9 +50,24 @@ DEFAULTS = {
     "NAS100": MarketSpec("NAS100", "US100"),
     "US30": MarketSpec("US30", "US30"),
     "BTCUSD": MarketSpec("BTCUSD", "BTCUSD"),
+    "EURUSD": MarketSpec("EURUSD", "EURUSD"),
+    "GBPJPY": MarketSpec("GBPJPY", "GBPJPY"),
+    "JPYGBP": MarketSpec("JPYGBP", "JPYGBP"),   # rarely listed by brokers: only used if your MT5 has it
 }
 ALIASES = {"US100": "NAS100", "USTEC": "NAS100", "NDX": "NAS100",
            "DJ30": "US30", "DOW": "US30", "GOLD": "XAUUSD"}
+
+
+FOREX = ("EURUSD", "GBPJPY", "JPYGBP")
+
+
+def pip_size(name):
+    """Price size of one pip for a forex pair: 0.01 when the quote currency is JPY, else 0.0001.
+    None for non-forex markets (gold, indices, crypto), which have no pip."""
+    c = name.strip().upper()
+    if c not in FOREX:
+        return None
+    return 0.01 if c.endswith("JPY") else 0.0001
 
 
 def canonical(name):

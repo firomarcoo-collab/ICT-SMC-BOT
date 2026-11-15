@@ -56,7 +56,7 @@ def test_load_file_and_aliases():
 
 def test_shipped_file_is_valid_and_all_unverified():
     m = load_markets()
-    assert set(m) == {"XAUUSD", "NAS100", "US30", "BTCUSD"}
+    assert set(m) == {"XAUUSD", "NAS100", "US30", "BTCUSD", "EURUSD", "GBPJPY", "JPYGBP"}
     assert not any(s.verified() for s in m.values())  # nothing is assumed until filled in
 
 

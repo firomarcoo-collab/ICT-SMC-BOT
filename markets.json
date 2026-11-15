@@ -57,5 +57,50 @@
     "commission_per_lot": null,
     "risk_percent": 0.25,
     "min_rr": 2.0
+  },
+  "EURUSD": {
+    "broker_symbol": null,
+    "product_type": null,
+    "contract_size": null,
+    "tick_size": null,
+    "tick_value": null,
+    "volume_min": null,
+    "volume_step": null,
+    "volume_max": null,
+    "spread": null,
+    "commission_per_lot": null,
+    "risk_percent": 0.25,
+    "min_rr": 2.0,
+    "notes": "Not verified: copy the broker symbol (watch for a suffix such as .m or .ecn) and the specification from MT5 > Market Watch > Specification. spread is in price units (1 pip = 0.0001, or 0.01 for JPY pairs)."
+  },
+  "GBPJPY": {
+    "broker_symbol": null,
+    "product_type": null,
+    "contract_size": null,
+    "tick_size": null,
+    "tick_value": null,
+    "volume_min": null,
+    "volume_step": null,
+    "volume_max": null,
+    "spread": null,
+    "commission_per_lot": null,
+    "risk_percent": 0.25,
+    "min_rr": 2.0,
+    "notes": "Not verified: copy the broker symbol (watch for a suffix such as .m or .ecn) and the specification from MT5 > Market Watch > Specification. spread is in price units (1 pip = 0.0001, or 0.01 for JPY pairs)."
+  },
+  "JPYGBP": {
+    "broker_symbol": null,
+    "product_type": null,
+    "contract_size": null,
+    "tick_size": null,
+    "tick_value": null,
+    "volume_min": null,
+    "volume_step": null,
+    "volume_max": null,
+    "spread": null,
+    "commission_per_lot": null,
+    "risk_percent": 0.25,
+    "min_rr": 2.0,
+    "notes": "Not verified: copy the broker symbol (watch for a suffix such as .m or .ecn) and the specification from MT5 > Market Watch > Specification. spread is in price units (1 pip = 0.0001, or 0.01 for JPY pairs)."
   }
 }
