@@ -82,7 +82,10 @@ for _n in INSTRUMENTS:  # FALLBACK_XAUUSD=GC=F,binance:PAXGUSDT overrides the st
     _fb = os.environ.get(f"FALLBACK_{_n}")
     if _fb:
         INSTRUMENTS[_n]["fallbacks"] = [] if _fb.lower() == "none" else [x.strip() for x in _fb.split(",")]
-_fut = os.environ.get("FUTURES", "").strip().upper()
+# The US index CFDs trade almost 24 h, but the cash indices (^NDX, ^DJI) only update 09:30-16:00 New York.
+# So US100 / US30 use the E-mini futures (NQ=F, YM=F, ~23 h a day) by default; US_FEED=cash goes back to
+# the cash indices (then the bot says "market closed" outside the US session).
+_fut = os.environ.get("FUTURES", "US100,US30" if os.environ.get("US_FEED", "futures") != "cash" else "").strip().upper()
 for _n, _id in FUTURES_IDS.items():  # FUTURES=1 for all, or a list such as FUTURES=US100,US30
     if _fut == "1" or _n in [x.strip() for x in _fut.split(",")]:
         INSTRUMENTS[_n]["id"] = _id
@@ -428,6 +431,36 @@ def wait_summary(stats, signals=0):
     return "\n".join(lines)
 
 
+OFFSETS_FILE = os.environ.get("OFFSETS_FILE", "offsets.json")
+
+
+def offsets_file_stamp():
+    try:
+        return os.path.getmtime(OFFSETS_FILE)
+    except OSError:
+        return None
+
+
+def load_offsets(env, names=None):
+    """{symbol: offset} = broker price - feed price. offsets.json (written by calc_offset.py) is read
+    first, then an OFFSET_<SYMBOL> environment variable overrides it."""
+    out = {}
+    try:
+        with open(OFFSETS_FILE) as f:
+            for k, v in json.load(f).items():
+                out[k.upper()] = float(v)
+    except (OSError, ValueError, TypeError, AttributeError):
+        out = {}
+    for n in (names if names is not None else INSTRUMENTS):
+        raw = env.get(f"OFFSET_{n}")
+        if raw:
+            try:
+                out[n] = float(raw)
+            except ValueError:
+                raise SystemExit(f"OFFSET_{n} must be a number, got {raw!r}")
+    return {k: v for k, v in out.items() if names is None or k in names}
+
+
 def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None, lang="en",
                    news=None, news_block=False, balance=0.0, risk_percent=0.5, contracts=None):
     """Runs the selective engine for one market.
@@ -437,7 +470,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     if market not in markets.DEFAULTS:
         return f"{name}: the selective engine covers XAUUSD, NAS100, US30 and BTCUSD only", None, False
     inst = INSTRUMENTS[name]
-    if market in US_INDEX_MARKETS and inst["source"] == "yahoo" and os.environ.get("US_HOURS_ONLY", "1") != "0":
+    if market in US_INDEX_MARKETS and str(inst["id"]).startswith("^") and os.environ.get("US_HOURS_ONLY", "1") != "0":
         closed = extras.us_cash_closed(now_ts)
         if closed:   # the free feed is only live in the US cash session: do not scan stale candles
             return f"{name}: MARKET CLOSED (US session 09:30-16:00 New York, {closed})", None, False
@@ -722,14 +755,8 @@ def run():
     if unknown:
         raise SystemExit(f"Unknown symbols: {unknown}. Choose from {list(INSTRUMENTS)}")
 
-    offsets = {}
-    for n in names:
-        raw = os.environ.get(f"OFFSET_{n}")
-        if raw:
-            try:
-                offsets[n] = float(raw)
-            except ValueError:
-                raise SystemExit(f"OFFSET_{n} must be a number, got {raw!r}")
+    offsets = load_offsets(os.environ, names)
+    offsets_stamp = offsets_file_stamp()
 
     def number(var, default):
         raw = os.environ.get(var)
@@ -804,7 +831,7 @@ def run():
 
     last_beat = 0
     wait_stats, hour_signals = {}, 0
-    us_names = [n for n in names if markets.canonical(n) in US_INDEX_MARKETS and INSTRUMENTS[n]["source"] == "yahoo"]
+    us_names = [n for n in names if markets.canonical(n) in US_INDEX_MARKETS and str(INSTRUMENTS[n]["id"]).startswith("^")]
     us_open = None
     while True:
         now_ts = int(time.time())
@@ -850,6 +877,11 @@ def run():
                 notify(f"NEWS in {round((e['ts'] - now_ts) / 60)} min: "
                        f"{e['currency']} {e['title']} (high impact). Be careful with open orders.")
         stamp = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%H:%M UTC")
+        if offsets_file_stamp() != offsets_stamp:       # calc_offset.py saved a new value: use it without a restart
+            offsets_stamp = offsets_file_stamp()
+            offsets.clear()
+            offsets.update(load_offsets(os.environ, names))
+            print(f"Price offsets updated: {offsets}", flush=True)
         if use_selective and now_ts % 300 < 180:  # first 3 minutes of each M5 candle
             bucket = now_ts // 300
             for name in names:

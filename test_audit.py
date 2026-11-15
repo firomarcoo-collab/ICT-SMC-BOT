@@ -614,6 +614,7 @@ def test_selective_scan_says_market_closed_for_us_indices_without_fetching(monke
     def boom(*a, **k):
         raise AssertionError("must not fetch candles while the market is closed")
     monkeypatch.setattr(ict_alerts, "get_candles", boom)
+    monkeypatch.setitem(ict_alerts.INSTRUMENTS, "US30", dict(ict_alerts.INSTRUMENTS["US30"], id="^DJI"))
     scfg = ict_alerts.build_selective_config({})
     line, alert, lagging = ict_alerts.selective_scan("US30", _utc(2026, 11, 13, 22, 0), scfg, None)
     assert "MARKET CLOSED" in line and alert is None and lagging is False
@@ -622,6 +623,8 @@ def test_selective_scan_says_market_closed_for_us_indices_without_fetching(monke
 def test_analyze_now_prints_closed_market_and_saves_nothing(monkeypatch):
     import analyze_now
     monkeypatch.setattr(analyze_now.time, "time", lambda: _utc(2026, 11, 14, 15, 0))   # Saturday
+    import ict_alerts
+    monkeypatch.setitem(ict_alerts.INSTRUMENTS, "US30", dict(ict_alerts.INSTRUMENTS["US30"], id="^DJI"))
     text = analyze_now.analyze("US30", {})
     assert "US30" in text and "MARKET CLOSED" in text and "No entry now" in text
 
@@ -630,7 +633,7 @@ def test_analyze_now_lifts_the_freshness_gate(monkeypatch):
     import analyze_now, ict_alerts
     seen = {}
 
-    def fake_scan(name, now, scfg, store, **k):
+    def fake_scan(name, now, scfg, store, *a, **k):
         seen["age"] = min(c.max_signal_age for c in (scfg if isinstance(scfg, list) else [scfg]))
         return f"{name}: SELECTIVE WAIT (x)", None, False
     monkeypatch.setattr(ict_alerts, "selective_scan", fake_scan)
@@ -811,3 +814,21 @@ def test_forex_one_active_signal_per_symbol():
     assert first["action"] == "BUY"
     second = sl.process("EURUSD", t.scenario(), t.NOW + 60, store, cfg, spread=.2)
     assert second["action"] == "WAIT"
+
+
+def test_offsets_file_is_loaded_and_env_overrides_it(tmp_path, monkeypatch):
+    import ict_alerts, calc_offset
+    path = str(tmp_path / "offsets.json")
+    monkeypatch.setattr(ict_alerts, "OFFSETS_FILE", path)
+    assert ict_alerts.load_offsets({}) == {}
+    data = calc_offset.save_offset("XAUUSD", 128.25, path)
+    assert data == {"XAUUSD": 128.25}
+    assert ict_alerts.load_offsets({}, ["XAUUSD", "BTCUSD"]) == {"XAUUSD": 128.25}
+    assert ict_alerts.load_offsets({"OFFSET_XAUUSD": "5"}, ["XAUUSD"]) == {"XAUUSD": 5.0}
+    assert calc_offset.save_offset("XAUUSD", 0, path) == {} and ict_alerts.load_offsets({}) == {}
+    assert calc_offset.sane(4012.0, 3884.0) and not calc_offset.sane(40120.0, 3884.0)
+
+
+def test_us_indices_use_24h_futures_by_default():
+    import ict_alerts
+    assert ict_alerts.INSTRUMENTS["US100"]["id"] == "NQ=F" and ict_alerts.INSTRUMENTS["US30"]["id"] == "YM=F"

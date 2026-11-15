@@ -89,7 +89,7 @@ def analyze(name, env=None):
     # analysis looks at the last closed M5 candle whenever you run it, so that freshness gate is lifted
     scfgs = [dataclasses.replace(c, max_signal_age=10 ** 9) for c in scfgs]
     store = signal_store.SignalStore(None)   # in memory: nothing is saved, nothing is locked
-    status, alert, _ = ict_alerts.selective_scan(name, now, scfgs, store, lang="ar")
+    status, alert, _ = ict_alerts.selective_scan(name, now, scfgs, store, ict_alerts.load_offsets(env, [name]), lang="ar")
     dirs = directions(name, now)
     lines = [f"== {name} | profile {'+'.join(c.profile.upper() for c in scfgs)} | score gate "
              f"{'/'.join(str(c.ready_score) for c in scfgs)}+ ==",

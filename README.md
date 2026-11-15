@@ -323,3 +323,7 @@ When the bot starts (and again at every US open and close) it prints the state o
 - No signal during the weekend, the 21:00-24:00 UTC rollover, or when the M15 ATR is more than 2.5x its recent median. One open signal per symbol. Duplicate setups are blocked by the shared signal ids.
 - The forex profile is only applied to forex pairs; with `PROFILE=all` forex pairs use it and every other market keeps the other profiles. Run alone with `PROFILE=forex SYMBOLS=EURUSD,GBPJPY`.
 - Not yet verified: the broker symbol names/suffixes, spreads and specs (they must be copied from MT5 into `markets.json`), and the performance (no backtest has been run on forex data).
+
+## Gold price link and US feeds
+`python calc_offset.py XAUUSD <MT5 Bid now>` saves the broker-minus-feed difference in offsets.json; the running bot picks it up by itself and analyze_now uses it (OFFSET_<SYMBOL> still overrides). `--show` lists it, a 0 value removes it.
+US100 / US30 now use the E-mini futures (NQ=F, YM=F, about 23 h a day) so they work outside the 09:30-16:00 New York cash session; `US_FEED=cash` returns to ^NDX / ^DJI (then "market closed" outside that session). The futures price differs from your CFD by a small basis: set it with calc_offset.py.
