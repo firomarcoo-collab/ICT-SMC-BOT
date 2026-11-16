@@ -941,3 +941,13 @@ def test_killzone_blocks_evaluate_outside_hours():
     now = 1_700_000_000 - 1_700_000_000 % 86400 + 3 * 3600
     res = selective.evaluate("XAUUSD", {tf: [] for tf in ("h4", "h1", "m15", "m5")}, now, cfg)
     assert res["action"] == "WAIT"
+
+
+def test_entry_checklist_in_both_languages():
+    import selective
+    s = {"side": "buy", "entry": 100.0, "sl": 99.0, "tp": 102.0, "cost": 0.1, "cost_note": "", "counter_trend": False}
+    res = {"checks": {"confirm": True, "retest": True, "htf": True, "cost": True}}
+    en = "\n".join(selective.entry_checklist(s, res))
+    ar = "\n".join(selective.entry_checklist(dict(s, cost_note="COST UNVERIFIED"), res, ar=True))
+    assert "Pre-entry checklist" in en and "OK spread verified" in en and "do not chase" in en
+    assert "قائمة التحقق قبل الدخول" in ar and "✘ السبريد غير موثّق" in ar

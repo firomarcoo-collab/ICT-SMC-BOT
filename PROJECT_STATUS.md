@@ -48,3 +48,5 @@ Backup: git tag `backup-before-forex-upgrade` is local only (tag push gets HTTP 
 ## Tightened filtering (latest)
 Notify 82+, WATCH 75-81 console only, counter-trend 90+ & strong confirm, MSS+displacement+FVG required,
 net R:R >= 1.5 with spread margin 1.25, UTC killzones London 07-11 / NY 12-16. 245 tests pass. Not measured on live results yet.
+
+- Every entry alert now ends with a pre-entry checklist (bot-verified items + items you check yourself). SK system profile: waiting for the user's rules.

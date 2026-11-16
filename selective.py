@@ -897,6 +897,32 @@ def risk_line(s):
     return f"Stop distance: {pips:.1f} pips{atr}"
 
 
+def entry_checklist(s, res, ar=False):
+    """Pre-entry checklist lines: what the bot verified (from this signal) and what only you can check."""
+    c = res["checks"]
+    unverified = bool(s.get("cost_note"))
+    net = (abs(s["tp"] - s["entry"]) - s["cost"]) / (abs(s["entry"] - s["sl"]) + s["cost"]) if s["entry"] != s["sl"] else 0
+    auto = [("closed-candle confirmation", c.get("confirm")), ("retest of a valid zone", c.get("retest")),
+            ("HTF direction" if not s.get("counter_trend") else "COUNTER-TREND (strict gate passed)", c.get("htf") or s.get("counter_trend")),
+            (f"net R:R {net:.2f} after the spread margin", c.get("cost") and net >= 1.5),
+            ("spread verified" if not unverified else "spread NOT verified", not unverified)]
+    manual = ["spread now in MT5 is not wider than assumed", "price has not run away from the entry (do not chase)",
+              "no high-impact news in the next 30 minutes", "stop and lot size set before pressing the button",
+              "no other open trade on this market that you do not want doubled"]
+    if ar:
+        tr = {"closed-candle confirmation": "تأكيد بشمعة مغلقة", "retest of a valid zone": "إعادة اختبار منطقة صالحة",
+              "HTF direction": "اتجاه الفريمات الكبيرة", "COUNTER-TREND (strict gate passed)": "عكس الاتجاه (اجتاز الشرط المشدد)",
+              "spread verified": "السبريد موثّق", "spread NOT verified": "السبريد غير موثّق"}
+        mt = ["السبريد الحالي في MT5 ليس أوسع من المفترض", "السعر لم يبتعد عن الدخول (لا تطارد السعر)",
+              "لا خبر عالي التأثير خلال 30 دقيقة", "حدّد الستوب واللوت قبل الضغط على الزر",
+              "لا توجد صفقة مفتوحة أخرى على نفس السوق لا تريد مضاعفتها"]
+        a = [f"{'✔' if ok else '✘'} " + (f"صافي R:R {net:.2f} بعد هامش السبريد" if k.startswith("net R:R") else tr.get(k, k)) for k, ok in auto]
+        return ["قائمة التحقق قبل الدخول:", "  تحقق البوت: " + " | ".join(a),
+                "  تحقق أنت: " + " | ".join("☐ " + m for m in mt)]
+    return ["Pre-entry checklist:", "  Checked by the bot: " + " | ".join(f"{'OK' if ok else 'NO'} {k}" for k, ok in auto),
+            "  Check yourself: " + " | ".join("[ ] " + m for m in manual)]
+
+
 def format_signal(market, res, digits=2):
     s = res["setup"]
     c = res["checks"]
@@ -925,6 +951,7 @@ def format_signal(market, res, digits=2):
              f"Timeframes (structure vs the trade): {s['tf']}",
              s.get("fib", ""),
              f"Cost assumed: {s['cost']:.4g} price units" + (f" ({s['cost_note']})" if s["cost_note"] else ""),
+             *entry_checklist(s, res),
              explain(res),
              "Signal only. Place the order yourself. This is not a promised win rate."]
     return "\n".join(lines)
@@ -995,6 +1022,7 @@ def format_signal_ar(market, res, digits=2):
              f"الهيكل: {_ar(r['structure'])}",
              f"شمعة التأكيد M5: {_ar(r['confirm'])}",
              f"التكلفة المفترضة: {cost}",
+             *entry_checklist(s, res, ar=True),
              "هذه إشارة فقط: نفّذ الصفقة بنفسك في MT5 بعد مقارنة السعر. لا توجد نسبة نجاح مضمونة."]
     return "\n".join(lines)
 
