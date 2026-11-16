@@ -91,6 +91,7 @@ def market_report(names, now_ts, wait_stats=None, offsets=None, signals=0):
     offsets = offsets or {}
     lines = [f"===== MARKET REPORT {datetime.fromtimestamp(now_ts, tz=timezone.utc):%H:%M UTC} | "
              f"{extras.session_text(now_ts).strip()} | signals this hour: {signals} ====="]
+    lines.append(dollar_line(dollar_state(now_ts)))
     for name in names:
         inst = ict_alerts.INSTRUMENTS.get(name)
         if inst is None:
@@ -109,3 +110,45 @@ def market_report(names, now_ts, wait_stats=None, offsets=None, signals=0):
         waiting = f" | waits: {top[0][0]}" if top else ""
         lines.append(f"{name:7} {ptxt:>11} | {dirs}{agree}{waiting}")
     return "\n".join(lines)
+
+
+# ===== US dollar monitor =====
+# DXY (the US dollar index) from the free Yahoo feed. Gold, EURUSD and (loosely) Bitcoin usually move against
+# the dollar. This is context for the reader, it never blocks or creates a signal by itself.
+DOLLAR = {"source": "yahoo", "id": "DX-Y.NYB", "digits": 3}
+USD_INVERSE = ("XAUUSD", "EURUSD", "BTCUSD")
+
+
+def dollar_state(now_ts):
+    """{'price', 'h1', 'm15', 'change'} of the dollar index (trend UP/DOWN/? on H1 and M15, % change over
+    24 hourly candles), or None when the feed is unavailable."""
+    import structure as st
+    try:
+        h1 = [c for c in ict_alerts.get_candles(DOLLAR, "1h") if int(c["time"].timestamp()) + 3600 <= now_ts]
+        m15 = [c for c in ict_alerts.get_candles(DOLLAR, "15m") if int(c["time"].timestamp()) + 900 <= now_ts]
+        if len(h1) < 30 or len(m15) < 20:
+            return None
+        trend = lambda bars, k: {"up": "UP", "down": "DOWN"}.get(st.current_trend(st.structure_events(bars, k)), "?")  # noqa: E731
+        last = h1[-1]["close"]
+        return {"price": last, "h1": trend(h1, 3), "m15": trend(m15, 2),
+                "change": (last / h1[-25]["close"] - 1) * 100 if len(h1) >= 25 else 0.0}
+    except Exception:
+        return None
+
+
+def dollar_line(usd):
+    if not usd:
+        return "USD index (DXY): no data"
+    return (f"USD index (DXY) {usd['price']:.3f} ({usd['change']:+.2f}% over 24h) | H1 {usd['h1']} | "
+            f"M15 {usd['m15']}")
+
+
+def dollar_signal_line(market, side, usd):
+    """One line for a signal: does the dollar trend support the trade? '' for markets it does not matter to."""
+    if not usd or market not in USD_INVERSE:
+        return ""
+    want_usd = "DOWN" if side == "buy" else "UP"          # a buy of gold/EURUSD/BTC likes a falling dollar
+    verdict = ("supports" if usd["h1"] == want_usd else "is against" if usd["h1"] in ("UP", "DOWN") else
+               "gives no clear direction for")
+    return (f"USD (DXY): H1 {usd['h1']}, M15 {usd['m15']}, {usd['change']:+.2f}% over 24h: the dollar "
+            f"{verdict} this {side} (context only, the dollar often moves opposite to {market})")

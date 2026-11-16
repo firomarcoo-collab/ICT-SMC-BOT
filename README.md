@@ -332,3 +332,7 @@ US100 / US30 now use the E-mini futures (NQ=F, YM=F, about 23 h a day) so they w
 
 ## Regular market report
 At start and then every `REPORT_MINUTES` (default 60, 0 = off) the bot prints one organised block: a line per market with the price (offset applied), the structure direction of H4, H1, M15, M5 and M1, whether M5 and M1 agree (scalp bias) and the main reason it is waiting. Together with the hourly `LAST HOUR` summary and the entry alerts this gives a regular, readable analysis.
+
+## Lot size, specifications and the dollar
+- Lot size: set `BALANCE=<your balance>` in the shortcut; each alert then shows the lot (rounded down to the broker step). It needs the verified MT5 specification of the symbol: fill it with `python set_spec.py XAUUSD tick_size=0.01 tick_value=1 spread=0.25 commission_per_lot=0 product_type=spot_cfd` (values from MT5 > symbol > Specification, nothing is guessed; the command prints what is still missing). `python markets.py` shows every market.
+- Dollar monitor: the US dollar index (Yahoo DX-Y.NYB) is shown at the top of every market report and, for XAUUSD / EURUSD / BTCUSD, as a context line in each signal saying whether the dollar trend supports or opposes the trade. Context only, it never blocks a signal. `USD_MONITOR=0` turns the signal line off.

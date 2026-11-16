@@ -859,9 +859,43 @@ def test_market_report_is_organised_one_line_per_market(monkeypatch):
     monkeypatch.setattr(ict_alerts, "get_candles", fake_candles)
     monkeypatch.setattr(report_tools, "direction_map",
                         lambda name, now: {"4h": "DOWN", "1h": "UP", "15m": "UP", "5m": "UP", "1m": "UP"})
+    monkeypatch.setattr(report_tools, "dollar_state",
+                        lambda now: {"price": 104.2, "h1": "UP", "m15": "UP", "change": 0.1})
     text = report_tools.market_report(["XAUUSD", "BTCUSD"], now, {"XAUUSD": {"no retest": 5}}, {"XAUUSD": 10.0}, 2)
     lines = text.splitlines()
+    assert lines[1].startswith("USD index (DXY) 104.200")
+    del lines[1]
     assert lines[0].startswith("===== MARKET REPORT 12:00 UTC") and "signals this hour: 2" in lines[0]
     assert lines[1].startswith("XAUUSD") and "4010.00" in lines[1] and "H4:DOWN" in lines[1]
     assert "M5+M1 UP = scalp bias" in lines[1] and "waits: no retest" in lines[1]
     assert lines[2].startswith("BTCUSD") and len(lines) == 3
+
+
+def test_set_spec_validates_and_only_saves_what_you_type():
+    import set_spec
+    data = {"EURUSD": {"contract_size": None, "tick_size": None, "product_type": None, "broker_symbol": None}}
+    out = set_spec.apply(data, "EURUSD", ["tick_size=0.00001", "contract_size=100000", "product_type=spot_cfd",
+                                          "broker_symbol=EURUSD.m"])
+    assert out["EURUSD"]["tick_size"] == 0.00001 and out["EURUSD"]["contract_size"] == 100000
+    assert data["EURUSD"]["tick_size"] is None                      # the input is not modified
+    for bad in (["tick_size=abc"], ["tick_size=0"], ["colour=red"], ["product_type=magic"], ["nokeyvalue"]):
+        try:
+            set_spec.apply(data, "EURUSD", bad)
+        except ValueError:
+            continue
+        raise AssertionError(bad)
+    try:
+        set_spec.apply(data, "NOPE", [])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown market accepted")
+
+
+def test_dollar_monitor_context_lines():
+    import report_tools as rt
+    usd = {"price": 104.2, "h1": "UP", "m15": "DOWN", "change": 0.31}
+    assert "against this buy" in rt.dollar_signal_line("XAUUSD", "buy", usd)
+    assert "supports this sell" in rt.dollar_signal_line("EURUSD", "sell", usd)
+    assert rt.dollar_signal_line("US30", "buy", usd) == "" and rt.dollar_signal_line("XAUUSD", "buy", None) == ""
+    assert "104.200" in rt.dollar_line(usd) and "no data" in rt.dollar_line(None)

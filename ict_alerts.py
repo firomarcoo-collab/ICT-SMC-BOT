@@ -552,6 +552,14 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     lot = extras.lot_text(balance, risk_percent, setup, spec, (contracts or {}).get(name)).strip()
     if lot:
         text += "\n" + lot
+    try:   # the dollar index as context for gold / EURUSD / BTC (never blocks the signal)
+        import report_tools
+        if market in report_tools.USD_INVERSE and os.environ.get("USD_MONITOR", "1") != "0":
+            usd_text = report_tools.dollar_signal_line(market, setup["side"], report_tools.dollar_state(now_ts))
+            if usd_text:
+                text += "\n" + usd_text
+    except Exception as e:
+        log.warning("dollar monitor failed: %s", e)
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market,
                                                   "id": res.get("id"), "bar_time": setup["bar_time"]}, False
 
