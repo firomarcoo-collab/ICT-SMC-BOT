@@ -587,10 +587,10 @@ def test_scalp_profile_has_near_target_and_labels():
     from selective import make_config, PROFILES
     assert "scalp" in PROFILES
     cfg = make_config("scalp")
-    assert cfg.rr == 1.2 and cfg.min_net_rr == 0.9 and cfg.ready_score == 73 and cfg.max_risk_atr == 2.0
+    assert cfg.rr == 2.0 and cfg.min_net_rr == 1.5 and cfg.ready_score == 85 and cfg.max_risk_atr == 2.0
     assert make_config("strict").rr == 2.0
     import ict_alerts
-    assert ict_alerts.build_selective_config({"PROFILE": "scalp", "MIN_NET_RR": "0"}).rr == 1.2
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).ready_score == 85
 
 
 def _utc(y, mo, d, h, mi=0):
@@ -644,7 +644,7 @@ def test_analyze_now_lifts_the_freshness_gate(monkeypatch):
 def test_scalp_bias_uses_m5_and_m1_and_keeps_the_both_htf_against_rule(monkeypatch):
     ev = lambda side: [{"side": side, "mss": False, "idx": 0}]      # noqa: E731
     monkeypatch.setattr(sl.st, "structure_events", lambda bars, k: bars)
-    cfg = sl.make_config("scalp")
+    cfg = sl.make_config("active", ltf_bias=True)                   # the old M5 + M1 bias branch (still available)
     assert cfg.ltf_bias and not sl.make_config("active").ltf_bias
     ok, label = sl.htf_alignment(ev("bear"), ev("bear"), ev("bull"), "buy", sl.make_config("strict"), ev("bull"))
     assert not ok                                                   # strict: H4/H1 against -> blocked
@@ -702,10 +702,11 @@ def test_wait_summary_counts_reasons_without_numbers():
 
 def test_swing_profile_far_target_wide_stop_and_labels():
     cfg = sl.make_config("swing")
-    assert (cfg.rr, cfg.min_net_rr, cfg.max_risk_atr, cfg.ready_score, cfg.min_confluence) == (3.0, 2.0, 4.0, 80, 5)
-    assert not cfg.ltf_bias and not cfg.require_sweep               # full H4/H1 rule set stays on
+    assert (cfg.rr, cfg.min_net_rr, cfg.max_risk_atr, cfg.ready_score, cfg.min_confluence) == (3.5, 3.0, 2.0, 80, 5)
+    assert not cfg.ltf_bias and cfg.htf_mode == "d1h4" and cfg.struct_tf == "h1" and cfg.confirm_tf == "m15"
     import ict_alerts
-    assert ict_alerts.build_selective_config({"PROFILE": "swing"}).rr == 3.0
+    sw = ict_alerts.build_selective_config({"PROFILE": "swing"})
+    assert sw.rr == 3.5 and sw.ready_score == 80 and sw.killzones == () and sw.blackout == ((20.0, 22.0),)
 
 
 def test_several_profiles_first_that_passes_wins(monkeypatch):
@@ -909,7 +910,8 @@ def test_tightened_defaults_in_live_config():
     assert c.ready_score >= 82 and c.watch_score == 75                  # phone alert 82+, 75-81 = WATCH
     assert c.min_net_rr >= 1.5 and c.rr >= 2.0 and c.spread_margin == 1.25
     assert c.require_mss_fvg and c.counter_trend_min_score == 90
-    assert c.killzones == ((7.0, 11.0), (12.0, 16.0))
+    assert c.killzones == ((8.0, 11.0), (13.0, 16.5))               # scalp keeps its own sessions
+    assert ict_alerts.build_selective_config({"PROFILE": "active"}).killzones == ((7.0, 11.0), (12.0, 16.0))
     off = ict_alerts.build_selective_config({"PROFILE": "active", "KILLZONES": "0", "REQUIRE_MSS_FVG": "0",
                                             "MIN_NOTIFY_SCORE": "75", "COUNTER_TREND_MIN_SCORE": "0"})
     assert off.killzones == () and not off.require_mss_fvg and off.ready_score == 80 and off.counter_trend_min_score == 0
@@ -951,3 +953,84 @@ def test_entry_checklist_in_both_languages():
     ar = "\n".join(selective.entry_checklist(dict(s, cost_note="COST UNVERIFIED"), res, ar=True))
     assert "Pre-entry checklist" in en and "OK spread verified" in en and "do not chase" in en
     assert "قائمة التحقق قبل الدخول" in ar and "✘ السبريد غير موثّق" in ar
+
+
+# ===== the two modes: SCALP and SWING =====
+
+def _bars(n, start=0, step=60, up=True, price=100.0):
+    from datetime import datetime, timezone
+    out, p = [], price
+    for i in range(n):
+        o, c = p, p + (0.5 if up else -0.5)
+        out.append({"time": datetime.fromtimestamp(start + i * step, timezone.utc), "open": o, "close": c,
+                    "high": max(o, c) + 0.1, "low": min(o, c) - 0.1})
+        p = c
+    return out
+
+
+def test_mode_configs_scalp_and_swing():
+    sc, sw = sl.make_config("scalp"), sl.make_config("swing")
+    assert (sc.htf_mode, sc.ready_score, sc.min_net_rr, sc.m1_confirm) == ("h1m15", 85, 1.5, True)
+    assert sc.killzones == ((8.0, 11.0), (13.0, 16.5)) and sc.strict_sequence and sc.min_displacement == 1.5
+    assert (sw.htf_mode, sw.ready_score, sw.min_net_rr, sw.struct_tf, sw.confirm_tf) == ("d1h4", 80, 3.0, "h1", "m15")
+    assert sw.strict_sequence and sw.late_entry_frac == 0.5 and sc.late_entry_frac == 0.5
+
+
+def test_scalp_killzone_hours_london_ny_and_asia_muted():
+    z = sl.make_config("scalp").killzones
+    day = 1_700_000_000 - 1_700_000_000 % 86400
+    ok = lambda h: sl.in_killzone(day + int(h * 3600), z)               # noqa: E731
+    assert ok(8) and ok(10.9) and ok(13) and ok(16.4)
+    assert not ok(3) and not ok(7.9) and not ok(11) and not ok(12.5) and not ok(16.5) and not ok(22)
+
+
+def test_swing_blackout_last_two_hours_but_not_for_crypto():
+    sw = sl.make_config("swing")
+    day = 1_700_000_000 - 1_700_000_000 % 86400
+    assert sl.in_killzone(day + 21 * 3600, sw.blackout) and not sl.in_killzone(day + 19 * 3600, sw.blackout)
+    assert sl.is_crypto("BTCUSD") and not sl.is_crypto("XAUUSD")
+
+
+def test_htf_modes_h1m15_and_d1h4(monkeypatch):
+    ev = lambda side: [{"side": side, "mss": False, "idx": 0}]          # noqa: E731
+    monkeypatch.setattr(sl.st, "structure_events", lambda bars, k: bars)
+    sc, sw = sl.make_config("scalp"), sl.make_config("swing")
+    ok, _ = sl.htf_alignment(ev("bear"), ev("bull"), ev("bull"), "buy", sc)          # H4 against does not matter for scalp
+    assert ok
+    ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bear"), "buy", sc)        # M15 against
+    assert not ok and "M15" in why
+    ok, _ = sl.htf_alignment(ev("bull"), ev("bear"), ev("bear"), "buy", sw, d1_trend="up")
+    assert ok                                                                         # D1 + H4 up, H1/M15 ignored
+    ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", sw, d1_trend="down")
+    assert not ok and "D1" in why
+    ok, why = sl.htf_alignment(ev("bull"), ev("bull"), ev("bull"), "buy", sw, d1_trend=None)
+    assert not ok                                                                     # no D1 data: swing waits
+
+
+def test_m3_built_from_m1_and_confirmation():
+    start = 1_700_000_000 - 1_700_000_000 % 180
+    up = _bars(6, start, up=True)
+    assert len(sl.m3_from_m1(up)) == 2 and sl.m3_from_m1(up)[0]["open"] == up[0]["open"]
+    assert sl.m1_m3_agree(up, "buy")[0] and not sl.m1_m3_agree(up, "sell")[0]
+    assert not sl.m1_m3_agree([], "buy")[0]                                            # no M1 data: no scalp entry
+    mixed = _bars(5, start, up=True) + _bars(1, start + 300, up=False, price=102.5)
+    assert not sl.m1_m3_agree(mixed, "buy")[0]
+
+
+def test_late_entry_cancels_after_half_way_to_tp1():
+    from datetime import datetime, timezone
+    bar = lambda hi, lo: {"time": datetime.fromtimestamp(0, timezone.utc), "high": hi, "low": lo,   # noqa: E731
+                          "open": lo, "close": hi}
+    assert sl.late_entry([bar(100.6, 99.9)], "buy", 100.0, 101.0, 0.5)         # 60% of the way: cancelled
+    assert not sl.late_entry([bar(100.4, 99.9)], "buy", 100.0, 101.0, 0.5)     # 40%: still fine
+    assert sl.late_entry([bar(100.1, 99.4)], "sell", 100.0, 99.0, 0.5)
+    assert not sl.late_entry([bar(100.6, 99.9)], "buy", 100.0, 101.0, 0)       # rule off
+
+
+def test_scalp_waits_outside_killzone_and_swing_ignores_killzone():
+    day = 1_700_000_000 - 1_700_000_000 % 86400
+    empty = {tf: [] for tf in ("h4", "h1", "m15", "m5")}
+    r = sl.evaluate("XAUUSD", empty, day + 3 * 3600, sl.make_config("scalp"))
+    assert r["action"] == "WAIT"                                                  # not enough candles comes first
+    import ict_alerts
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp", "KILLZONES": "0"}).killzones == ()

@@ -50,3 +50,6 @@ Notify 82+, WATCH 75-81 console only, counter-trend 90+ & strong confirm, MSS+di
 net R:R >= 1.5 with spread margin 1.25, UTC killzones London 07-11 / NY 12-16. 245 tests pass. Not measured on live results yet.
 
 - Every entry alert now ends with a pre-entry checklist (bot-verified items + items you check yourself). SK system profile: waiting for the user's rules.
+
+## SCALP / SWING modes
+Strict modes implemented (see README). 253 tests pass. Zones for swing come from H1 only (H4 FVG/OB not used); M3 is built from M1. Not measured on live results.

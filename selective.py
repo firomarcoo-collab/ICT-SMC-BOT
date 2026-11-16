@@ -63,6 +63,13 @@ class SelectiveConfig:
     require_mss_fvg: bool = False   # an entry needs an MSS/CHoCH with displacement AND a valid FVG (not just a zone touch)
     min_displacement: float = 1.0   # that displacement candle body must be at least this many M15 ATR
     counter_trend_min_score: int = 0    # a COUNTER-TREND signal needs this score (0 = no extra rule) + a strong confirm
+    htf_mode: str = "default"       # "h1m15" (scalp: H1 + M15 trend), "d1h4" (swing: D1 + H4 trend), else H4/H1/M15 rules
+    struct_tf: str = "m15"          # timeframe of the sweep / MSS / FVG-OB analysis ("h1" for swing)
+    confirm_tf: str = "m5"          # closed candle that triggers the entry ("m15" for swing; forex always uses M15)
+    strict_sequence: bool = False   # sweep -> MSS (displacement >= min_displacement ATR) -> retest of a FRESH FVG/OB; never counter-trend
+    late_entry_frac: float = 0.0    # cancel when price already travelled this share of the way to TP1 before the retest (0 = off)
+    m1_confirm: bool = False        # scalp: the last closed M1 and M3 candles must agree with the trade
+    blackout: tuple = ()            # UTC (start_hour, end_hour) windows where no new signal is made (swing: before the daily close)
     killzones: tuple = ()           # UTC (start_hour, end_hour) windows; empty = always. Signals only inside them
     min_bars: dict = field(default_factory=lambda: {"m5": 60, "m15": 60, "h1": 60, "h4": 40})
 
@@ -94,12 +101,15 @@ def make_config(profile="strict", **overrides):
         base = dict(profile="loose", min_confluence=4, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, ready_score=60, strong_body_frac=0.6)
     elif profile == "scalp":
-        # quick trades: a near target (1:1.2 instead of 1:2) and tighter stops (at most 2 M15 ATR),
-        # otherwise active's looser entry rules. The score gate is 73 because a near target earns
-        # fewer execution points (max 93 instead of 100). Nothing mandatory is relaxed; the net R:R
-        # after costs must still be 0.9+. A higher hit rate is the aim, NOT a measured result.
-        base = dict(profile="scalp", min_confluence=4, retest_window=5, max_zone_age=192,
-                    fvg_max_fill=0.7, ready_score=73, rr=1.2, min_net_rr=0.9, max_risk_atr=2.0, ltf_bias=True, require_sweep=True)
+        # MODE 1 - SCALP. Trend: H1 + M15 structure must both agree. Zone of interest: M15 FVG/OB retested on M5.
+        # Entry confirmation: the closed M5 candle plus the last closed M1 and M3 candles. Killzones UTC: London
+        # 08:00-11:00, New York 13:00-16:30 (muted otherwise, so also in the Asian session). Strict sequence:
+        # liquidity sweep -> MSS with displacement >= 1.5 ATR -> retest of a FRESH FVG/OB; never counter-trend.
+        # Score 85+, net R:R >= 1.5 after the spread margin (target 1:2, TP1 at 1:1). Not measured on live results.
+        base = dict(profile="scalp", min_confluence=4, retest_window=5, max_zone_age=192, fvg_max_fill=0.7,
+                    ready_score=85, rr=2.0, min_net_rr=1.5, max_risk_atr=2.0, htf_mode="h1m15", m1_confirm=True,
+                    strict_sequence=True, require_sweep=True, require_mss_fvg=True, min_displacement=1.5,
+                    late_entry_frac=0.5, spread_margin=1.25, killzones=((8.0, 11.0), (13.0, 16.5)))
     elif profile == "golden":
         # active's entry rules, but only when price is in the Fibonacci golden zone (62-79% retracement
         # of the latest M15 leg, in the trade's direction). Target 1:2. Not measured yet.
@@ -113,11 +123,14 @@ def make_config(profile="strict", **overrides):
                     ready_score=70, watch_score=60, min_confluence=5, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, max_signal_age=420, strong_body_frac=0.6)
     elif profile == "swing":
-        # slower, bigger trades: the full rule set (H4/H1 alignment or a complete reversal, D1 context,
-        # S/R, sweep, FVG/OB, retest, closed M5 confirmation) with a far target (1:3), room for a wider
-        # stop (up to 4 M15 ATR) and older zones. Fewer signals; hold for hours or days. Not measured yet.
-        base = dict(profile="swing", rr=3.0, min_net_rr=2.0, max_risk_atr=4.0, max_zone_age=384,
-                    ready_score=80, min_confluence=5, retest_window=8)
+        # MODE 2 - SWING. Trend: Daily + H4 structure must both agree. Zone of interest: H1 FVG/OB (the sweep and the
+        # MSS are read on H1). Entry confirmation: a closed M15 candle that the closed M5 candle agrees with. Runs all
+        # day except the last 2 hours before the daily close (20:00-22:00 UTC, not for crypto). Strict sequence as in
+        # scalp. Score 80+, net R:R >= 1:3 after the spread margin (target 1:3.5, TP1 at 1:1.75). Not measured yet.
+        base = dict(profile="swing", rr=3.5, min_net_rr=3.0, max_risk_atr=2.0, max_zone_age=384, ready_score=80,
+                    min_confluence=5, retest_window=8, htf_mode="d1h4", struct_tf="h1", confirm_tf="m15",
+                    strict_sequence=True, require_sweep=True, require_mss_fvg=True, min_displacement=1.5,
+                    late_entry_frac=0.5, spread_margin=1.25, blackout=((20.0, 22.0),), max_signal_age=420)
     elif profile == "strict":
         base = {}
     else:
@@ -354,7 +367,7 @@ def retest(m5, zone, side, cfg):
     return True, ""
 
 
-def htf_alignment(h4, h1, m15, side, cfg, m5=None, m1=None):
+def htf_alignment(h4, h1, m15, side, cfg, m5=None, m1=None, d1_trend=None):
     """(ok, label). H4 and H1 must agree with the trade and M15 must be in the same direction.
     A trade against H4 is allowed only after a recent H1 MSS in its direction (confirmed reversal).
     With cfg.ltf_bias (scalp profile) the direction comes from M5 and M1 structure instead (M1 counts
@@ -364,6 +377,14 @@ def htf_alignment(h4, h1, m15, side, cfg, m5=None, m1=None):
     e4, e1, e15 = (st.structure_events(h4, cfg.htf_k), st.structure_events(h1, cfg.htf_k),
                    st.structure_events(m15, 2))
     t4, t1, t15 = st.current_trend(e4), st.current_trend(e1), st.current_trend(e15)
+    if cfg.htf_mode in ("h1m15", "d1h4"):
+        if cfg.htf_mode == "h1m15":
+            a, b, la, lb = t1, t15, "H1", "M15"
+        else:
+            a, b, la, lb = d1_trend, t4, "D1", "H4"
+        if a != want or b != want:
+            return False, f"{la} {a or 'unknown'} / {lb} {b or 'unknown'}: both must be {want} for a {side}"
+        return True, f"{la} and {lb} {want}"
     if cfg.ltf_bias and m5 is not None:
         t5 = st.current_trend(st.structure_events(m5, 2))
         t1m = st.current_trend(st.structure_events(m1, 2)) if m1 else None
@@ -421,12 +442,57 @@ def tf_agreement(side, m1, m5, m15, h1, h4, cfg):
     return " ".join(out)
 
 
+def is_crypto(market):
+    return str(market).upper().startswith(("BTC", "ETH", "SOL", "XRP", "BNB"))
+
+
 def in_killzone(now_ts, zones):
     """True when the UTC hour of now_ts is inside one of the (start, end) windows; no windows = always."""
     if not zones:
         return True
     hour = (now_ts % 86400) / 3600.0
     return any(a <= hour < b for a, b in zones)
+
+
+def m3_from_m1(m1):
+    """Closed M3 candles built from closed M1 candles (only groups with all 3 minutes), oldest first."""
+    groups = {}
+    for c in m1 or []:
+        groups.setdefault(int(c["time"].timestamp()) // 180, []).append(c)
+    out = []
+    for k in sorted(groups):
+        g = sorted(groups[k], key=lambda c: c["time"])
+        if len(g) == 3:
+            out.append({"time": g[0]["time"], "open": g[0]["open"], "close": g[-1]["close"],
+                        "high": max(c["high"] for c in g), "low": min(c["low"] for c in g)})
+    return out
+
+
+def m1_m3_agree(m1, side):
+    """(ok, text): the last closed M1 and M3 candles both point the trade's way."""
+    if not m1:
+        return False, "M1 data unavailable: the scalp entry needs M1/M3 confirmation"
+    m3 = m3_from_m1(m1)
+    if not m3:
+        return False, "not enough M1 candles to build an M3 candle"
+    up = side == "buy"
+    ok1 = (m1[-1]["close"] > m1[-1]["open"]) == up and m1[-1]["close"] != m1[-1]["open"]
+    ok3 = (m3[-1]["close"] > m3[-1]["open"]) == up and m3[-1]["close"] != m3[-1]["open"]
+    if ok1 and ok3:
+        return True, "M1 and M3 closed candles confirm"
+    return False, f"M1/M3 do not confirm yet (M1 {'ok' if ok1 else 'against'}, M3 {'ok' if ok3 else 'against'})"
+
+
+def late_entry(bars_after, side, entry, tp1, frac):
+    """True when, after the zone formed, price already travelled more than `frac` of the way from the entry
+    to TP1 and came back: the move is spent and the signal is cancelled."""
+    if not frac or not bars_after or tp1 == entry:
+        return False
+    if side == "buy":
+        done = (max(c["high"] for c in bars_after) - entry) / (tp1 - entry)
+    else:
+        done = (entry - min(c["low"] for c in bars_after)) / (entry - tp1)
+    return done > frac
 
 
 def cost_check(risk, spread, commission_price, cfg):
@@ -589,10 +655,12 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         return res
     d1 = closed_only(data.get("d1") or [], 86400, now_ts)
     m1 = closed_only(data.get("m1") or [], 60, now_ts)
-    m5, m15, h1, h4 = bars["m5"], bars["m15"], bars["h1"], bars["h4"]
+    m5, c15, h1, h4 = bars["m5"], bars["m15"], bars["h1"], bars["h4"]
+    m15 = bars[cfg.struct_tf]                        # structure / zones timeframe (M15; H1 for swing)
     last = m5[-1]
-    primary = m15[-1] if cfg.forex else last         # the candle that must have just closed
-    close_time = int(primary["time"].timestamp()) + TF_SECONDS["m15" if cfg.forex else "m5"]
+    m15_conf = cfg.forex or cfg.confirm_tf == "m15"  # the trigger candle is a closed M15 (forex, swing)
+    primary = c15[-1] if m15_conf else last          # the candle that must have just closed
+    close_time = int(primary["time"].timestamp()) + TF_SECONDS["m15" if m15_conf else "m5"]
     if now_ts - close_time > cfg.max_signal_age:
         res["reasons"].append(f"the confirmation candle is too old" + (" (M15)" if cfg.forex else ""))
         return res
@@ -604,6 +672,9 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     if not in_killzone(now_ts, cfg.killzones):
         res["reasons"].append("outside the London / New York killzones (UTC): no new signal")
         return res
+    if cfg.blackout and not is_crypto(market) and in_killzone(now_ts, cfg.blackout):
+        res["reasons"].append("last hours before the daily market close (UTC): no new swing signal")
+        return res
     side = "buy" if primary["close"] > primary["open"] else "sell" if primary["close"] < primary["open"] else None
     if side is None:
         res["reasons"].append(f"last closed {'M15' if cfg.forex else 'M5'} candle is a doji")
@@ -612,7 +683,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                       f"({'bullish' if side == 'buy' else 'bearish'})")
     rep["m1"] = m1_timing(m1, side)
 
-    ok_c, strong, why = confirmation(m15 if cfg.forex else m5, side, cfg.strong_body_frac)
+    ok_c, strong, why = confirmation(c15 if m15_conf else m5, side, cfg.strong_body_frac)
     checks = res["checks"]
     checks["confirm"] = ok_c
     if not ok_c:
@@ -620,7 +691,15 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         return res
     if strong:
         rep["confirm"] += ", strong (closed beyond the previous candle or a large body)"
-    m5_ok, m5_strong, _ = confirmation(m5, side, cfg.strong_body_frac) if cfg.forex else (False, False, "")
+    m5_ok, m5_strong, _ = confirmation(m5, side, cfg.strong_body_frac) if m15_conf else (False, False, "")
+    if m15_conf and not cfg.forex and not m5_ok:
+        res["reasons"].append("M5 does not confirm the M15 candle yet")
+        return res
+    if cfg.m1_confirm:
+        ok_m1, why_m1 = m1_m3_agree(m1, side)
+        if not ok_m1:
+            res["reasons"].append(why_m1)
+            return res
     if cfg.forex:
         rep["m5_precision"] = (f"M5 {'agrees' if m5_ok else 'does not agree yet'}"
                                f"{' (strong)' if m5_strong else ''}: precision only, never a trigger")
@@ -652,8 +731,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     for z in sorted(fv_all + ob_all, key=lambda z: -z["idx"])[:6] if z["side"] == want]
 
     # --- trend, D1 context
-    ok_h, label = htf_alignment(h4, h1, m15, side, cfg, m5, m1)
     d1_trend, d1_label = ict_engine.d1_context(d1)
+    ok_h, label = htf_alignment(h4, h1, c15, side, cfg, m5, m1, d1_trend)
     rep["htf"] = label if ok_h else f"{label}"
     rep["d1"] = d1_label
     checks["htf"] = ok_h
@@ -692,7 +771,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
             elif rev["complete"]:
                 res["reasons"].extend(seq_notes + notes[:2])
             return res
-        if d1_trend and not cfg.ltf_bias and d1_trend != ("up" if side == "buy" else "down"):
+        if d1_trend and not cfg.ltf_bias and cfg.htf_mode == "default" and d1_trend != ("up" if side == "buy" else "down"):
             res["reasons"].append(f"{d1_label} opposes a continuation {side}")
             return res
         sr_all = [dict(z, tf=tf) for tf, b in (("H1", h1), ("H4", h4)) for z in sr_zones(b, cfg)]
@@ -731,6 +810,13 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         res["reasons"].extend(notes[:4] + seq_notes[:2])
         return res
 
+    if cfg.strict_sequence:
+        if not checks["htf"]:
+            res["reasons"].append(f"against the {cfg.htf_mode.upper()} trend (no counter-trend in this mode): {label}")
+            return res
+        if not seq_ok:
+            res["reasons"].append("no complete sequence: liquidity sweep -> MSS with displacement -> retest of a fresh FVG/OB")
+            return res
     if cfg.require_sweep and not checks["liquidity"]:
         res["reasons"].append("no valid liquidity sweep: this profile only enters after a sweep")
         return res
@@ -762,6 +848,16 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         res["reasons"].append(note)
         return res
     tp = entry + cfg.rr * risk if side == "buy" else entry - cfg.rr * risk
+    tp1 = entry + 0.5 * cfg.rr * risk if side == "buy" else entry - 0.5 * cfg.rr * risk
+    zi = primary.get("idx")
+    if cfg.late_entry_frac and zi is not None and 0 <= zi < len(m15):
+        t0 = int(m15[zi]["time"].timestamp()) + 3 * TF_SECONDS[cfg.struct_tf]
+        touched = [i for i, c in enumerate(m5) if int(c["time"].timestamp()) >= t0
+                   and c["low"] <= primary["high"] and c["high"] >= primary["low"]]
+        if touched and touched[0] < len(m5) - 1 and late_entry(m5[touched[0]:], side, entry, tp1, cfg.late_entry_frac):
+            res["reasons"].append(f"late entry: price already travelled over {cfg.late_entry_frac:.0%} of the way "
+                                  "to TP1 before coming back to the zone, signal cancelled")
+            return res
     for z in sr_all:  # a strong opposing zone between entry and target blocks the trade
         if z["strength"] == "strong" and z["role"] != role:
             in_path = (entry < z["low"] < tp) if side == "buy" else (tp < z["high"] < entry)
@@ -798,6 +894,16 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     elif sweeps:
         scope = sweeps[-1]["scope"]
     top = fo_hit[0] if fo_hit else None
+    if cfg.strict_sequence:
+        ei = rev["event"]["idx"]
+        a_ev = st.atr_at(m15, ei)
+        r_ev = abs(m15[ei]["close"] - m15[ei]["open"]) / a_ev if a_ev > 0 else 0.0
+        if r_ev < cfg.min_displacement:
+            res["reasons"].append(f"MSS displacement {r_ev:.2f} ATR is under {cfg.min_displacement:g} ATR")
+            return res
+        if not any(z["kind"] in ("FVG", "OB") and z.get("status", "fresh") == "fresh" for z in fo_hit):
+            res["reasons"].append("the retested FVG/OB is not fresh (already used or partly filled)")
+            return res
     if cfg.require_mss_fvg:
         mss_ok = bool(rev["event"] and seq_ok) or any(e["mss"] and e["displacement"] for e in recent_ev)
         fvg_ok = any(z["kind"] == "FVG" for z in fo_hit) or any(
@@ -854,8 +960,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
                     "invalidation": invalidation, "profile": cfg.profile,
                     "counter_trend": mode == "reversal" and not ok_h, "fib": fib_text,
-                    "tp1": (entry + 0.5 * cfg.rr * risk if side == "buy" else entry - 0.5 * cfg.rr * risk)
-                    if cfg.forex else None,
+                    "tp1": tp1 if (cfg.forex or cfg.strict_sequence) else None,
                     "strength": forex_strength(score100) if cfg.forex else None,
                     "pip": markets_pip(market), "risk": risk, "atr15": atr15,
                     "tf": tf_agreement(side, m1, m5, m15, h1, h4, cfg),

@@ -98,14 +98,15 @@ class Tracker:
         now_r = ((c["close"] - s["entry"]) if buy else (s["entry"] - c["close"])) / risk
         it["mfe"] = max(it["mfe"], fav)
         out = []
-        if now_r >= self.add_r and not it["milestone"]:
+        if max(now_r, fav) >= self.add_r and not it["milestone"]:    # price touching +1R is enough
             it["milestone"] = True
+            now_r = max(now_r, self.add_r)
             out.append(
                 f"TRADE +{now_r:.1f}R: {self._label(it)}\n"
-                f"-> Move the stop to the entry {s['entry']:.8g} (risk-free). A reinforcement (add-on) in the "
+                f"-> MOVE SL TO ENTRY. Move the stop to the entry {s['entry']:.8g} (risk-free). A reinforcement (add-on) in the "
                 f"same direction is only worth considering after a pullback and a NEW closed M5 confirmation, "
                 f"with a smaller size and its own stop.\n"
-                f"الصفقة +{now_r:.1f}R: حرّك الستوب إلى سعر الدخول. التعزيز بنفس الاتجاه فقط بعد تراجع وشمعة M5 تأكيد جديدة وبحجم أصغر.")
+                f"الصفقة +{now_r:.1f}R: MOVE SL TO ENTRY، حرّك الستوب إلى سعر الدخول. التعزيز بنفس الاتجاه فقط بعد تراجع وشمعة M5 تأكيد جديدة وبحجم أصغر.")
         elif (it["mfe"] >= self.be_arm_r and not it["warned"] and not it["milestone"]
               and 0 < now_r <= it["mfe"] * (1 - self.retrace_frac)):
             it["warned"] = True

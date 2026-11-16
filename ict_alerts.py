@@ -739,18 +739,23 @@ def build_selective_config(env):
     # --- tightened filtering (all on by default; each has an env switch to relax it)
     notify = int(float(env.get("MIN_NOTIFY_SCORE") or 82))          # phone alert only from this score; below = WATCH
     base_cfg = selective.make_config(profile)
-    if "ready_score" not in over:                                   # an explicit READY_SCORE always wins
+    two_modes = profile in ("scalp", "swing")                       # these two keep their own score gate (85 / 80)
+    if "ready_score" not in over and not two_modes:                 # an explicit READY_SCORE always wins
         over["ready_score"] = max(base_cfg.ready_score, notify)
     over["watch_score"] = min(base_cfg.watch_score, 75)
     over["spread_margin"] = float(env.get("SPREAD_MARGIN") or 1.25)
-    over["require_mss_fvg"] = env.get("REQUIRE_MSS_FVG", "1") != "0"
+    if not two_modes:
+        over["require_mss_fvg"] = env.get("REQUIRE_MSS_FVG", "1") != "0"
     over["counter_trend_min_score"] = int(float(env.get("COUNTER_TREND_MIN_SCORE") or 90))
     floor = float(env.get("MIN_NET_RR") or 1.5)
     over["min_net_rr"] = max(base_cfg.min_net_rr, floor)
-    if profile == "scalp" and floor > 1.0:
-        over["rr"] = max(base_cfg.rr, floor + 0.5)                  # a 1:1.2 target can never give net 1.5
-    if env.get("KILLZONES", "1") != "0":
+    if env.get("KILLZONES", "1") == "0":
+        over["killzones"] = ()
+        over["blackout"] = ()
+    elif not two_modes:
         over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "7-11"), env.get("KILLZONE_NY", "12-16"))
+    elif profile == "scalp" and (env.get("KILLZONE_LONDON") or env.get("KILLZONE_NY")):
+        over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "8-11"), env.get("KILLZONE_NY", "13-16.5"))
     if env.get("REQUIRE_FIB") in ("0", "1"):
         over["require_fib"] = env["REQUIRE_FIB"] == "1"
     if env.get("REQUIRE_SWEEP") in ("0", "1"):

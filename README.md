@@ -343,3 +343,15 @@ At start and then every `REPORT_MINUTES` (default 60, 0 = off) the bot prints on
 - Entry needs an MSS/CHoCH with displacement (≥1 M15 ATR) **and** a valid FVG (`REQUIRE_MSS_FVG=0` to relax).
 - Net R:R ≥ **1.5** after the spread × 1.25 (`MIN_NET_RR`, `SPREAD_MARGIN`); scalp target raised to 1:2.
 - Killzones UTC: London 07–11, New York 12–16 (`KILLZONE_LONDON=7-11`, `KILLZONE_NY=12-16`, `KILLZONES=0` = off).
+
+## Two modes: SCALP and SWING (`PROFILE=scalp,swing`)
+| | SCALP | SWING |
+|---|---|---|
+| Trend (must agree) | H1 + M15 | Daily + H4 |
+| Zone of interest | M15 FVG/OB, retest on M5 | H1 FVG/OB (sweep and MSS read on H1) |
+| Entry confirmation | closed M5 + last closed M1 and M3 | closed M15 + closed M5 agrees |
+| Time (UTC) | London 08:00-11:00, New York 13:00-16:30; muted otherwise | all day except 20:00-22:00 (not crypto) |
+| Score / net R:R | 85+ / 1.5+ after spread x1.25 (target 1:2, TP1 1:1) | 80+ / 3.0+ after spread x1.25 (target 1:3.5, TP1 1:1.75) |
+Both: never against their own trend; strict sequence sweep -> MSS (displacement >= 1.5 ATR) -> retest of a FRESH FVG/OB;
+signal cancelled if price already went >50% of the way to TP1 before coming back; at +1R an alert "MOVE SL TO ENTRY".
+`KILLZONES=0` switches the time filters off. Signals only; no measured win rate.
