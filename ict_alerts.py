@@ -837,6 +837,8 @@ def run():
 
     last_beat = 0
     wait_stats, hour_signals = {}, 0
+    report_minutes = float(os.environ.get("REPORT_MINUTES") or 60)    # 0 = no periodic report
+    last_report = 0
     us_names = [n for n in names if markets.canonical(n) in US_INDEX_MARKETS and str(INSTRUMENTS[n]["id"]).startswith("^")]
     us_open = None
     while True:
@@ -845,6 +847,13 @@ def run():
             us_open, us_msg = extras.us_session_event(us_open, now_ts, " / ".join(us_names))
             if us_msg:
                 notify(us_msg, alert=us_msg.startswith("US MARKET OPEN"))
+        if report_minutes and use_selective and now_ts - last_report >= report_minutes * 60:
+            last_report = now_ts
+            try:
+                import report_tools
+                print(report_tools.market_report(names, now_ts, wait_stats, offsets, hour_signals), flush=True)
+            except Exception as e:   # a report must never stop the bot
+                log.warning("market report failed: %s", e)
         if now_ts - last_beat >= 3600:
             if last_beat and use_selective:
                 print(wait_summary(wait_stats, hour_signals), flush=True)

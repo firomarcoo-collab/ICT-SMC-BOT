@@ -845,3 +845,23 @@ def test_feed_env_overrides_the_primary_source(monkeypatch):
         monkeypatch.delenv("FEED_XAUUSD")
         importlib.reload(ict_alerts)
     assert ict_alerts.INSTRUMENTS["XAUUSD"]["source"] == "yahoo"
+
+
+def test_market_report_is_organised_one_line_per_market(monkeypatch):
+    import report_tools, ict_alerts
+    from datetime import datetime, timezone
+    now = _utc(2026, 11, 16, 12, 0)
+
+    def fake_candles(inst, tf):
+        base = now - 100 * 60
+        return [{"time": datetime.fromtimestamp(base - i * 300, tz=timezone.utc), "open": 1, "high": 2,
+                 "low": 0.5, "close": 4000.0, "volume": 1} for i in range(60)]
+    monkeypatch.setattr(ict_alerts, "get_candles", fake_candles)
+    monkeypatch.setattr(report_tools, "direction_map",
+                        lambda name, now: {"4h": "DOWN", "1h": "UP", "15m": "UP", "5m": "UP", "1m": "UP"})
+    text = report_tools.market_report(["XAUUSD", "BTCUSD"], now, {"XAUUSD": {"no retest": 5}}, {"XAUUSD": 10.0}, 2)
+    lines = text.splitlines()
+    assert lines[0].startswith("===== MARKET REPORT 12:00 UTC") and "signals this hour: 2" in lines[0]
+    assert lines[1].startswith("XAUUSD") and "4010.00" in lines[1] and "H4:DOWN" in lines[1]
+    assert "M5+M1 UP = scalp bias" in lines[1] and "waits: no retest" in lines[1]
+    assert lines[2].startswith("BTCUSD") and len(lines) == 3

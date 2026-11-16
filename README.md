@@ -329,3 +329,6 @@ When the bot starts (and again at every US open and close) it prints the state o
 US100 / US30 now use the E-mini futures (NQ=F, YM=F, about 23 h a day) so they work outside the 09:30-16:00 New York cash session; `US_FEED=cash` returns to ^NDX / ^DJI (then "market closed" outside that session). The futures price differs from your CFD by a small basis: set it with calc_offset.py.
 
 `FEED_<SYMBOL>=binance:PAXGUSDT` (or `yahoo:GC=F`) makes that feed the first choice for a market, for example `FEED_XAUUSD=binance:PAXGUSDT` takes gold from Binance and never asks Yahoo. PAXG is a gold-backed token: its price follows spot gold closely but not exactly, so set the offset with calc_offset.py.
+
+## Regular market report
+At start and then every `REPORT_MINUTES` (default 60, 0 = off) the bot prints one organised block: a line per market with the price (offset applied), the structure direction of H4, H1, M15, M5 and M1, whether M5 and M1 agree (scalp bias) and the main reason it is waiting. Together with the hourly `LAST HOUR` summary and the entry alerts this gives a regular, readable analysis.
