@@ -327,3 +327,5 @@ When the bot starts (and again at every US open and close) it prints the state o
 ## Gold price link and US feeds
 `python calc_offset.py XAUUSD <MT5 Bid now>` saves the broker-minus-feed difference in offsets.json; the running bot picks it up by itself and analyze_now uses it (OFFSET_<SYMBOL> still overrides). `--show` lists it, a 0 value removes it.
 US100 / US30 now use the E-mini futures (NQ=F, YM=F, about 23 h a day) so they work outside the 09:30-16:00 New York cash session; `US_FEED=cash` returns to ^NDX / ^DJI (then "market closed" outside that session). The futures price differs from your CFD by a small basis: set it with calc_offset.py.
+
+`FEED_<SYMBOL>=binance:PAXGUSDT` (or `yahoo:GC=F`) makes that feed the first choice for a market, for example `FEED_XAUUSD=binance:PAXGUSDT` takes gold from Binance and never asks Yahoo. PAXG is a gold-backed token: its price follows spot gold closely but not exactly, so set the offset with calc_offset.py.

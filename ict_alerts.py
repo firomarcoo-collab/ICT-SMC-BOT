@@ -85,6 +85,12 @@ for _n in INSTRUMENTS:  # FALLBACK_XAUUSD=GC=F,binance:PAXGUSDT overrides the st
 # The US index CFDs trade almost 24 h, but the cash indices (^NDX, ^DJI) only update 09:30-16:00 New York.
 # So US100 / US30 use the E-mini futures (NQ=F, YM=F, ~23 h a day) by default; US_FEED=cash goes back to
 # the cash indices (then the bot says "market closed" outside the US session).
+for _n in INSTRUMENTS:  # FEED_XAUUSD=binance:PAXGUSDT uses that feed first (no Yahoo at all); FEED_US30=yahoo:YM=F too
+    _feed = os.environ.get(f"FEED_{_n}", "").strip()
+    if ":" in _feed:
+        _src, _fid = _feed.split(":", 1)
+        if _src.lower() in ("binance", "yahoo") and _fid:
+            INSTRUMENTS[_n].update(source=_src.lower(), id=_fid, fallbacks=[])
 _fut = os.environ.get("FUTURES", "US100,US30" if os.environ.get("US_FEED", "futures") != "cash" else "").strip().upper()
 for _n, _id in FUTURES_IDS.items():  # FUTURES=1 for all, or a list such as FUTURES=US100,US30
     if _fut == "1" or _n in [x.strip() for x in _fut.split(",")]:

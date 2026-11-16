@@ -832,3 +832,16 @@ def test_offsets_file_is_loaded_and_env_overrides_it(tmp_path, monkeypatch):
 def test_us_indices_use_24h_futures_by_default():
     import ict_alerts
     assert ict_alerts.INSTRUMENTS["US100"]["id"] == "NQ=F" and ict_alerts.INSTRUMENTS["US30"]["id"] == "YM=F"
+
+
+def test_feed_env_overrides_the_primary_source(monkeypatch):
+    import importlib
+    import ict_alerts
+    monkeypatch.setenv("FEED_XAUUSD", "binance:PAXGUSDT")
+    try:
+        mod = importlib.reload(ict_alerts)
+        assert mod.INSTRUMENTS["XAUUSD"]["source"] == "binance" and mod.INSTRUMENTS["XAUUSD"]["id"] == "PAXGUSDT"
+    finally:
+        monkeypatch.delenv("FEED_XAUUSD")
+        importlib.reload(ict_alerts)
+    assert ict_alerts.INSTRUMENTS["XAUUSD"]["source"] == "yahoo"
