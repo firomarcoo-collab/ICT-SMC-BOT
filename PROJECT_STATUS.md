@@ -44,3 +44,7 @@ Backup: git tag `backup-before-forex-upgrade` is local only (tag push gets HTTP 
 - Stage 3 (planned): backtests per pair with out-of-sample, session breakdown, costs; needs M5 history files from the phone (this sandbox has no market-data access).
 
 - Stage 2 (done): `forex` profile in selective.py (M15-primary confirmation, forex_score with the requested weights, bands 70/80/90, TP1/TP2, pips, ATR/volatility/liquidity gates, one active signal per symbol). Stage 3 (backtests per pair) still needs M5 history files.
+
+## Tightened filtering (latest)
+Notify 82+, WATCH 75-81 console only, counter-trend 90+ & strong confirm, MSS+displacement+FVG required,
+net R:R >= 1.5 with spread margin 1.25, UTC killzones London 07-11 / NY 12-16. 245 tests pass. Not measured on live results yet.

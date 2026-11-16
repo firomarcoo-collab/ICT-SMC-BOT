@@ -703,6 +703,18 @@ def restore_tracking(store, track, names):
     return unfollowed
 
 
+def parse_killzones(*specs):
+    """'7-11' style UTC hour windows -> ((7.0, 11.0), ...). Bad text stops the bot with a clear message."""
+    out = []
+    for sp in specs:
+        try:
+            a, b = (float(x) for x in sp.split("-"))
+        except ValueError:
+            raise SystemExit(f"killzone must look like 7-11 (UTC hours), got {sp!r}")
+        out.append((a, b))
+    return tuple(out)
+
+
 def build_selective_config(env):
     """SelectiveConfig from environment variables. The profile (strict / active / loose) sets its own
     defaults; a variable only overrides them when it is actually set (an unset READY_SCORE must not
@@ -724,6 +736,21 @@ def build_selective_config(env):
             "max_daily_loss_r": num("MAX_DAILY_LOSS_R"), "risk_percent": num("RISK_PERCENT"),
             "ready_score": num("READY_SCORE", int)}
     over = {k: v for k, v in over.items() if v is not None}
+    # --- tightened filtering (all on by default; each has an env switch to relax it)
+    notify = int(float(env.get("MIN_NOTIFY_SCORE") or 82))          # phone alert only from this score; below = WATCH
+    base_cfg = selective.make_config(profile)
+    if "ready_score" not in over:                                   # an explicit READY_SCORE always wins
+        over["ready_score"] = max(base_cfg.ready_score, notify)
+    over["watch_score"] = min(base_cfg.watch_score, 75)
+    over["spread_margin"] = float(env.get("SPREAD_MARGIN") or 1.25)
+    over["require_mss_fvg"] = env.get("REQUIRE_MSS_FVG", "1") != "0"
+    over["counter_trend_min_score"] = int(float(env.get("COUNTER_TREND_MIN_SCORE") or 90))
+    floor = float(env.get("MIN_NET_RR") or 1.5)
+    over["min_net_rr"] = max(base_cfg.min_net_rr, floor)
+    if profile == "scalp" and floor > 1.0:
+        over["rr"] = max(base_cfg.rr, floor + 0.5)                  # a 1:1.2 target can never give net 1.5
+    if env.get("KILLZONES", "1") != "0":
+        over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "7-11"), env.get("KILLZONE_NY", "12-16"))
     if env.get("REQUIRE_FIB") in ("0", "1"):
         over["require_fib"] = env["REQUIRE_FIB"] == "1"
     if env.get("REQUIRE_SWEEP") in ("0", "1"):

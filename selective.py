@@ -59,6 +59,11 @@ class SelectiveConfig:
     ready_score: int = 86           # score (0-100) above 85 = eligible; 75-85 WATCH; below REJECT
     watch_score: int = 75
     allow_historical: bool = False  # backtests only
+    spread_margin: float = 1.0      # the spread is multiplied by this in the cost check (1.25 = 25% safety margin)
+    require_mss_fvg: bool = False   # an entry needs an MSS/CHoCH with displacement AND a valid FVG (not just a zone touch)
+    min_displacement: float = 1.0   # that displacement candle body must be at least this many M15 ATR
+    counter_trend_min_score: int = 0    # a COUNTER-TREND signal needs this score (0 = no extra rule) + a strong confirm
+    killzones: tuple = ()           # UTC (start_hour, end_hour) windows; empty = always. Signals only inside them
     min_bars: dict = field(default_factory=lambda: {"m5": 60, "m15": 60, "h1": 60, "h4": 40})
 
 
@@ -416,11 +421,19 @@ def tf_agreement(side, m1, m5, m15, h1, h4, cfg):
     return " ".join(out)
 
 
+def in_killzone(now_ts, zones):
+    """True when the UTC hour of now_ts is inside one of the (start, end) windows; no windows = always."""
+    if not zones:
+        return True
+    hour = (now_ts % 86400) / 3600.0
+    return any(a <= hour < b for a, b in zones)
+
+
 def cost_check(risk, spread, commission_price, cfg):
     """(ok, cost, note). cost = spread + commission + slippage in price units."""
     if spread is None and not cfg.allow_unknown_cost:
         return False, None, "spread unknown (set SPREAD_<SYMBOL> or fill markets.json)"
-    cost = (spread or 0.0) + (commission_price or 0.0) + cfg.slippage
+    cost = (spread or 0.0) * cfg.spread_margin + (commission_price or 0.0) + cfg.slippage
     if risk <= 0:
         return False, cost, "no stop distance"
     if cost / risk > cfg.max_cost_frac:
@@ -588,6 +601,9 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         if quiet:
             res["reasons"].append(f"no signal: {quiet}")
             return res
+    if not in_killzone(now_ts, cfg.killzones):
+        res["reasons"].append("outside the London / New York killzones (UTC): no new signal")
+        return res
     side = "buy" if primary["close"] > primary["open"] else "sell" if primary["close"] < primary["open"] else None
     if side is None:
         res["reasons"].append(f"last closed {'M15' if cfg.forex else 'M5'} candle is a doji")
@@ -782,6 +798,19 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     elif sweeps:
         scope = sweeps[-1]["scope"]
     top = fo_hit[0] if fo_hit else None
+    if cfg.require_mss_fvg:
+        mss_ok = bool(rev["event"] and seq_ok) or any(e["mss"] and e["displacement"] for e in recent_ev)
+        fvg_ok = any(z["kind"] == "FVG" for z in fo_hit) or any(
+            f["side"] == want and f["valid"] and len(m15) - 1 - f["idx"] <= 20 for f in fv_all)
+        if not mss_ok:
+            res["reasons"].append("no internal MSS/CHoCH with displacement: a zone touch alone is not enough")
+            return res
+        if max(ratios, default=0.0) < cfg.min_displacement:
+            res["reasons"].append(f"displacement too weak ({max(ratios, default=0.0):.2f} ATR, needs {cfg.min_displacement:g})")
+            return res
+        if not fvg_ok:
+            res["reasons"].append("no valid fair value gap (FVG) after the structure break")
+            return res
     net_rr = (cfg.rr * risk - cost) / (risk + cost)
     if cfg.forex:
         parts, score100 = forex_score(
@@ -802,6 +831,14 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     res.update(score100=score100, score_parts=parts, band=band)
     if cfg.forex:
         res["strength"] = forex_strength(score100)
+    if band == "READY" and cfg.counter_trend_min_score and mode == "reversal" and not ok_h:
+        if score100 < cfg.counter_trend_min_score or not strong:
+            band = "WATCH"
+            res["band"] = band
+            res["reasons"].insert(0, f"score {score100}/100 is WATCH: COUNTER-TREND needs {cfg.counter_trend_min_score}+ "
+                                  f"and a strong confirmation candle (strong: {'yes' if strong else 'no'}). Parts: "
+                                  + ", ".join(f"{k} {v}/{SCORE_MAX.get(k) or FOREX_SCORE_MAX[k]}" for k, v in parts.items()))
+            return res
     if band != "READY":
         res["reasons"].append(f"score {score100}/100 is {band}: a signal needs {cfg.ready_score}+ "
                               f"(WATCH {cfg.watch_score}-{cfg.ready_score - 1}). Parts: "

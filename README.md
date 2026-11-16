@@ -336,3 +336,10 @@ At start and then every `REPORT_MINUTES` (default 60, 0 = off) the bot prints on
 ## Lot size, specifications and the dollar
 - Lot size: set `BALANCE=<your balance>` in the shortcut; each alert then shows the lot (rounded down to the broker step). It needs the verified MT5 specification of the symbol: fill it with `python set_spec.py XAUUSD tick_size=0.01 tick_value=1 spread=0.25 commission_per_lot=0 product_type=spot_cfd` (values from MT5 > symbol > Specification, nothing is guessed; the command prints what is still missing). `python markets.py` shows every market.
 - Dollar monitor: the US dollar index (Yahoo DX-Y.NYB) is shown at the top of every market report and, for XAUUSD / EURUSD / BTCUSD, as a context line in each signal saying whether the dollar trend supports or opposes the trade. Context only, it never blocks a signal. `USD_MONITOR=0` turns the signal line off.
+
+## Tightened filtering (default on)
+- Phone alert only at score **82+** (`MIN_NOTIFY_SCORE`); 75–81 prints `WATCH` in the console only.
+- COUNTER-TREND needs score **90+** and a strong confirmation candle (`COUNTER_TREND_MIN_SCORE`, 0 = off).
+- Entry needs an MSS/CHoCH with displacement (≥1 M15 ATR) **and** a valid FVG (`REQUIRE_MSS_FVG=0` to relax).
+- Net R:R ≥ **1.5** after the spread × 1.25 (`MIN_NET_RR`, `SPREAD_MARGIN`); scalp target raised to 1:2.
+- Killzones UTC: London 07–11, New York 12–16 (`KILLZONE_LONDON=7-11`, `KILLZONE_NY=12-16`, `KILLZONES=0` = off).

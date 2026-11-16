@@ -475,7 +475,7 @@ def test_active_profile_accepts_80_to_85_with_a_reduced_confidence_label_but_str
 
 def test_live_config_keeps_each_profile_defaults_unless_a_variable_is_set():
     """Regression: an unset READY_SCORE used to override the active profile's 80 with 86."""
-    c = ict_alerts.build_selective_config({"PROFILE": "active"})
+    c = ict_alerts.build_selective_config({"PROFILE": "active", "MIN_NOTIFY_SCORE": "0"})
     assert (c.profile, c.ready_score, c.min_confluence) == ("active", 80, 4)
     assert ict_alerts.build_selective_config({}).ready_score == 86
     assert ict_alerts.build_selective_config({"PROFILE": "active", "READY_SCORE": "70"}).ready_score == 70
@@ -524,7 +524,7 @@ def test_loose_profile_signals_a_setup_that_active_rejects_and_keeps_the_safety_
 
 
 def test_startup_line_states_the_active_rules():
-    line = ict_alerts.describe_config(ict_alerts.build_selective_config({"PROFILE": "loose",
+    line = ict_alerts.describe_config(ict_alerts.build_selective_config({"PROFILE": "loose", "MIN_NOTIFY_SCORE": "0",
                                                                        "ALLOW_UNKNOWN_COST": "1"}), "selective")
     assert "profile LOOSE" in line and "score 60+/100" in line and "4/8" in line
     assert "0.25%/trade" in line and "3 losses" in line and "1.5% a day" in line and "UNVERIFIED" in line
@@ -590,7 +590,7 @@ def test_scalp_profile_has_near_target_and_labels():
     assert cfg.rr == 1.2 and cfg.min_net_rr == 0.9 and cfg.ready_score == 73 and cfg.max_risk_atr == 2.0
     assert make_config("strict").rr == 2.0
     import ict_alerts
-    assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).rr == 1.2
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp", "MIN_NET_RR": "0"}).rr == 1.2
 
 
 def _utc(y, mo, d, h, mi=0):
@@ -899,3 +899,45 @@ def test_dollar_monitor_context_lines():
     assert "supports this sell" in rt.dollar_signal_line("EURUSD", "sell", usd)
     assert rt.dollar_signal_line("US30", "buy", usd) == "" and rt.dollar_signal_line("XAUUSD", "buy", None) == ""
     assert "104.200" in rt.dollar_line(usd) and "no data" in rt.dollar_line(None)
+
+
+# ===== tightened filtering =====
+
+def test_tightened_defaults_in_live_config():
+    import ict_alerts
+    c = ict_alerts.build_selective_config({"PROFILE": "scalp"})
+    assert c.ready_score >= 82 and c.watch_score == 75                  # phone alert 82+, 75-81 = WATCH
+    assert c.min_net_rr >= 1.5 and c.rr >= 2.0 and c.spread_margin == 1.25
+    assert c.require_mss_fvg and c.counter_trend_min_score == 90
+    assert c.killzones == ((7.0, 11.0), (12.0, 16.0))
+    off = ict_alerts.build_selective_config({"PROFILE": "active", "KILLZONES": "0", "REQUIRE_MSS_FVG": "0",
+                                            "MIN_NOTIFY_SCORE": "75", "COUNTER_TREND_MIN_SCORE": "0"})
+    assert off.killzones == () and not off.require_mss_fvg and off.ready_score == 80 and off.counter_trend_min_score == 0
+
+
+def test_killzone_window_utc():
+    import selective
+    z = ((7.0, 11.0), (12.0, 16.0))
+    day = 1_700_000_000 - 1_700_000_000 % 86400
+    assert selective.in_killzone(day + 8 * 3600, z) and selective.in_killzone(day + 15 * 3600 + 1800, z)
+    assert not selective.in_killzone(day + 3 * 3600, z)                 # Asian session
+    assert not selective.in_killzone(day + 11 * 3600 + 1800, z) and not selective.in_killzone(day + 16 * 3600, z)
+    assert selective.in_killzone(day + 3 * 3600, ())                    # no windows = always
+
+
+def test_spread_margin_and_net_rr_floor():
+    import selective
+    cfg = selective.SelectiveConfig(rr=1.2, min_net_rr=1.5)
+    assert not selective.cost_check(1.0, 0.0, 0.0, cfg)[0]              # 1:1.2 can never reach net 1.5
+    ok = selective.SelectiveConfig(rr=2.0, min_net_rr=1.5, spread_margin=1.0)
+    assert selective.cost_check(1.0, 0.1, 0.0, ok)[0]                   # net (2-0.1)/1.1 = 1.73
+    wide = selective.SelectiveConfig(rr=2.0, min_net_rr=1.5, spread_margin=2.0, max_cost_frac=0.5)
+    assert not selective.cost_check(1.0, 0.25, 0.0, wide)[0]            # margin doubles cost: (2-.5)/1.5 = 1.0
+
+
+def test_killzone_blocks_evaluate_outside_hours():
+    import selective
+    cfg = selective.SelectiveConfig(killzones=((7.0, 11.0),))
+    now = 1_700_000_000 - 1_700_000_000 % 86400 + 3 * 3600
+    res = selective.evaluate("XAUUSD", {tf: [] for tf in ("h4", "h1", "m15", "m5")}, now, cfg)
+    assert res["action"] == "WAIT"
