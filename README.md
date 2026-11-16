@@ -355,3 +355,8 @@ At start and then every `REPORT_MINUTES` (default 60, 0 = off) the bot prints on
 Both: never against their own trend; strict sequence sweep -> MSS (displacement >= 1.5 ATR) -> retest of a FRESH FVG/OB;
 signal cancelled if price already went >50% of the way to TP1 before coming back; at +1R an alert "MOVE SL TO ENTRY".
 `KILLZONES=0` switches the time filters off. Signals only; no measured win rate.
+
+### More signals (optional, each lowers quality)
+SWING now also accepts a fresh H4 FVG/OB as the zone of interest after an H1 sweep + MSS (on by default).
+Relax on purpose with env variables: `MIN_DISPLACEMENT=1.2` (default 1.5), `LATE_ENTRY_FRAC=0` (never cancel late entries),
+`MIN_NET_RR`, `KILLZONES=0`, `KILLZONE_LONDON=7-12`, `KILLZONE_NY=12-17`.

@@ -756,6 +756,13 @@ def build_selective_config(env):
         over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "7-11"), env.get("KILLZONE_NY", "12-16"))
     elif profile == "scalp" and (env.get("KILLZONE_LONDON") or env.get("KILLZONE_NY")):
         over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "8-11"), env.get("KILLZONE_NY", "13-16.5"))
+    # optional relaxations of the two modes (defaults keep the strict rules)
+    if env.get("MIN_DISPLACEMENT"):
+        over["min_displacement"] = float(env["MIN_DISPLACEMENT"])
+    if env.get("LATE_ENTRY_FRAC"):
+        over["late_entry_frac"] = float(env["LATE_ENTRY_FRAC"])          # 0 = never cancel a late entry
+    if env.get("STRICT_SEQUENCE") in ("0", "1"):
+        over["strict_sequence"] = env["STRICT_SEQUENCE"] == "1"
     if env.get("REQUIRE_FIB") in ("0", "1"):
         over["require_fib"] = env["REQUIRE_FIB"] == "1"
     if env.get("REQUIRE_SWEEP") in ("0", "1"):

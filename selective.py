@@ -66,6 +66,7 @@ class SelectiveConfig:
     htf_mode: str = "default"       # "h1m15" (scalp: H1 + M15 trend), "d1h4" (swing: D1 + H4 trend), else H4/H1/M15 rules
     struct_tf: str = "m15"          # timeframe of the sweep / MSS / FVG-OB analysis ("h1" for swing)
     confirm_tf: str = "m5"          # closed candle that triggers the entry ("m15" for swing; forex always uses M15)
+    h4_zones: bool = False          # swing: a fresh H4 FVG/OB also counts as the zone of interest (see h4_zone_fallback)
     strict_sequence: bool = False   # sweep -> MSS (displacement >= min_displacement ATR) -> retest of a FRESH FVG/OB; never counter-trend
     late_entry_frac: float = 0.0    # cancel when price already travelled this share of the way to TP1 before the retest (0 = off)
     m1_confirm: bool = False        # scalp: the last closed M1 and M3 candles must agree with the trade
@@ -130,7 +131,8 @@ def make_config(profile="strict", **overrides):
         base = dict(profile="swing", rr=3.5, min_net_rr=3.0, max_risk_atr=2.0, max_zone_age=384, ready_score=80,
                     min_confluence=5, retest_window=8, htf_mode="d1h4", struct_tf="h1", confirm_tf="m15",
                     strict_sequence=True, require_sweep=True, require_mss_fvg=True, min_displacement=1.5,
-                    late_entry_frac=0.5, spread_margin=1.25, blackout=((20.0, 22.0),), max_signal_age=420)
+                    late_entry_frac=0.5, spread_margin=1.25, blackout=((20.0, 22.0),), max_signal_age=420,
+                    h4_zones=True)
     elif profile == "strict":
         base = {}
     else:
@@ -446,6 +448,40 @@ def is_crypto(market):
     return str(market).upper().startswith(("BTC", "ETH", "SOL", "XRP", "BNB"))
 
 
+def h4_zone_fallback(rev, side, h1, h4, cfg):
+    """Swing: when the H1 sweep + MSS exist but the MSS move made no H1 zone, the fresh valid H4 FVG / order
+    block on the right side may be the zone of interest. Returns the extended sequence (complete) or rev."""
+    if not rev.get("event") or rev.get("complete") or rev["stage"] != 3 or not rev.get("sweep"):
+        return rev
+    want = "bull" if side == "buy" else "bear"
+    times = [int(c["time"].timestamp()) for c in h1]
+
+    def to_h1(i):
+        t = int(h4[i]["time"].timestamp())
+        return next((k for k, tt in enumerate(times) if tt >= t), len(h1) - 1)
+
+    zones = []
+    for f in fvg_candidates(h4, cfg):
+        if f["valid"] and f["side"] == want and f.get("status", "fresh") == "fresh":
+            zones.append(dict(f, kind="FVG", idx=to_h1(f["idx"]), tf="H4"))
+    for o in ob_candidates(h4, cfg):
+        if o["valid"] and o["side"] == want and o.get("status", "fresh") == "fresh":
+            zones.append(dict(o, kind="OB", idx=to_h1(o["idx"]), break_idx=to_h1(o["break_idx"]), tf="H4"))
+    if not zones:
+        return rev
+    sweep, event = rev["sweep"], rev["event"]
+    after = h1[event["idx"]:]
+    if side == "buy":
+        lo, hi = sweep["extreme"], max(c["high"] for c in after)
+    else:
+        lo, hi = min(c["low"] for c in after), sweep["extreme"]
+    typ = "SSL" if side == "buy" else "BSL"
+    out = dict(rev, zones=zones, stage=4, complete=True, leg={"low": lo, "high": hi, "eq": (lo + hi) / 2},
+               event_id=f"{typ}-{sweep['level']}-{round(sweep['price'], 6)}-{int(sweep['time'].timestamp())}")
+    out["reasons"] = []
+    return out
+
+
 def in_killzone(now_ts, zones):
     """True when the UTC hour of now_ts is inside one of the (start, end) windows; no windows = always."""
     if not zones:
@@ -709,6 +745,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     fv_all = fvg_candidates(m15, cfg)
     ob_all = ob_candidates(m15, cfg)
     rev = ict_engine.reversal_sequence(m15, side, fv_all, ob_all, calendar)
+    if cfg.h4_zones and cfg.struct_tf == "h1":
+        rev = h4_zone_fallback(rev, side, h1, h4, cfg)
     ev15 = st.structure_events(m15, 2)
     if rev["sweep"]:
         sw = rev["sweep"]

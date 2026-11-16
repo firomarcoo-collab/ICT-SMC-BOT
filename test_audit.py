@@ -1034,3 +1034,29 @@ def test_scalp_waits_outside_killzone_and_swing_ignores_killzone():
     assert r["action"] == "WAIT"                                                  # not enough candles comes first
     import ict_alerts
     assert ict_alerts.build_selective_config({"PROFILE": "scalp", "KILLZONES": "0"}).killzones == ()
+
+
+def test_swing_h4_zone_fallback_completes_the_sequence(monkeypatch):
+    h1 = _bars(10, 0, step=3600)
+    h4 = _bars(4, 0, step=14400)
+    sweep = {"level": 99.0, "price": 99.0, "extreme": 98.5, "idx": 2, "time": h1[2]["time"]}
+    rev = {"complete": False, "stage": 3, "reasons": ["no valid FVG or order block was created by the MSS move"],
+           "sweep": sweep, "event": {"idx": 4}, "zones": [], "leg": None, "event_id": None}
+    fake_f = [{"side": "bull", "low": 100.0, "high": 101.0, "idx": 1, "status": "fresh", "valid": True}]
+    monkeypatch.setattr(sl, "fvg_candidates", lambda bars, cfg=None: fake_f)
+    monkeypatch.setattr(sl, "ob_candidates", lambda bars, cfg=None: [])
+    out = sl.h4_zone_fallback(rev, "buy", h1, h4, sl.make_config("swing"))
+    assert out["complete"] and out["zones"][0]["tf"] == "H4" and out["zones"][0]["idx"] == 4
+    assert out["leg"]["low"] == 98.5 and out["event_id"].startswith("SSL-")
+    # stale zone is ignored; an already complete sequence and a sequence without MSS are untouched
+    fake_f[0]["status"] = "partial"
+    assert not sl.h4_zone_fallback(rev, "buy", h1, h4, sl.make_config("swing"))["complete"]
+    assert sl.h4_zone_fallback(dict(rev, event=None), "buy", h1, h4, sl.make_config("swing"))["event"] is None
+    assert sl.make_config("swing").h4_zones and not sl.make_config("scalp").h4_zones
+
+
+def test_relaxation_env_for_the_two_modes():
+    import ict_alerts
+    c = ict_alerts.build_selective_config({"PROFILE": "swing", "MIN_DISPLACEMENT": "1.2", "LATE_ENTRY_FRAC": "0"})
+    assert c.min_displacement == 1.2 and c.late_entry_frac == 0
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).min_displacement == 1.5
