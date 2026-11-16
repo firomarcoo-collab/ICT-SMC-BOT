@@ -1060,3 +1060,23 @@ def test_relaxation_env_for_the_two_modes():
     c = ict_alerts.build_selective_config({"PROFILE": "swing", "MIN_DISPLACEMENT": "1.2", "LATE_ENTRY_FRAC": "0"})
     assert c.min_displacement == 1.2 and c.late_entry_frac == 0
     assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).min_displacement == 1.5
+
+
+def test_pair_strategy_map_and_best_scoring_profile_first(monkeypatch):
+    import ict_alerts
+    assert "golden" in ict_alerts.strategies_for("XAUUSD") and "forex" in ict_alerts.strategies_for("EURUSD")
+    assert "golden" not in ict_alerts.strategies_for("BTCUSD") and ict_alerts.strategies_for("NOPE") is None
+    monkeypatch.setenv("PAIR_STRATEGIES", "0")
+    assert ict_alerts.strategies_for("XAUUSD") is None
+    monkeypatch.delenv("PAIR_STRATEGIES")
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp,swing,active"})
+    scores = {"scalp": 86, "swing": 91, "active": 0}
+
+    def fake_eval(market, data, now, cfg, *a, **k):
+        sc = scores[cfg.profile]
+        return {"action": "BUY" if sc else "WAIT", "score100": sc, "reasons": []}
+    monkeypatch.setattr(ict_alerts.selective, "evaluate", fake_eval)
+    order, agree = ict_alerts.ranked_candidates("XAUUSD", {}, 0, cfgs, None, None, "LIVE", "utc")
+    assert [c.profile for c in order] == ["swing", "scalp", "active"] and agree == ["swing", "scalp"]
+    order, agree = ict_alerts.ranked_candidates("XAUUSD", {}, 0, cfgs[:1], None, None, "LIVE", "utc")
+    assert agree == [] and len(order) == 1

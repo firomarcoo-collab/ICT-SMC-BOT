@@ -360,3 +360,9 @@ signal cancelled if price already went >50% of the way to TP1 before coming back
 SWING now also accepts a fresh H4 FVG/OB as the zone of interest after an H1 sweep + MSS (on by default).
 Relax on purpose with env variables: `MIN_DISPLACEMENT=1.2` (default 1.5), `LATE_ENTRY_FRAC=0` (never cancel late entries),
 `MIN_NET_RR`, `KILLZONES=0`, `KILLZONE_LONDON=7-12`, `KILLZONE_NY=12-17`.
+
+## Strategy per pair (selector)
+Every pair only runs the strategies that suit it (`PAIR_STRATEGIES` in ict_alerts.py): gold scalp/swing/golden/active/strict;
+BTC and indices scalp/swing/active/strict; EURUSD/GBPJPY/JPYGBP forex/swing/scalp. All allowed strategies are evaluated;
+the best scoring one that passes gives the signal and the alert shows how many agree. `PAIR_STRATEGIES=0` = old behaviour.
+This is a rule-based selector, not a trained model; no profit is promised.

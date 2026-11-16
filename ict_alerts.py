@@ -525,11 +525,21 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         commission_price = spec.commission_per_lot / (spec.tick_value / spec.tick_size)
     res = None
     cfgs = list(scfg) if isinstance(scfg, (list, tuple)) else [scfg]
-    # the forex profile is only for forex pairs, and a forex pair uses it whenever it is listed
+    # each pair only uses the strategies that suit it (PAIR_STRATEGIES=0 turns the map off); the forex profile
+    # is only for forex pairs, and a forex pair uses it whenever it is listed
     fx_pair = market in markets.FOREX
-    matching = [c for c in cfgs if c.forex == fx_pair]
-    for cfg in (matching or cfgs):
-        # several profiles at once: the first one whose rules pass gives the signal (ids are shared, so
+    allowed = strategies_for(market, name)
+    if allowed is None:
+        matching = [c for c in cfgs if c.forex == fx_pair]
+    else:
+        matching = [c for c in cfgs if c.profile in allowed and (fx_pair or not c.forex)]
+    if not matching:
+        matching = [c for c in cfgs if c.forex == fx_pair]
+    candidates = ranked_candidates(market, data, now_ts, matching or cfgs, spread, commission_price, status,
+                                   structure.calendar_for(inst["source"]))
+    agree = candidates[1]
+    for cfg in candidates[0]:
+        # several profiles at once: the best scoring one that passes gives the signal (ids are shared, so
         # the same setup is never sent twice); when all wait, the first profile's reason is shown
         r = selective.process(market, data, now_ts, store, cfg, spread, commission_price, status,
                               calendar=structure.calendar_for(inst["source"]))
@@ -546,6 +556,9 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
     fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
     text = fmt(name, dict(res, setup=setup), d)
+    if len(agree) > 1:
+        text += (f"\nStrategies agreeing on this side: {len(agree)} ({', '.join(x.upper() for x in agree)}) | "
+                 f"توافق {len(agree)} استراتيجيات")
     warn = fallback_note(inst)
     if warn:
         text += "\n" + warn
@@ -713,6 +726,43 @@ def parse_killzones(*specs):
             raise SystemExit(f"killzone must look like 7-11 (UTC hours), got {sp!r}")
         out.append((a, b))
     return tuple(out)
+
+
+# Strategies that suit each market (the engine checks all of them and the best scoring one that passes gives the
+# signal). This is a rule-based selector, not a trained model. PAIR_STRATEGIES=0 uses every profile on every pair.
+PAIR_STRATEGIES = {
+    "XAUUSD": ("scalp", "swing", "golden", "active", "strict"),
+    "BTCUSD": ("scalp", "swing", "active", "strict"),
+    "NAS100": ("scalp", "swing", "active", "strict"), "US100": ("scalp", "swing", "active", "strict"),
+    "US30": ("scalp", "swing", "active", "strict"),
+    "EURUSD": ("forex", "swing", "scalp"), "GBPJPY": ("forex", "swing", "scalp"), "JPYGBP": ("forex", "swing", "scalp"),
+}
+
+
+def strategies_for(market, name=None):
+    """Profile names allowed for a market, or None (= all) when the map is off or the market is unknown."""
+    if os.environ.get("PAIR_STRATEGIES", "1") == "0":
+        return None
+    return PAIR_STRATEGIES.get(market) or PAIR_STRATEGIES.get(name)
+
+
+def ranked_candidates(market, data, now_ts, cfgs, spread, commission_price, status, calendar):
+    """(ordered cfgs, names that pass): every candidate profile is evaluated WITHOUT taking a lock; the ones that
+    pass come first, best score first, so the strongest setup is the one issued. Nothing passes: original order."""
+    if len(cfgs) < 2:
+        return list(cfgs), []
+    passing = []
+    for i, cfg in enumerate(cfgs):
+        try:
+            r = selective.evaluate(market, data, now_ts, cfg, spread, commission_price, status, calendar)
+        except Exception as e:       # a profile problem must never stop the other profiles
+            log.warning("selective: %s profile check failed: %s", cfg.profile, e)
+            continue
+        if r["action"] != "WAIT":
+            passing.append((-r.get("score100", 0), i, cfg))
+    passing.sort(key=lambda t: (t[0], t[1]))
+    order = [c for _, _, c in passing] + [c for c in cfgs if c not in [p[2] for p in passing]]
+    return order, [c.profile for _, _, c in passing]
 
 
 def build_selective_config(env):
