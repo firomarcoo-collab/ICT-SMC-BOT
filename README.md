@@ -400,3 +400,10 @@ current one excluded), body > 1.2 x the average body of those 20, and the candle
 Multipliers live at the top of `indicators.py` (`VOLUME_MULT`, `BODY_MULT`, `VOLUME_LOOKBACK`) or per run with `VOLUME_MULT=`,
 `BODY_MULT=`; `VOLUME_FILTER=0` turns it off. Where the feed has no volume (many Yahoo forex/index series) the volume rule is
 skipped and the alert says `Volume: n/a`; `VOLUME_REQUIRED=1` rejects such signals instead. Alerts show `Volume Spike: 1.8x Avg`.
+
+## More signals: `SIGNAL_LEVEL`
+The bot scans every minute (new candles are picked up as soon as they close). How many signals you accept is one switch:
+`SIGNAL_LEVEL=strict` (default, approved rules), `balanced` (displacement 1.2 ATR, volume 1.3x / body 1.1x, late-entry 60%,
+trading hours 07-17 UTC, alert score 82/78/80 for scalp/swing/other) or `active` (displacement 1.0, volume 1.0x, no late-entry
+cancel, no time filter, alert score 80/76/78). Never relaxed: net R:R floor (1.5 / 3.0), the sweep-MSS-FVG logic, news filter,
+duplicate protection. Any explicit setting (`MIN_DISPLACEMENT=`, `READY_SCORE=` ...) beats the preset. More signals means lower quality.

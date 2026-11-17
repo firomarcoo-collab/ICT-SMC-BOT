@@ -790,6 +790,39 @@ def ranked_candidates(market, data, now_ts, cfgs, spread, commission_price, stat
     return order, [c.profile for _, _, c in passing]
 
 
+# SIGNAL_LEVEL presets: how many signals you accept. "strict" is the approved default. The net R:R floor (1.5, MIN_NET_RR),
+# the mandatory sweep/MSS/FVG logic, the news filter and the duplicate protection are NEVER relaxed by a preset.
+# An explicit setting (MIN_DISPLACEMENT=..., VOLUME_MULT=..., READY_SCORE=...) always beats the preset.
+SIGNAL_LEVELS = {
+    "balanced": dict(min_displacement=1.2, vol_mult=1.3, body_mult=1.1, late_entry_frac=0.6, killzones=((7.0, 17.0),),
+                     ready={"scalp": 82, "swing": 78, "other": 80}),
+    "active": dict(min_displacement=1.0, vol_mult=1.0, body_mult=1.0, late_entry_frac=0.0, killzones=(),
+                   ready={"scalp": 80, "swing": 76, "other": 78}),
+}
+
+
+def apply_signal_level(over, env, profile, two_modes):
+    """Applies SIGNAL_LEVEL (strict | balanced | active) to the config overrides `over` (changed in place)."""
+    level = (env.get("SIGNAL_LEVEL") or "strict").strip().lower()
+    if level == "strict":
+        return
+    if level not in SIGNAL_LEVELS:
+        raise SystemExit(f"SIGNAL_LEVEL must be strict, balanced or active, got {level!r}")
+    p = SIGNAL_LEVELS[level]
+    for key in ("min_displacement", "vol_mult", "body_mult", "late_entry_frac"):
+        env_name = {"min_displacement": "MIN_DISPLACEMENT", "vol_mult": "VOLUME_MULT", "body_mult": "BODY_MULT",
+                    "late_entry_frac": "LATE_ENTRY_FRAC"}[key]
+        if key == "late_entry_frac" and not two_modes:
+            continue                                   # the late-entry rule only belongs to scalp and swing
+        if not env.get(env_name):
+            over[key] = p[key]
+    if (env.get("KILLZONES", "1") != "0" and profile != "swing"        # swing runs all day by design
+            and not env.get("KILLZONE_LONDON") and not env.get("KILLZONE_NY")):
+        over["killzones"] = p["killzones"]
+    if not env.get("READY_SCORE"):
+        over["ready_score"] = p["ready"].get(profile, p["ready"]["other"])
+
+
 def build_selective_config(env):
     """SelectiveConfig from environment variables. The profile (strict / active / loose) sets its own
     defaults; a variable only overrides them when it is actually set (an unset READY_SCORE must not
@@ -837,6 +870,7 @@ def build_selective_config(env):
     if env.get("BODY_MULT"):
         over["body_mult"] = float(env["BODY_MULT"])
     over["volume_required"] = env.get("VOLUME_REQUIRED", "0") == "1"
+    apply_signal_level(over, env, profile, two_modes)
     # optional relaxations of the two modes (defaults keep the strict rules)
     if env.get("MIN_DISPLACEMENT"):
         over["min_displacement"] = float(env["MIN_DISPLACEMENT"])

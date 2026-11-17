@@ -1318,3 +1318,22 @@ def test_volume_filter_env_switches():
     c = ict_alerts.build_selective_config({"PROFILE": "swing", "VOLUME_FILTER": "0", "VOLUME_MULT": "2", "BODY_MULT": "1.5",
                                            "VOLUME_REQUIRED": "1"})
     assert not c.volume_filter and c.vol_mult == 2.0 and c.body_mult == 1.5 and c.volume_required
+
+
+def test_signal_level_presets_relax_quality_gates_but_never_the_cost_floor():
+    import ict_alerts
+    b = lambda lv, pr, **e: ict_alerts.build_selective_config({"PROFILE": pr, "SIGNAL_LEVEL": lv, **e})   # noqa: E731
+    s, bal, act = b("strict", "scalp"), b("balanced", "scalp"), b("active", "scalp")
+    assert (s.ready_score, bal.ready_score, act.ready_score) == (85, 82, 80)
+    assert (s.min_displacement, bal.min_displacement, act.min_displacement) == (1.5, 1.2, 1.0)
+    assert act.killzones == () and bal.killzones == ((7.0, 17.0),) and act.late_entry_frac == 0.0
+    for lv in ("strict", "balanced", "active"):
+        assert b(lv, "scalp").min_net_rr >= 1.5 and b(lv, "swing").min_net_rr >= 3.0     # never relaxed
+        assert b(lv, "scalp").strict_sequence and b(lv, "scalp").require_mss_fvg           # the sequence stays mandatory
+        assert b(lv, "swing").killzones == ()                                              # swing has no killzone
+    assert b("balanced", "active").late_entry_frac == 0                                    # classic profiles get no late-entry rule
+    assert b("active", "scalp", MIN_DISPLACEMENT="1.4").min_displacement == 1.4            # an explicit setting wins
+    assert b("active", "scalp", READY_SCORE="90").ready_score == 90
+    assert b("balanced", "scalp", KILLZONE_NY="13-16").killzones != ((7.0, 17.0),)
+    with pytest.raises(SystemExit):
+        b("wild", "scalp")
