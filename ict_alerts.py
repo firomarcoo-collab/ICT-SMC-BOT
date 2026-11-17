@@ -39,6 +39,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import alert_classes
 import data_layer
 import events
 import extras
@@ -432,6 +433,29 @@ def _save_zone_seen(seen, path=None):
         pass
 
 
+_ALERT_STATE = None
+
+
+def alert_state():
+    """The persistent setup tracker state (alerts_state.json), loaded on first use."""
+    global _ALERT_STATE
+    if _ALERT_STATE is None:
+        _ALERT_STATE = alert_classes.AlertState()
+    return _ALERT_STATE
+
+
+def track_setups(market, name, data, now_ts, cfg, calendar, lang):
+    """Runs the six-class setup tracker for one market. Returns the text lines to print (and phones the alerts).
+    Nothing returned here is ever a trade signal, except what the normal signal path sends."""
+    observations, last_close = selective.watch_observations(market, data, now_ts, cfg, calendar, lang,
+                                                            alert_classes.APPROACH_ATR)
+    extra = ""
+    for cls, sid, text in alert_classes.process(alert_state(), market, observations, last_close, now_ts, lang):
+        extra += "\n" + text
+        alert_classes.deliver(cls, text)
+    return extra
+
+
 _ZONE_SEEN = _load_zone_seen()   # zone id -> time it was first explained
 
 
@@ -588,7 +612,9 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     d = inst["digits"]
     if res["action"] == "WAIT":
         line = wait_line(name, res)
-        if os.environ.get("ZONE_WATCH", "1") != "0":
+        if os.environ.get("ALERT_CLASSES", "1") != "0":
+            line += track_setups(market, name, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang)
+        elif os.environ.get("ZONE_WATCH", "1") != "0":
             for zw in selective.zone_watch(market, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang):
                 if _ZONE_SEEN.get(zw["id"]) is None:       # once per zone (a restart may show it once more)
                     _ZONE_SEEN[zw["id"]] = now_ts
@@ -598,6 +624,8 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
             line += "\n" + selective.explain(res)
         return line, None, False
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
+    if os.environ.get("ALERT_CLASSES", "1") != "0":
+        alert_state().mark_confirmed(market, setup["side"], now_ts)     # CONFIRMED: the watch setups of this side are finished
     if os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
         fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
         text = fmt(name, dict(res, setup=setup), d)

@@ -1216,6 +1216,7 @@ def test_zone_watch_explains_a_reached_zone_once(monkeypatch):
 def test_scan_prints_the_zone_explanation_only_once(monkeypatch):
     import ict_alerts
     monkeypatch.delenv("VERBOSE", raising=False)
+    monkeypatch.setenv("ALERT_CLASSES", "0")                       # the older single zone explanation path
     monkeypatch.setattr(ict_alerts, "_ZONE_SEEN", {})
     monkeypatch.setattr(ict_alerts, "ZONE_SEEN_FILE", str(__import__("pathlib").Path(__import__("tempfile").mkdtemp()) / "z.json"))
     cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp"})
@@ -1405,3 +1406,117 @@ def test_zone_memory_survives_a_restart_and_forgets_old_zones(tmp_path):
 def test_legacy_bot_documentation_no_longer_promises_orders():
     import ict_smc_bot
     assert "send pending orders" not in ict_smc_bot.__doc__ and "NEVER sends orders" in ict_smc_bot.__doc__
+
+
+# ===== the six alert classes: one persistent state per market and setup =====
+
+def _obs(side="buy", rel=None, stage3=True, sid="XAUUSD-buy-SSL-PDL-1", zone=True, extreme=100.0):
+    return {"sid": sid, "market": "XAUUSD", "side": side, "level": "PDL", "extreme": extreme, "stage3": stage3, "rel": rel,
+            "zone": {"kind": "FVG", "low": 101.0, "high": 102.0} if zone else None}
+
+
+def test_alert_classes_fire_once_each_in_order_and_never_say_buy_signal(tmp_path):
+    import alert_classes as ac
+    state = ac.AlertState(str(tmp_path / "a.json"))
+    p = lambda obs, close=101.5, now=1000: ac.process(state, "XAUUSD", [obs], close, now)      # noqa: E731
+    assert [c for c, _, _ in p(_obs(rel=None, zone=False))] == ["REVERSAL_STAGE3"]
+    assert p(_obs(rel=None, zone=False)) == []                                                  # the same state repeats nothing
+    assert [c for c, _, _ in p(_obs(rel="near"))] == ["ZONE_APPROACH"]
+    got = p(_obs(rel="in"))
+    assert [c for c, _, _ in got] == ["ZONE_ENTRY"] and "NOT an entry" in got[0][2] or "WAITING" in got[0][2] or "Waiting" in got[0][2]
+    assert p(_obs(rel="in")) == []
+    assert p(_obs(rel="far"), close=103.0) == []                                                # left the zone
+    assert [c for c, _, _ in p(_obs(rel="in"))] == ["RETEST"]
+    assert p(_obs(rel="in")) == []
+    for text in ("ZONE_APPROACH", "RETEST", "REVERSAL_STAGE3"):
+        assert text in {c for c in ac.CLASSES}
+    for cls in ("ZONE_APPROACH", "REVERSAL_STAGE3", "RETEST"):
+        t = ac._text(cls, _obs(), "en")
+        assert "NOT an entry signal" in t and "CONFIRMED" not in t
+    assert len({v["vibrate"] for v in ac.CLASSES.values()}) == 6 and len({v["voice"] for v in ac.CLASSES.values()}) == 6
+
+
+def test_alert_state_survives_a_restart(tmp_path):
+    import alert_classes as ac
+    path = str(tmp_path / "a.json")
+    s1 = ac.AlertState(path)
+    assert [c for c, _, _ in ac.process(s1, "XAUUSD", [_obs(rel="near")], 101.5, 1000)] == ["REVERSAL_STAGE3", "ZONE_APPROACH"]
+    s2 = ac.AlertState(path)                                                                   # the bot restarted
+    assert ac.process(s2, "XAUUSD", [_obs(rel="near")], 101.5, 1060) == []
+    (tmp_path / "bad.json").write_text("{nope")
+    assert ac.AlertState(str(tmp_path / "bad.json")).setups == {}
+
+
+def test_invalidation_alert_and_confirmation_ends_the_watch(tmp_path):
+    import alert_classes as ac
+    state = ac.AlertState(str(tmp_path / "a.json"))
+    ac.process(state, "XAUUSD", [_obs(rel="in")], 101.5, 1000)
+    dead = ac.process(state, "XAUUSD", [], 99.0, 1060)                                         # closes below the sweep extreme 100
+    assert [c for c, _, _ in dead] == ["INVALIDATED"] and "below the sweep extreme" in dead[0][2]
+    assert ac.process(state, "XAUUSD", [], 98.0, 1120) == []                                   # only once
+    s2 = ac.AlertState(str(tmp_path / "b.json"))
+    ac.process(s2, "XAUUSD", [_obs(sid="X2", rel="in")], 101.5, 1000)
+    s2.mark_confirmed("XAUUSD", "buy", 1030)                                                   # a real signal was issued
+    assert ac.process(s2, "XAUUSD", [], 90.0, 1060) == []                                      # no INVALIDATED for a finished setup
+    assert ac.invalidation_reason({"side": "sell", "extreme": 110.0, "zone": None}, 111.0)
+    assert ac.invalidation_reason({"side": "buy", "extreme": 100.0, "zone": {"kind": "OB", "low": 101.0, "high": 102.0}}, 100.5)
+    assert ac.invalidation_reason({"side": "buy", "extreme": 100.0, "zone": None}, 105.0) == ""
+
+
+def test_buy_and_sell_setups_are_independent_and_markets_do_not_mix(tmp_path):
+    import alert_classes as ac
+    state = ac.AlertState(str(tmp_path / "a.json"))
+    both = [_obs("buy", sid="XAUUSD-buy-A"), _obs("sell", sid="XAUUSD-sell-B", extreme=110.0)]
+    got = ac.process(state, "XAUUSD", both, 101.5, 1000)
+    assert sorted(s for _, s, _ in got) == ["XAUUSD-buy-A", "XAUUSD-sell-B"]                   # each side has its own alert state
+    other = ac.process(state, "BTCUSD", [], 1.0, 1001)                                         # another market's price cannot invalidate
+    assert other == []
+
+
+def test_alert_state_forgets_old_setups(tmp_path):
+    import alert_classes as ac
+    state = ac.AlertState(str(tmp_path / "a.json"))
+    ac.process(state, "XAUUSD", [_obs(rel="near")], 101.5, 1000)
+    ac.process(state, "XAUUSD", [], None, 1000 + ac.KEEP_SECONDS + 5)
+    assert state.setups == {} and state.fired == {}
+
+
+def test_deliver_is_non_blocking_and_silent_outside_termux(monkeypatch):
+    import alert_classes as ac
+    calls = []
+    monkeypatch.setattr(ac.shutil, "which", lambda c: "/bin/" + c)
+    monkeypatch.setattr(ac.subprocess, "Popen", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(ac.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("blocking call")))
+    started = ac.deliver("RETEST", "x")
+    assert started == ["termux-notification", "termux-tts-speak"] and calls[0][calls[0].index("--vibrate") + 1] == "100,100,100,100,100"
+    monkeypatch.setenv("ALERT_VOICE", "0")
+    assert ac.deliver("INVALIDATED", "x") == ["termux-notification"]
+    monkeypatch.setattr(ac.shutil, "which", lambda c: None)
+    assert ac.deliver("INVALIDATED", "x") == []
+
+
+def test_watch_observations_from_the_reversal_scenario():
+    import test_ict_engine as te
+    data, l1 = te.reversal_scenario("valid", h_up=False)
+    obs, last = sl.watch_observations("XAUUSD", data, te.NOW, te.CFG)
+    buys = [o for o in obs if o["side"] == "buy"]
+    assert last is not None and buys and buys[0]["stage3"] and buys[0]["extreme"] <= l1 + 1e-6
+    assert buys[0]["zone"] and buys[0]["rel"] in ("in", "near", "far") and buys[0]["sid"].startswith("XAUUSD-buy-SSL-")
+    assert sl.watch_observations("XAUUSD", {}, te.NOW, te.CFG) == ([], None)
+
+
+def test_scan_runs_the_tracker_in_the_wait_path_and_marks_confirmed(monkeypatch):
+    import ict_alerts
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp"})
+    wait = {"action": "WAIT", "reasons": ["x"], "report": {}, "checks": {}}
+    monkeypatch.setattr(ict_alerts.selective, "process", lambda *a, **k: wait)
+    monkeypatch.setattr(ict_alerts, "get_candles", lambda inst, tf: [])
+    monkeypatch.setattr(ict_alerts.selective, "closed_only", lambda *a, **k: [])
+    monkeypatch.setattr(ict_alerts.selective, "data_status", lambda *a, **k: "LIVE")
+    monkeypatch.setattr(ict_alerts.data_layer, "check_candles", lambda *a, **k: type("Q", (), {"blocked": False, "reason": ""})())
+    monkeypatch.setattr(ict_alerts.selective, "watch_observations", lambda *a, **k: ([_obs(rel="near", sid="S1")], 101.5))
+    monkeypatch.setattr(ict_alerts.alert_classes, "deliver", lambda cls, text: None)
+    line, _, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 0), cfgs, None)
+    assert "ZONE APPROACH" in line and "REVERSAL STAGE 3" in line
+    line2, _, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 1), cfgs, None)
+    assert "ZONE APPROACH" not in line2                                                          # fired once per setup

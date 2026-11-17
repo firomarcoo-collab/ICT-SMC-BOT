@@ -1263,6 +1263,45 @@ def zone_watch(market, data, now_ts, cfg, calendar="utc", lang="en"):
     return out
 
 
+def watch_observations(market, data, now_ts, cfg, calendar="utc", lang="en", approach_atr=0.5):
+    """What the setup tracker needs: one observation per live setup (a liquidity sweep followed by an MSS / CHoCH with
+    displacement), BUY and SELL judged independently. Each has the sweep extreme, whether stage 3 is confirmed and,
+    once a fresh FVG / OB exists, where price is relative to it: 'in', 'near' (within approach_atr x ATR) or 'far'.
+    Nothing here is a signal. Returns (observations, last closed M5 close or None)."""
+    out, last_close = [], None
+    try:
+        bars = {tf: closed_only(data.get(tf) or [], sec, now_ts) for tf, sec in TF_SECONDS.items()}
+        if any(len(bars[tf]) < cfg.min_bars[tf] for tf in bars):
+            return out, None
+        m5, struct = bars["m5"], bars[cfg.struct_tf]
+        last_close = m5[-1]["close"]
+        fv_all, ob_all = fvg_candidates(struct, cfg), ob_candidates(struct, cfg)
+        atr = st.atr_at(struct, len(struct) - 1) or 0.0
+        explain = {w["side"]: w["text"] for w in zone_watch(market, data, now_ts, cfg, calendar, lang)}
+        recent = m5[-cfg.retest_window:]
+        for side in ("buy", "sell"):
+            rev = ict_engine.reversal_sequence(struct, side, fv_all, ob_all, calendar)
+            sweep, event = rev.get("sweep"), rev.get("event")
+            if not sweep or not event:
+                continue
+            obs = {"sid": f"{market}-{side}-{sweep['type']}-{sweep['level']}-{int(sweep['time'].timestamp())}",
+                   "market": market, "side": side, "level": sweep["level"], "extreme": sweep["extreme"],
+                   "stage3": True, "zone": None, "rel": None}
+            zones = rev.get("zones") or []
+            if rev.get("complete") and zones:
+                z = min(zones, key=lambda q: 0 if q["low"] <= last_close <= q["high"] else min(abs(last_close - q["low"]), abs(last_close - q["high"])))
+                dist = 0.0 if z["low"] <= last_close <= z["high"] else min(abs(last_close - z["low"]), abs(last_close - z["high"]))
+                touching = any(c["low"] <= z["high"] and c["high"] >= z["low"] for c in recent)
+                obs["zone"] = {"kind": z["kind"], "low": z["low"], "high": z["high"]}
+                obs["rel"] = "in" if touching else "near" if atr and dist <= approach_atr * atr else "far"
+                if obs["rel"] == "in" and side in explain:
+                    obs["explain"] = explain[side]
+            out.append(obs)
+    except Exception:                       # the tracker must never stop the scan
+        return [], last_close
+    return out, last_close
+
+
 _TRIGGER = {"swing": "M15 entry candle (H1 structure), M5 agrees", "forex": "M15 (primary), M5 execution check",
             "scalp": "M15 zone, M5 entry candle, M1/M3 timing"}
 

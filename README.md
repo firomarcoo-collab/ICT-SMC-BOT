@@ -417,3 +417,9 @@ duplicate protection. Any explicit setting (`MIN_DISPLACEMENT=`, `READY_SCORE=` 
 - `ict_smc_bot.py` (legacy MetaApi bot) never sends orders; its docstring now says so.
 
 - News block window is now 15 min before to 30 min after a high-impact event (NEWS_BEFORE_MIN / NEWS_AFTER_MIN change it); alerts show SIGNAL EXPIRY.
+
+## Six alert classes (watch alerts, never entry signals)
+
+While a market is on WAIT the bot tracks each sweep/reversal setup and fires, once per setup, one of: ZONE APPROACH (price within 0.5 ATR of the FVG/OB), ZONE ENTRY (price inside it), REVERSAL STAGE 3 (MSS/CHoCH with displacement after a sweep), RETEST (price returns to the zone), SETUP INVALIDATED (close beyond the sweep extreme or through the zone), and the CONFIRMED BUY/SELL signal itself. Each class has its own vibration pattern and spoken label. Only the CONFIRMED signal is a trade signal; the others say "NOT an entry signal".
+
+State is saved in `alerts_state.json` (survives restarts, forgets setups after 24 h, so no duplicates). Switches: `ALERT_CLASSES=0` (old single zone explanation), `ALERT_VOICE=0` (no speech), `ALERTS_STATE_FILE=<path>`.
