@@ -75,6 +75,7 @@ INSTRUMENTS = {
     "US30": {"source": "yahoo", "id": "^DJI", "digits": 1},
     "EURUSD": {"source": "yahoo", "id": "EURUSD=X", "digits": 5},
     "GBPJPY": {"source": "yahoo", "id": "GBPJPY=X", "digits": 3},
+    "DAX40": {"source": "yahoo", "id": "^GDAXI", "digits": 1},      # opt-in: SYMBOLS=...,DAX40 (cash index, Xetra hours)
     "JPYGBP": {"source": "yahoo", "id": "JPYGBP=X", "digits": 6},   # opt-in: SYMBOLS=...,JPYGBP
 }
 FUTURES_IDS = {"XAUUSD": "GC=F", "US100": "NQ=F", "US30": "YM=F"}
@@ -480,6 +481,10 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         closed = extras.us_cash_closed(now_ts)
         if closed:   # the free feed is only live in the US cash session: do not scan stale candles
             return f"{name}: MARKET CLOSED (US session 09:30-16:00 New York, {closed})", None, False
+    if market == "DAX40" and str(inst["id"]).startswith("^") and os.environ.get("DAX_HOURS_ONLY", "1") != "0":
+        closed = extras.dax_cash_closed(now_ts)
+        if closed:   # the free feed only moves in the Xetra session: do not scan stale candles
+            return f"{name}: MARKET CLOSED (Xetra 09:00-17:30 Frankfurt, {closed})", None, False
     offset = (offsets or {}).get(name, 0.0)
     data = {}
     try:
@@ -734,7 +739,7 @@ PAIR_STRATEGIES = {
     "XAUUSD": ("scalp", "swing", "golden", "active", "strict"),
     "BTCUSD": ("scalp", "swing", "active", "strict"),
     "NAS100": ("scalp", "swing", "active", "strict"), "US100": ("scalp", "swing", "active", "strict"),
-    "US30": ("scalp", "swing", "active", "strict"),
+    "US30": ("scalp", "swing", "active", "strict"), "DAX40": ("scalp", "swing", "active", "strict"),
     "EURUSD": ("forex", "swing", "scalp"), "GBPJPY": ("forex", "swing", "scalp"), "JPYGBP": ("forex", "swing", "scalp"),
 }
 

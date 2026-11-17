@@ -52,10 +52,12 @@ DEFAULTS = {
     "BTCUSD": MarketSpec("BTCUSD", "BTCUSD"),
     "EURUSD": MarketSpec("EURUSD", "EURUSD"),
     "GBPJPY": MarketSpec("GBPJPY", "GBPJPY"),
+    "DAX40": MarketSpec("DAX40", "DAX40"),      # your broker may call it GER40, DE40, DE30... enter it with set_spec.py
     "JPYGBP": MarketSpec("JPYGBP", "JPYGBP"),   # rarely listed by brokers: only used if your MT5 has it
 }
 ALIASES = {"US100": "NAS100", "USTEC": "NAS100", "NDX": "NAS100",
-           "DJ30": "US30", "DOW": "US30", "GOLD": "XAUUSD"}
+           "DJ30": "US30", "DOW": "US30", "GOLD": "XAUUSD",
+           "GER40": "DAX40", "DE40": "DAX40", "GER30": "DAX40", "DE30": "DAX40", "DAX": "DAX40"}
 
 
 FOREX = ("EURUSD", "GBPJPY", "JPYGBP")

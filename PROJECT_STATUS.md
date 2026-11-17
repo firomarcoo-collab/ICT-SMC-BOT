@@ -53,3 +53,6 @@ net R:R >= 1.5 with spread margin 1.25, UTC killzones London 07-11 / NY 12-16. 2
 
 ## SCALP / SWING modes
 Strict modes implemented (see README). 253 tests pass. Zones for swing come from H1 only (H4 FVG/OB not used); M3 is built from M1. Not measured on live results.
+
+## DAX40 added (opt-in)
+Seven markets configured; DAX40 broker symbol and specification still unverified (null). Test each market with analyze_now.py on the phone before enabling alerts. 259 tests pass.

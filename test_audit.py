@@ -1080,3 +1080,41 @@ def test_pair_strategy_map_and_best_scoring_profile_first(monkeypatch):
     assert [c.profile for c in order] == ["swing", "scalp", "active"] and agree == ["swing", "scalp"]
     order, agree = ict_alerts.ranked_candidates("XAUUSD", {}, 0, cfgs[:1], None, None, "LIVE", "utc")
     assert agree == [] and len(order) == 1
+
+
+# ===== seven markets: each one on its own =====
+
+ALL_SEVEN = ("XAUUSD", "NAS100", "US30", "BTCUSD", "EURUSD", "GBPJPY", "DAX40")
+
+
+def test_seven_markets_each_configured_independently():
+    import ict_alerts, markets, extras
+    for m in ALL_SEVEN:
+        assert m in markets.DEFAULTS and markets.feed_name(m) in ict_alerts.INSTRUMENTS, m
+        assert ict_alerts.strategies_for(markets.feed_name(m), m), m          # every market has its strategy list
+        assert extras.CURRENCIES.get(markets.feed_name(m)), m                 # and its own news currencies
+    assert markets.canonical("GER40") == markets.canonical("DE40") == markets.canonical("DAX") == "DAX40"
+    assert markets.DEFAULTS["DAX40"].broker_symbol is None                    # the broker name is never assumed
+    assert markets.pip_size("EURUSD") == 0.0001 and markets.pip_size("GBPJPY") == 0.01
+    assert markets.pip_size("DAX40") is None and markets.pip_size("XAUUSD") is None
+    assert "forex" in ict_alerts.strategies_for("EURUSD") and "forex" not in ict_alerts.strategies_for("DAX40")
+
+
+def test_dax_cash_session_gate():
+    import extras
+    from datetime import datetime, timezone
+    ts = lambda d, h, mi=0: int(datetime(2026, 11, d, h, mi, tzinfo=timezone.utc).timestamp())   # noqa: E731
+    assert extras.dax_cash_closed(ts(17, 10)) == ""                         # Tuesday 11:00 Frankfurt
+    assert extras.dax_cash_closed(ts(17, 7)).startswith("opens in")         # 08:00 Frankfurt, before the open
+    assert extras.dax_cash_closed(ts(17, 16, 45)).startswith("opens in")    # 17:45 Frankfurt, after the close
+    assert extras.dax_cash_closed(ts(14, 10)).startswith("opens in")        # Saturday
+
+
+def test_dax_scan_reports_market_closed_without_fetching(monkeypatch):
+    import ict_alerts
+    from datetime import datetime, timezone
+    monkeypatch.setattr(ict_alerts, "get_candles", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetched")))
+    saturday = int(datetime(2026, 11, 14, 10, 0, tzinfo=timezone.utc).timestamp())
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp,swing"})
+    line, alert, _ = ict_alerts.selective_scan("DAX40", saturday, cfgs, None)
+    assert "MARKET CLOSED" in line and alert is None

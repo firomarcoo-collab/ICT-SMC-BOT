@@ -11,7 +11,7 @@ NEWS_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 # Which news currencies matter for each symbol.
 CURRENCIES = {"BTCUSD": {"USD"}, "XAUUSD": {"USD"}, "US100": {"USD"},
               "US30": {"USD"}, "EURUSD": {"USD", "EUR"}, "GBPJPY": {"GBP", "JPY"},
-              "JPYGBP": {"GBP", "JPY"}}
+              "JPYGBP": {"GBP", "JPY"}, "DAX40": {"EUR", "USD"}}
 
 
 # ===== Sessions =====
@@ -221,6 +221,25 @@ def us_cash_closed(ts):
         nxt += timedelta(days=1)
     wait = int((nxt - local).total_seconds() // 60)
     h, m = divmod(wait, 60)
+    return f"opens in {h}h {m:02d}m" if h < 48 else f"opens in {h // 24}d {h % 24}h"
+
+
+def dax_cash_closed(ts):
+    """'' while the Xetra cash session (09:00-17:30 Frankfurt time, Monday to Friday) is open, else the wait."""
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        local = dt.astimezone(ZoneInfo("Europe/Berlin"))
+    except Exception:  # no timezone database: winter time
+        local = dt + timedelta(hours=1)
+    minutes = local.hour * 60 + local.minute
+    if local.weekday() < 5 and 9 * 60 <= minutes < 17 * 60 + 30:
+        return ""
+    day = local.replace(hour=9, minute=0, second=0, microsecond=0)
+    nxt = day if (local.weekday() < 5 and minutes < 9 * 60) else day + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    h, m = divmod(int((nxt - local).total_seconds() // 60), 60)
     return f"opens in {h}h {m:02d}m" if h < 48 else f"opens in {h // 24}d {h % 24}h"
 
 

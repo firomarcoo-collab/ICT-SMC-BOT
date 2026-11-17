@@ -366,3 +366,9 @@ Every pair only runs the strategies that suit it (`PAIR_STRATEGIES` in ict_alert
 BTC and indices scalp/swing/active/strict; EURUSD/GBPJPY/JPYGBP forex/swing/scalp. All allowed strategies are evaluated;
 the best scoring one that passes gives the signal and the alert shows how many agree. `PAIR_STRATEGIES=0` = old behaviour.
 This is a rule-based selector, not a trained model; no profit is promised.
+
+## Seven markets
+XAUUSD, NAS100 (US100), US30, BTCUSD, EURUSD, GBPJPY and **DAX40** (opt-in: `SYMBOLS=BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY,DAX40`).
+DAX40 uses the free Yahoo `^GDAXI` cash index, so it only scans during Xetra hours 09:00-17:30 Frankfurt (`DAX_HOURS_ONLY=0` to disable).
+Your broker's name (GER40 / DE40 / DAX40.m ...) is never assumed: copy it from MT5 > Market Watch > Specification and run
+`python set_spec.py DAX40 ...` like the other markets. Test one market first: `python analyze_now.py DAX40`.
