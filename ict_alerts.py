@@ -407,6 +407,9 @@ OPTIONAL_TFS = (("1d", "d1"), ("1m", "m1"))  # context / timing only; a failure 
 US_INDEX_MARKETS = ("US30", "NAS100")
 
 
+_ZONE_SEEN = {}     # zone id -> time it was first explained (so the explanation is not repeated every minute)
+
+
 def wait_line(name, res):
     """The screen line for a WAIT. A setup that passed every rule and only missed the score gate is shown
     as WATCH (print-only, no sound): it is the closest thing to an entry the engine has seen."""
@@ -558,6 +561,11 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     d = inst["digits"]
     if res["action"] == "WAIT":
         line = wait_line(name, res)
+        if os.environ.get("ZONE_WATCH", "1") != "0":
+            for zw in selective.zone_watch(market, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang):
+                if _ZONE_SEEN.get(zw["id"]) is None:       # once per zone (a restart may show it once more)
+                    _ZONE_SEEN[zw["id"]] = now_ts
+                    line += "\n" + zw["text"]
         if os.environ.get("VERBOSE") == "1":  # full report: HTF, liquidity, structure, zones, retest, M5 candle
             line += "\n" + selective.explain(res)
         return line, None, False

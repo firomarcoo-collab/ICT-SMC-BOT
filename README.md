@@ -382,3 +382,8 @@ Your broker's name (GER40 / DE40 / DAX40.m ...) is never assumed: copy it from M
   replace a mandatory ICT condition. Without volume in the feed (most Yahoo FX/index data) VWAP uses equal weights and says so.
 - COUNTER-TREND needs a complete reversal (sweep, CHoCH/MSS, displacement, FVG, retest), a closed confirmation candle and
   score 70+ (`COUNTER_TREND_MIN_SCORE`); a phone alert still needs the profile score gate (82+ by default), so in practice the higher of the two applies.
+
+## Zone-reached explanation
+When price returns into a FVG / order block created by a complete sweep + MSS but the entry candle has not closed yet, the bot
+prints (once per zone, no sound) a short plain explanation: what happened in order, what it waits for, where the setup is
+cancelled, and `WAITING FOR CANDLE CONFIRMATION - do not enter yet`. Arabic with `LANG=ar`. `ZONE_WATCH=0` turns it off.

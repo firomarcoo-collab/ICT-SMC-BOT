@@ -1195,3 +1195,38 @@ def test_counter_trend_gate_is_70_with_closed_confirmation():
     import ict_alerts
     assert ict_alerts.build_selective_config({"PROFILE": "active"}).counter_trend_min_score == 70
     assert ict_alerts.build_selective_config({"PROFILE": "active", "COUNTER_TREND_MIN_SCORE": "80"}).counter_trend_min_score == 80
+
+
+def test_zone_watch_explains_a_reached_zone_once(monkeypatch):
+    import test_selective as ts_
+    data = ts_.scenario()
+    monkeypatch.setattr(sl.ict_engine, "reversal_sequence", lambda *a, **k: {
+        "complete": True, "stage": 4, "reasons": [], "event_id": "e", "leg": None,
+        "sweep": {"type": "SSL", "level": "PDL", "price": 1.0, "extreme": 99.0, "scope": "external"},
+        "event": {"idx": 5, "mss": True}, "zones": [{"kind": "FVG", "side": "bull", "low": 0.0, "high": 10**6, "idx": 3}]})
+    en = sl.zone_watch("XAUUSD", data, ts_.NOW, ts_.CFG, lang="en")
+    assert en and "decisive BUY zone" in en[0]["text"] and "WAITING FOR CANDLE CONFIRMATION" in en[0]["text"]
+    assert "do not enter yet" in en[0]["text"] and "99" in en[0]["text"]
+    ar = sl.zone_watch("XAUUSD", data, ts_.NOW, ts_.CFG, lang="ar")
+    assert "منطقة حاسمة" in ar[0]["text"] and "لا تدخل الآن" in ar[0]["text"]
+    monkeypatch.setattr(sl.ict_engine, "reversal_sequence", lambda *a, **k: {"complete": False, "reasons": [], "zones": []})
+    assert sl.zone_watch("XAUUSD", data, ts_.NOW, ts_.CFG) == []                  # no complete sequence: nothing to explain
+
+
+def test_scan_prints_the_zone_explanation_only_once(monkeypatch):
+    import ict_alerts
+    monkeypatch.delenv("VERBOSE", raising=False)
+    monkeypatch.setattr(ict_alerts, "_ZONE_SEEN", {})
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp"})
+    wait = {"action": "WAIT", "reasons": ["x"], "report": {}, "checks": {}}
+    monkeypatch.setattr(ict_alerts.selective, "process", lambda *a, **k: wait)
+    monkeypatch.setattr(ict_alerts.selective, "zone_watch",
+                        lambda *a, **k: [{"id": "Z1", "side": "buy", "state": "S", "text": "ZONE EXPLAINED"}])
+    monkeypatch.setattr(ict_alerts, "get_candles", lambda inst, tf: [])
+    monkeypatch.setattr(ict_alerts.selective, "data_status", lambda *a, **k: "LIVE")
+    monkeypatch.setattr(ict_alerts.selective, "closed_only", lambda *a, **k: [])
+    monkeypatch.setattr(ict_alerts.data_layer, "check_candles",
+                        lambda *a, **k: type("Q", (), {"blocked": False, "reason": ""})())
+    first, _, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 0), cfgs, None)
+    second, _, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 1), cfgs, None)
+    assert "ZONE EXPLAINED" in first and "ZONE EXPLAINED" not in second

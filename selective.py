@@ -1180,6 +1180,64 @@ def format_signal_ar(market, res, digits=2):
     return "\n".join(lines)
 
 
+_ZONE_WORDS = {"FVG": ("فجوة القيمة العادلة FVG", "fair value gap (FVG)"), "OB": ("بلوك الأوامر OB", "order block (OB)")}
+
+
+def zone_watch(market, data, now_ts, cfg, calendar="utc", lang="en"):
+    """Price has just reached a decisive zone (it sits in a FVG / OB made by a complete sweep + MSS) but the entry candle has
+    not closed yet. Returns a list of {'id', 'side', 'state', 'text'} with a plain explanation. Never a signal."""
+    out = []
+    try:
+        bars = {tf: closed_only(data.get(tf) or [], sec, now_ts) for tf, sec in TF_SECONDS.items()}
+        if any(len(bars[tf]) < cfg.min_bars[tf] for tf in bars):
+            return out
+        m5, c15, h1, h4 = bars["m5"], bars["m15"], bars["h1"], bars["h4"]
+        struct = bars[cfg.struct_tf]
+        fv_all, ob_all = fvg_candidates(struct, cfg), ob_candidates(struct, cfg)
+        recent = m5[-cfg.retest_window:]
+        for side in ("buy", "sell"):
+            rev = ict_engine.reversal_sequence(struct, side, fv_all, ob_all, calendar)
+            if not rev["complete"]:
+                continue
+            for z in rev["zones"]:
+                if not any(c["low"] <= z["high"] and c["high"] >= z["low"] for c in recent):
+                    continue
+                if (side == "buy" and m5[-1]["close"] < z["low"] - (z["high"] - z["low"])) or \
+                        (side == "sell" and m5[-1]["close"] > z["high"] + (z["high"] - z["low"])):
+                    continue                                    # price already ran through the zone
+                ok_h, htf_label = htf_alignment(h4, h1, c15, side, cfg)
+                sw, ev = rev["sweep"], rev["event"]
+                ar_word, en_word = _ZONE_WORDS.get(z["kind"], (z["kind"], z["kind"]))
+                up = side == "buy"
+                if lang == "ar":
+                    text = (f"📍 {market}: السعر وصل منطقة حاسمة لـ{'شراء' if up else 'بيع'} "
+                            f"({ar_word} بين {z['low']:.5g} و{z['high']:.5g})\n"
+                            f"ماذا حدث بالترتيب: 1) سحب السيولة: السوق كنس أوامر {'البيع' if up else 'الشراء'} عند {sw['level']} "
+                            f"(أبعد نقطة {sw['extreme']:.5g}). 2) كسر الهيكل MSS بشمعة قوية: هذا يعني أن الاتجاه بدأ يتغير. "
+                            f"3) ترك السعر {ar_word} في الحركة، وهو الآن يعود إليها.\n"
+                            f"الاتجاه الكبير: {'متوافق' if ok_h else 'عكس الاتجاه الكبير (انعكاس)'}.\n"
+                            f"ما ننتظره: شمعة {'M15' if cfg.forex else 'M5'} مغلقة في اتجاه {'الشراء' if up else 'البيع'} تثبت أن "
+                            f"{'المشترين' if up else 'البائعين'} دافعوا عن المنطقة. بدونها لا دخول.\n"
+                            f"يُلغى الإعداد إذا أُغلق السعر {'تحت' if up else 'فوق'} {sw['extreme']:.5g}.\n"
+                            f"الحالة: WAITING FOR CANDLE CONFIRMATION، لا تدخل الآن. ({cfg.profile})")
+                else:
+                    text = (f"📍 {market}: price reached a decisive {'BUY' if up else 'SELL'} zone "
+                            f"({en_word} {z['low']:.5g}-{z['high']:.5g})\n"
+                            f"What happened, in order: 1) liquidity sweep: the market cleared {'sell' if up else 'buy'} stops at "
+                            f"{sw['level']} (extreme {sw['extreme']:.5g}). 2) market structure shift (MSS) with a strong candle: "
+                            f"the direction is starting to change. 3) that move left a {en_word}, and price is now back in it.\n"
+                            f"Higher timeframes: {'aligned' if ok_h else 'against (a reversal)'}.\n"
+                            f"What we wait for: a closed {'M15' if cfg.forex else 'M5'} {'bullish' if up else 'bearish'} candle showing "
+                            f"{'buyers' if up else 'sellers'} defend the zone. Without it there is no entry.\n"
+                            f"The setup is cancelled on a close {'below' if up else 'above'} {sw['extreme']:.5g}.\n"
+                            f"State: WAITING FOR CANDLE CONFIRMATION, do not enter yet. ({cfg.profile})")
+                out.append({"id": f"{market}-{side}-{_zone_id(dict(z, side=side))}", "side": side,
+                            "state": "WAITING FOR CANDLE CONFIRMATION", "text": text})
+    except Exception:            # an explanation must never stop the scan
+        return []
+    return out
+
+
 _TRIGGER = {"swing": "M15 entry candle (H1 structure), M5 agrees", "forex": "M15 (primary), M5 execution check",
             "scalp": "M15 zone, M5 entry candle, M1/M3 timing"}
 
