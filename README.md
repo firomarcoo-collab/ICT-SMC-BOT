@@ -386,4 +386,4 @@ Your broker's name (GER40 / DE40 / DAX40.m ...) is never assumed: copy it from M
 ## Zone-reached explanation
 When price returns into a FVG / order block created by a complete sweep + MSS but the entry candle has not closed yet, the bot
 prints (once per zone, no sound) a short plain explanation: what happened in order, what it waits for, where the setup is
-cancelled, and `WAITING FOR CANDLE CONFIRMATION - do not enter yet`. Arabic with `LANG=ar`. `ZONE_WATCH=0` turns it off.
+cancelled, and `WAITING FOR CANDLE CONFIRMATION - do not enter yet`. Arabic with `ALERT_LANG=ar`. `ZONE_WATCH=0` turns it off.
