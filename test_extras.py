@@ -41,13 +41,17 @@ def test_parse_news_keeps_high_impact_only():
 
 def test_near_news_by_currency_and_window():
     now = ts(2026, 11, 6, 13, 0)
-    ev = [{"ts": now + 20 * 60, "title": "NFP", "currency": "USD"},
-          {"ts": now + 20 * 60, "title": "CPI", "currency": "EUR"},
+    ev = [{"ts": now + 10 * 60, "title": "NFP", "currency": "USD"},
+          {"ts": now + 10 * 60, "title": "CPI", "currency": "EUR"},
           {"ts": now + 3 * 3600, "title": "Later", "currency": "USD"}]
     assert [e["title"] for e in extras.near_news(ev, "XAUUSD", now)] == ["NFP"]
     assert len(extras.near_news(ev, "EURUSD", now)) == 2
-    assert "in 20 min" in extras.news_line(ev, "XAUUSD", now)
+    assert "in 10 min" in extras.news_line(ev, "XAUUSD", now)
     assert extras.news_line(ev, "BTCUSD", now + 6 * 3600) == ""
+    # window: blocked from 15 min before to 30 min after the event, free outside
+    one = [{"ts": now, "title": "FOMC", "currency": "USD"}]
+    assert extras.near_news(one, "XAUUSD", now - 14 * 60) and not extras.near_news(one, "XAUUSD", now - 16 * 60)
+    assert extras.near_news(one, "XAUUSD", now + 29 * 60) and not extras.near_news(one, "XAUUSD", now + 31 * 60)
 
 
 if __name__ == "__main__":

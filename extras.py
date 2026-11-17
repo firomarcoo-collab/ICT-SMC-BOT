@@ -1,5 +1,6 @@
 """Extras for the alerts: trading sessions, lot size, high-impact news. Standard library only."""
 import json
+import os
 import math
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -121,8 +122,15 @@ def news_status(ok_ts, error, now_ts, enabled=True, stale_after=6 * 3600):
     return "ok", ""
 
 
-def near_news(events, name, now_ts, before=30 * 60, after=15 * 60):
-    """Events for this symbol that start within `before` seconds, or began less than `after` ago."""
+NEWS_BEFORE_MIN = 15    # no new signal from this many minutes before a high-impact event ...
+NEWS_AFTER_MIN = 30     # ... until this many minutes after it (NEWS_BEFORE_MIN / NEWS_AFTER_MIN env variables change it)
+
+
+def near_news(events, name, now_ts, before=None, after=None):
+    """Events for this symbol that start within `before` seconds, or began less than `after` ago.
+    Default window: 15 minutes before to 30 minutes after the event."""
+    before = (float(os.environ.get("NEWS_BEFORE_MIN") or NEWS_BEFORE_MIN) if before is None else before / 60) * 60
+    after = (float(os.environ.get("NEWS_AFTER_MIN") or NEWS_AFTER_MIN) if after is None else after / 60) * 60
     wanted = CURRENCIES.get(name, {"USD"})
     return [e for e in events
             if e["currency"] in wanted and -after <= e["ts"] - now_ts <= before]

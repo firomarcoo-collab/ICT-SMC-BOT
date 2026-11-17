@@ -1267,7 +1267,7 @@ _TRIGGER = {"swing": "M15 entry candle (H1 structure), M5 agrees", "forex": "M15
             "scalp": "M15 zone, M5 entry candle, M1/M3 timing"}
 
 
-def format_kenan(market, res, digits=2, news="not checked", session="not checked"):
+def format_kenan(market, res, digits=2, news="not checked", session="not checked", ttl_hours=6.0):
     """The KENAN TRADER AI alert layout. Only called for a signal that passed every mandatory condition."""
     s, r, c = res["setup"], res["report"], res["checks"]
     f = lambda v: f"{v:.{digits}f}" if v is not None else "n/a"      # noqa: E731
@@ -1300,7 +1300,9 @@ def format_kenan(market, res, digits=2, news="not checked", session="not checked
              f" + VWAP/ADX context {s.get('score_context', 0)}; a ranking of setup quality, not a win probability)",
              f"RISK / REWARD: TP2 {rr(s['tp'])} gross, net 1:{net:.2f} after cost {s['cost']:.4g}"
              + (" (COST UNVERIFIED: spread unknown, check MT5)" if s.get("cost_note") else ""), "",
-             f"SIGNAL ID: {res.get('id') or s.get('uses', ['n/a'])[0]}", f"TIMESTAMP: {ts}", "",
+             f"SIGNAL ID: {res.get('id') or s.get('uses', ['n/a'])[0]}", f"TIMESTAMP: {ts}",
+             "SIGNAL EXPIRY: " + datetime.fromtimestamp(s["bar_time"] + int(ttl_hours * 3600), tz=timezone.utc).strftime(
+                 "%Y-%m-%d %H:%M UTC") + f" ({ttl_hours:g} h after the signal candle, or earlier if invalidated)", "",
              f"ENTRY REASON: {s['mode']} setup, HTF {s['htf']}; zone(s) {', '.join(zones) or 'n/a'}; "
              f"confirmation {'strong ' if s.get('strong_confirmation') else ''}closed candle",
              f"INVALIDATION CONDITION: a close beyond {f(s['invalidation'])} cancels the setup",

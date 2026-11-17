@@ -13,7 +13,7 @@ Environment variables (all optional):
     CONTRACT_<SYMBOL> your own assumption of units per 1 lot (only used when markets.json is not filled)
     SESSION_ONLY      1 = no alerts outside London / New York hours
     NEWS              0 = turn off the high-impact news calendar (default on)
-    NEWS_BLOCK        1 = no alerts within 30 min before / 15 min after high-impact news
+    NEWS_BLOCK        1 = no alerts from 15 min before to 30 min after high-impact news
     EVENTS            heads-up alerts, comma list of sweep,fvg,ob (default all three; EVENTS=none turns off)
     SESSION_ALERTS    0 = no alert when the London / New York session opens (default on)
     TIMEFRAMES        comma list from 1m,5m,15m,1h,4h,1d (default all six)
@@ -611,7 +611,8 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
             news_text = "BLOCKED: " + "; ".join(f"{e['currency']} {e['title']}" for e in near)
         else:
             news_text = "clear (no high-impact event near)"
-        text = selective.format_kenan(name, dict(res, setup=setup), d, news_text, extras.session_text(now_ts))
+        ttl_h = float(os.environ.get("SIGNAL_TTL_HOURS") or (72 if setup.get("profile") == "swing" else 6))
+        text = selective.format_kenan(name, dict(res, setup=setup), d, news_text, extras.session_text(now_ts), ttl_h)
         text += "\n" + "\n".join(selective.entry_checklist(setup, res, ar=(lang == "ar")))
     if (setup.get("volume") or {}).get("text") and os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
         text += "\nDisplacement volume: " + setup["volume"]["text"]

@@ -1187,7 +1187,7 @@ def test_signal_carries_tp1_tp2_tp3_vwap_adx_and_kenan_layout(monkeypatch):
     for label in ("KENAN TRADER AI", "MARKET:", "DIRECTION:", "SIGNAL STATUS: ENTRY CONFIRMED", "ENTRY:", "STOP LOSS:",
                   "TP1:", "TP2:", "TP3:", "TIMEFRAME:", "H4 TREND:", "H1 TREND:", "M15 STRUCTURE:", "LIQUIDITY SWEEP:",
                   "BOS / CHoCH:", "ORDER BLOCK:", "FVG:", "VWAP:", "NEWS FILTER:", "SESSION:", "SIGNAL QUALITY:",
-                  "RISK / REWARD:", "SIGNAL ID:", "TIMESTAMP:", "ENTRY REASON:", "INVALIDATION CONDITION:"):
+                  "RISK / REWARD:", "SIGNAL ID:", "TIMESTAMP:", "SIGNAL EXPIRY:", "ENTRY REASON:", "INVALIDATION CONDITION:"):
         assert label in text, label
 
 

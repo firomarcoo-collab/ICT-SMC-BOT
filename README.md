@@ -415,3 +415,5 @@ duplicate protection. Any explicit setting (`MIN_DISPLACEMENT=`, `READY_SCORE=` 
   failure). `NEWS_STRICT=1` blocks all signals while the calendar is missing or stale.
 - Zones already explained are remembered in `zone_seen.json` (24 h) so a restart does not repeat them.
 - `ict_smc_bot.py` (legacy MetaApi bot) never sends orders; its docstring now says so.
+
+- News block window is now 15 min before to 30 min after a high-impact event (NEWS_BEFORE_MIN / NEWS_AFTER_MIN change it); alerts show SIGNAL EXPIRY.
