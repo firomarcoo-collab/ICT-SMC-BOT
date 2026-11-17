@@ -40,6 +40,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 import alert_classes
+import reversal_tracker
 import data_layer
 import events
 import extras
@@ -453,6 +454,9 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang):
     for cls, sid, text in alert_classes.process(alert_state(), market, observations, last_close, now_ts, lang):
         extra += "\n" + text
         alert_classes.deliver(cls, text)
+    for _sid, _old, _new, text in reversal_tracker.update(alert_state(), market, now_ts, lang):
+        extra += "\n" + text
+    alert_state().save()
     return extra
 
 

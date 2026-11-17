@@ -137,6 +137,8 @@ def process(state, market, observations, last_close, now, lang="en"):
             continue
         if obs.get("zone"):
             rec["zone"] = obs["zone"]
+        rec["stage"] = 3 if obs["stage3"] else 2
+        rec["developing"] = bool(obs.get("developing"))
         if obs["stage3"] and state.fire(sid, "REVERSAL_STAGE3", now):
             out.append(("REVERSAL_STAGE3", sid, _text("REVERSAL_STAGE3", obs, lang)))
         rel = obs.get("rel")

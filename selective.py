@@ -1282,11 +1282,12 @@ def watch_observations(market, data, now_ts, cfg, calendar="utc", lang="en", app
         for side in ("buy", "sell"):
             rev = ict_engine.reversal_sequence(struct, side, fv_all, ob_all, calendar)
             sweep, event = rev.get("sweep"), rev.get("event")
-            if not sweep or not event:
+            if not sweep:
                 continue
             obs = {"sid": f"{market}-{side}-{sweep['type']}-{sweep['level']}-{int(sweep['time'].timestamp())}",
                    "market": market, "side": side, "level": sweep["level"], "extreme": sweep["extreme"],
-                   "stage3": True, "zone": None, "rel": None}
+                   "stage3": bool(event), "zone": None, "rel": None,
+                   "developing": any("CHoCH without displacement" in r for r in rev.get("reasons", []))}
             zones = rev.get("zones") or []
             if rev.get("complete") and zones:
                 z = min(zones, key=lambda q: 0 if q["low"] <= last_close <= q["high"] else min(abs(last_close - q["low"]), abs(last_close - q["high"])))

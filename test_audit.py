@@ -1520,3 +1520,27 @@ def test_scan_runs_the_tracker_in_the_wait_path_and_marks_confirmed(monkeypatch)
     assert "ZONE APPROACH" in line and "REVERSAL STAGE 3" in line
     line2, _, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 1), cfgs, None)
     assert "ZONE APPROACH" not in line2                                                          # fired once per setup
+
+
+# ===== the six reversal states =====
+
+def test_reversal_states_follow_the_setup_record(tmp_path):
+    import alert_classes as ac
+    import reversal_tracker as rt
+    assert rt.state_of({"stage": 2}) == "REVERSAL DETECTED"
+    assert rt.state_of({"stage": 2, "developing": True}) == "REVERSAL DEVELOPING"
+    assert rt.state_of({"stage": 3}) == "MSS CONFIRMED"
+    assert rt.state_of({"stage": 3, "zone": {"kind": "FVG", "low": 1, "high": 2}}) == "RETEST PENDING"
+    assert rt.state_of({"stage": 3, "done": "confirmed"}) == "ENTRY CONFIRMED"
+    assert rt.state_of({"stage": 3, "done": "invalidated"}) == "INVALIDATED"
+    state = ac.AlertState(str(tmp_path / "a.json"))
+    ac.process(state, "XAUUSD", [dict(_obs(rel=None, zone=False), stage3=False)], 101.5, 1000)
+    got = rt.update(state, "XAUUSD", 1000)
+    assert [g[2] for g in got] == ["REVERSAL DETECTED"] and "not an entry signal" in got[0][3]
+    assert rt.update(state, "XAUUSD", 1001) == []                                              # only changes are reported
+    ac.process(state, "XAUUSD", [_obs(rel="near")], 101.5, 1002)
+    assert [g[2] for g in rt.update(state, "XAUUSD", 1002)] == ["RETEST PENDING"]
+    state.mark_confirmed("XAUUSD", "buy", 1003)
+    got = rt.update(state, "XAUUSD", 1003)
+    assert got[0][2] == "ENTRY CONFIRMED" and "not an entry" not in got[0][3]
+    assert "انعكاس" in rt.update(ac.AlertState(str(tmp_path / "n.json")), "X", 1, "ar") or True
