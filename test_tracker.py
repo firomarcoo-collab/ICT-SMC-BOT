@@ -83,3 +83,23 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_journal_records_mfe_mae_and_reports_per_market(tmp_path):
+    import journal
+    from datetime import datetime, timedelta, timezone
+    t0 = datetime(2026, 11, 16, tzinfo=timezone.utc)
+    bar = lambda i, o, h, l, c: {"time": t0 + timedelta(minutes=5 * i), "open": o, "high": h, "low": l, "close": c}   # noqa: E731
+    tr = Tracker(str(tmp_path / "results.csv"))
+    tr.add("XAUUSD", "m5", "scalp", {"side": "buy", "entry": 100.0, "sl": 99.0, "tp": 102.0}, 0, market=True)
+    # newest first, [0] forming. Bar 2 goes +0.6R and -0.3R, bar 3 hits the target.
+    tr.update("XAUUSD", "m5", [bar(4, 1, 1, 1, 1), bar(3, 101, 102.5, 100.9, 102), bar(2, 100, 100.6, 99.7, 100.3), bar(1, 100, 100.2, 99.9, 100)])
+    rows = journal.load(str(tmp_path / "journal.csv"))
+    assert len(rows) == 1 and rows[0]["result"] == "win" and float(rows[0]["R"]) == 2.0
+    assert float(rows[0]["mae_r"]) == 0.3 and float(rows[0]["mfe_r"]) >= 1.5
+    assert (tmp_path / "results.csv").read_text().splitlines()[0] == "time_utc,symbol,timeframe,kind,side,result,R"   # old format kept
+    m = journal.metrics([{"R": "2", "mfe_r": "2", "mae_r": "0.3"}, {"R": "-1", "mfe_r": "0.2", "mae_r": "1"},
+                         {"R": "-1", "mfe_r": "0.8", "mae_r": "1"}])
+    assert m["profit_factor"] == 1.0 and m["max_drawdown_r"] == 2.0 and abs(m["false_signal_rate"] - 100 / 3) < 1e-9
+    assert journal.metrics([])["trades"] == 0 and "No finished" in journal.report([])
+    assert "too few" in journal.report(rows) and "XAUUSD" in journal.report(rows)

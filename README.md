@@ -423,3 +423,7 @@ duplicate protection. Any explicit setting (`MIN_DISPLACEMENT=`, `READY_SCORE=` 
 While a market is on WAIT the bot tracks each sweep/reversal setup and fires, once per setup, one of: ZONE APPROACH (price within 0.5 ATR of the FVG/OB), ZONE ENTRY (price inside it), REVERSAL STAGE 3 (MSS/CHoCH with displacement after a sweep), RETEST (price returns to the zone), SETUP INVALIDATED (close beyond the sweep extreme or through the zone), and the CONFIRMED BUY/SELL signal itself. Each class has its own vibration pattern and spoken label. Only the CONFIRMED signal is a trade signal; the others say "NOT an entry signal".
 
 State is saved in `alerts_state.json` (survives restarts, forgets setups after 24 h, so no duplicates). Switches: `ALERT_CLASSES=0` (old single zone explanation), `ALERT_VOICE=0` (no speech), `ALERTS_STATE_FILE=<path>`.
+
+## Reversal states and trade journal
+
+Every tracked setup shows one state: REVERSAL DETECTED, REVERSAL DEVELOPING, MSS CONFIRMED, RETEST PENDING, ENTRY CONFIRMED, INVALIDATED (print-only; only ENTRY CONFIRMED is a signal). Finished trades are also written to `journal.csv` (next to `results.csv`, which keeps its old format) with MFE / MAE in R. `python journal.py` prints per-market trades, win rate, avg R, profit factor, max drawdown, average MFE/MAE and false-signal rate (a loss that never reached +0.5R). Fewer than 30 trades means no conclusion.

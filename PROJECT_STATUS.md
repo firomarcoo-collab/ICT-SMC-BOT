@@ -65,3 +65,6 @@ Notify 80, M15 confirmation mandatory (switch), news status + NEWS_STRICT, zone 
 
 ## Phase 2: six alert classes (done, 299 tests pass)
 `alert_classes.py` (state machine, persistence, delivery), `selective.watch_observations`, `ict_alerts.track_setups`. Untested on live data; distinct sounds are vibration patterns plus spoken labels (no custom audio files). Next phases wait for approval: reversal tracker states, performance journal (MFE/MAE), scoring weights (needs real trades).
+
+## Phase 3-4: reversal states + journal (done)
+`reversal_tracker.py` (six states), `journal.py` + MFE/MAE in `tracker.py`. Still open: M5 listing gate, MT5 price validation (limited on Android), new scoring weights (needs real trades).

@@ -16,3 +16,4 @@ zone_seen.json
 zone_seen.json.tmp
 alerts_state.json
 alerts_state.json.tmp
+journal.csv

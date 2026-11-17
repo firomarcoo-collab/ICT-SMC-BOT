@@ -9,6 +9,8 @@ import csv
 import os
 from datetime import datetime, timezone
 
+import journal
+
 MAX_WAIT_BARS = 24
 # Trade management alerts (messages only, nothing is ever sent to the broker):
 BE_ARM_R = 0.5       # once the trade has been this many R in profit ...
@@ -58,7 +60,7 @@ class Tracker:
         it starts OPEN and the next candles are checked stop first. Otherwise it is a limit order."""
         self.items.append({"name": name, "tf": tf, "kind": kind, "setup": dict(setup),
                            "state": "open" if market else "pending", "waited": 0, "last": bar_time,
-                           "ref": ref, "mfe": 0.0, "warned": False, "milestone": False,
+                           "ref": ref, "mfe": 0.0, "mae": 0.0, "warned": False, "milestone": False,
                            "close_warned": False})
 
     def _finish(self, it, outcome):
@@ -68,8 +70,30 @@ class Tracker:
             except Exception:
                 pass  # a callback problem must not stop the tracking
 
+    def _journal(self, it, result, r):
+        try:
+            s = it["setup"]
+            journal.append(journal.path_for(self.path), {
+                "time_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "symbol": it["name"], "timeframe": it["tf"],
+                "kind": it["kind"], "side": s["side"], "result": result, "R": f"{r:.2f}", "mfe_r": f"{it['mfe']:.2f}",
+                "mae_r": f"{it.get('mae', 0.0):.2f}", "entry": s["entry"], "sl": s["sl"], "tp": s["tp"]})
+        except (OSError, KeyError):
+            pass  # the journal must never stop the alerts
+
+    def _excursion(self, it, c, buy, risk, favorable=True):
+        """Best (MFE) and worst (MAE) the trade has seen so far, in R, from the candle's high and low."""
+        if not risk:
+            return
+        s = it["setup"]
+        fav = ((c["high"] - s["entry"]) if buy else (s["entry"] - c["low"])) / risk
+        adv = ((s["entry"] - c["low"]) if buy else (c["high"] - s["entry"])) / risk
+        if favorable:                       # the stop is checked first: on a stop candle the favourable side is not counted
+            it["mfe"] = max(it["mfe"], fav)
+        it["mae"] = min(max(it.get("mae", 0.0), adv), 1.0)
+
     def _record(self, it, result, r):
         self._count(r)
+        self._journal(it, result, r)
         try:
             new = not os.path.exists(self.path)
             with open(self.path, "a", newline="") as f:
@@ -156,6 +180,8 @@ class Tracker:
                     target_hit = False  # on the fill bar only the stop counts
                     fill_bar = True     # ... and it is too early to manage the trade
                 if it["state"] == "open":
+                    if not fill_bar:
+                        self._excursion(it, c, buy, risk, favorable=not stop_hit)
                     if stop_hit:
                         it["state"] = "done"
                         self._record(it, "loss", -1.0)
