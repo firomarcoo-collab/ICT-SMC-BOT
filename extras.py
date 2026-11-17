@@ -108,6 +108,19 @@ def fetch_news():
         return parse_news(json.loads(resp.read().decode()))
 
 
+def news_status(ok_ts, error, now_ts, enabled=True, stale_after=6 * 3600):
+    """(state, text) for the calendar data: 'off', 'unavailable' (never loaded), 'stale' (last good load older than
+    stale_after, or the latest refresh failed) or 'ok'. An unknown calendar is never reported as 'no news'."""
+    if not enabled:
+        return "off", "news filter is OFF"
+    if ok_ts is None:
+        return "unavailable", "NEWS DATA MISSING: the calendar never loaded" + (f" ({error})" if error else "") + ", check the news yourself"
+    age = now_ts - ok_ts
+    if age > stale_after:
+        return "stale", f"NEWS DATA STALE: last good calendar {age // 3600}h ago" + (f" ({error})" if error else "") + ", check the news yourself"
+    return "ok", ""
+
+
 def near_news(events, name, now_ts, before=30 * 60, after=15 * 60):
     """Events for this symbol that start within `before` seconds, or began less than `after` ago."""
     wanted = CURRENCIES.get(name, {"USD"})

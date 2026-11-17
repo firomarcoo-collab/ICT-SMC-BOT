@@ -407,7 +407,32 @@ OPTIONAL_TFS = (("1d", "d1"), ("1m", "m1"))  # context / timing only; a failure 
 US_INDEX_MARKETS = ("US30", "NAS100")
 
 
-_ZONE_SEEN = {}     # zone id -> time it was first explained (so the explanation is not repeated every minute)
+ZONE_SEEN_FILE = os.environ.get("ZONE_SEEN_FILE", "zone_seen.json")
+
+
+def _load_zone_seen(path=None, now=None, keep=24 * 3600):
+    """Zones already explained (id -> time), read from disk so a restart does not repeat them; old ones are dropped."""
+    try:
+        with open(path or ZONE_SEEN_FILE) as f:
+            raw = json.load(f)
+        now = time.time() if now is None else now
+        return {k: int(v) for k, v in raw.items() if now - int(v) < keep}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+def _save_zone_seen(seen, path=None):
+    """Writes the explained zones atomically; a write problem is ignored (the explanation may then repeat once)."""
+    p = path or ZONE_SEEN_FILE
+    try:
+        with open(p + ".tmp", "w") as f:
+            json.dump(seen, f)
+        os.replace(p + ".tmp", p)
+    except OSError:
+        pass
+
+
+_ZONE_SEEN = _load_zone_seen()   # zone id -> time it was first explained
 
 
 def wait_line(name, res):
@@ -475,7 +500,7 @@ def load_offsets(env, names=None):
 
 
 def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=None, lang="en",
-                   news=None, news_block=False, balance=0.0, risk_percent=0.5, contracts=None):
+                   news=None, news_block=False, balance=0.0, risk_percent=0.5, contracts=None, news_status=None):
     """Runs the selective engine for one market.
     Returns (status_text, alert_or_None, lagging). lagging=True means the M5 candle that just
     closed is not listed by the feed yet, so the caller should try again in a minute."""
@@ -524,6 +549,8 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         quality = data_layer.check_candles(data[key], tf, now_ts, inst["source"] == "binance", min_bars=1)
         if quality.blocked:
             return f"{name}: SELECTIVE WAIT (data quality {tf}: {quality.reason})", None, False
+    if news_status and news_status[0] in ("unavailable", "stale") and os.environ.get("NEWS_STRICT") == "1":
+        return f"{name}: SELECTIVE WAIT ({news_status[1]})", None, False        # NEWS_STRICT=1: no calendar, no signal
     if news_block and extras.near_news(news or [], name, now_ts):
         near = extras.near_news(news, name, now_ts)[0]
         return f"{name}: SELECTIVE WAIT (high-impact news: {near['currency']} {near['title']})", None, False
@@ -565,6 +592,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
             for zw in selective.zone_watch(market, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang):
                 if _ZONE_SEEN.get(zw["id"]) is None:       # once per zone (a restart may show it once more)
                     _ZONE_SEEN[zw["id"]] = now_ts
+                    _save_zone_seen(_ZONE_SEEN)
                     line += "\n" + zw["text"]
         if os.environ.get("VERBOSE") == "1":  # full report: HTF, liquidity, structure, zones, retest, M5 candle
             line += "\n" + selective.explain(res)
@@ -575,8 +603,14 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         text = fmt(name, dict(res, setup=setup), d)
     else:
         near = extras.near_news(news or [], name, now_ts) if news else []
-        news_text = ("no news data loaded (calendar unavailable or empty)" if not news else
-                     "BLOCKED: " + "; ".join(f"{e['currency']} {e['title']}" for e in near) if near else "clear (no high-impact event near)")
+        if news_status and news_status[0] in ("unavailable", "stale"):
+            news_text = news_status[1]
+        elif news_status and news_status[0] == "off":
+            news_text = news_status[1]
+        elif near:
+            news_text = "BLOCKED: " + "; ".join(f"{e['currency']} {e['title']}" for e in near)
+        else:
+            news_text = "clear (no high-impact event near)"
         text = selective.format_kenan(name, dict(res, setup=setup), d, news_text, extras.session_text(now_ts))
         text += "\n" + "\n".join(selective.entry_checklist(setup, res, ar=(lang == "ar")))
     if (setup.get("volume") or {}).get("text") and os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
@@ -821,6 +855,8 @@ def apply_signal_level(over, env, profile, two_modes):
         over["killzones"] = p["killzones"]
     if not env.get("READY_SCORE"):
         over["ready_score"] = p["ready"].get(profile, p["ready"]["other"])
+    if level == "active" and not env.get("M15_CONFIRM"):
+        over["require_m15_confirm"] = False          # the most active level triggers on the M5 candle alone
 
 
 def build_selective_config(env):
@@ -845,7 +881,7 @@ def build_selective_config(env):
             "ready_score": num("READY_SCORE", int)}
     over = {k: v for k, v in over.items() if v is not None}
     # --- tightened filtering (all on by default; each has an env switch to relax it)
-    notify = int(float(env.get("MIN_NOTIFY_SCORE") or 82))          # phone alert only from this score; below = WATCH
+    notify = int(float(env.get("MIN_NOTIFY_SCORE") or 80))          # phone alert only from this score; below = WATCH
     base_cfg = selective.make_config(profile)
     two_modes = profile in ("scalp", "swing")                       # these two keep their own score gate (85 / 80)
     if "ready_score" not in over and not two_modes:                 # an explicit READY_SCORE always wins
@@ -865,6 +901,7 @@ def build_selective_config(env):
     elif profile == "scalp" and (env.get("KILLZONE_LONDON") or env.get("KILLZONE_NY")):
         over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "8-11"), env.get("KILLZONE_NY", "13-16.5"))
     over["volume_filter"] = env.get("VOLUME_FILTER", "1") != "0"
+    over["require_m15_confirm"] = env.get("M15_CONFIRM", "1") != "0"      # a closed M15 candle must confirm (M15_CONFIRM=0 = off)
     if env.get("VOLUME_MULT"):
         over["vol_mult"] = float(env["VOLUME_MULT"])
     if env.get("BODY_MULT"):
@@ -1023,11 +1060,15 @@ def run():
             last_beat = now_ts
             print(f"[{datetime.fromtimestamp(now_ts, tz=timezone.utc):%H:%M UTC}] bot is running", flush=True)
         if use_news and now_ts - news_fetched > 3600:
-            news_fetched = now_ts  # also on failure, so we retry next hour
+            news_fetched = now_ts
             try:
                 opts["news"] = extras.fetch_news()
+                opts["news_ok_ts"], opts["news_error"] = now_ts, None
             except Exception as e:
+                news_fetched = now_ts - 3000      # a failed download is retried in 10 minutes, not an hour
+                opts["news_error"] = str(e)[:80]
                 print(f"news calendar unavailable: {e}", flush=True)
+        opts["news_status"] = extras.news_status(opts.get("news_ok_ts"), opts.get("news_error"), now_ts, use_news)
         if us_alerts:
             open_ts = extras.us_open_ts(now_ts)
             if open_ts is not None:
@@ -1068,7 +1109,7 @@ def run():
                     status, alert, lagging = selective_scan(
                         name, now_ts, scfg, store, offsets, spreads, opts["markets"], alert_lang,
                         opts["news"], opts["news_block"], opts["balance"], cfg.risk_percent,
-                        opts["contracts"])
+                        opts["contracts"], opts.get("news_status"))
                     if not lagging:
                         last_bucket[("sel", name)] = bucket
                     print(f"[{stamp} sel] {status}", flush=True)

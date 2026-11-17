@@ -407,3 +407,11 @@ The bot scans every minute (new candles are picked up as soon as they close). Ho
 trading hours 07-17 UTC, alert score 82/78/80 for scalp/swing/other) or `active` (displacement 1.0, volume 1.0x, no late-entry
 cancel, no time filter, alert score 80/76/78). Never relaxed: net R:R floor (1.5 / 3.0), the sweep-MSS-FVG logic, news filter,
 duplicate protection. Any explicit setting (`MIN_DISPLACEMENT=`, `READY_SCORE=` ...) beats the preset. More signals means lower quality.
+
+## Audit follow-up
+- Alert score gate is now **80** (`MIN_NOTIFY_SCORE`; scalp keeps 85). Scores below show as WATCH on the screen.
+- A closed **M15 candle must confirm** every signal (`M15_CONFIRM=0` off; `SIGNAL_LEVEL=active` turns it off).
+- News data status: alerts say `NEWS DATA MISSING` / `STALE` instead of "clear" when the calendar is unknown (retry every 10 min after a
+  failure). `NEWS_STRICT=1` blocks all signals while the calendar is missing or stale.
+- Zones already explained are remembered in `zone_seen.json` (24 h) so a restart does not repeat them.
+- `ict_smc_bot.py` (legacy MetaApi bot) never sends orders; its docstring now says so.

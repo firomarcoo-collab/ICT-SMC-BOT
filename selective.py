@@ -72,6 +72,7 @@ class SelectiveConfig:
     vol_mult: float = indicators.VOLUME_MULT
     body_mult: float = indicators.BODY_MULT
     volume_required: bool = False   # True: a feed without volume data cannot confirm a displacement
+    require_m15_confirm: bool = False   # the last closed M15 candle must agree with the trade (on top of the M5 trigger)
     h4_zones: bool = False          # swing: a fresh H4 FVG/OB also counts as the zone of interest (see h4_zone_fallback)
     strict_sequence: bool = False   # sweep -> MSS (displacement >= min_displacement ATR) -> retest of a FRESH FVG/OB; never counter-trend
     late_entry_frac: float = 0.0    # cancel when price already travelled this share of the way to TP1 before the retest (0 = off)
@@ -734,6 +735,11 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     if strong:
         rep["confirm"] += ", strong (closed beyond the previous candle or a large body)"
     m5_ok, m5_strong, _ = confirmation(m5, side, cfg.strong_body_frac) if m15_conf else (False, False, "")
+    if cfg.require_m15_confirm and not m15_conf:
+        ok15, _, why15 = confirmation(c15, side, cfg.strong_body_frac)
+        if not ok15:
+            res["reasons"].append(f"M15 candle does not confirm yet: {why15}")
+            return res
     if m15_conf and not cfg.forex and not m5_ok:
         res["reasons"].append("M5 does not confirm the M15 candle yet")
         return res

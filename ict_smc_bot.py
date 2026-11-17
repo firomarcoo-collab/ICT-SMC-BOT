@@ -7,7 +7,7 @@ Environment variables:
     METAAPI_TOKEN        MetaApi API token (required)
     METAAPI_ACCOUNT_ID   MetaApi account id of your MT5 account (required)
     SYMBOL               symbol name exactly as your broker writes it (default EURUSD)
-    DRY_RUN              1 = only log signals, 0 = send pending orders (default 1)
+    DRY_RUN              ignored: this version NEVER sends orders (signals only), see run() below
 """
 import asyncio
 import logging

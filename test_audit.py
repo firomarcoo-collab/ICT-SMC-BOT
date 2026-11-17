@@ -1217,6 +1217,7 @@ def test_scan_prints_the_zone_explanation_only_once(monkeypatch):
     import ict_alerts
     monkeypatch.delenv("VERBOSE", raising=False)
     monkeypatch.setattr(ict_alerts, "_ZONE_SEEN", {})
+    monkeypatch.setattr(ict_alerts, "ZONE_SEEN_FILE", str(__import__("pathlib").Path(__import__("tempfile").mkdtemp()) / "z.json"))
     cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp"})
     wait = {"action": "WAIT", "reasons": ["x"], "report": {}, "checks": {}}
     monkeypatch.setattr(ict_alerts.selective, "process", lambda *a, **k: wait)
@@ -1337,3 +1338,70 @@ def test_signal_level_presets_relax_quality_gates_but_never_the_cost_floor():
     assert b("balanced", "scalp", KILLZONE_NY="13-16").killzones != ((7.0, 17.0),)
     with pytest.raises(SystemExit):
         b("wild", "scalp")
+
+
+# ===== audit follow-up: notify 80, M15 confirmation, news status, persistent zone memory =====
+
+def test_notify_default_80_and_m15_confirmation_switch():
+    import ict_alerts
+    assert ict_alerts.build_selective_config({"PROFILE": "active"}).ready_score == 80
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).ready_score == 85      # the scalp mode keeps its own gate
+    assert ict_alerts.build_selective_config({"PROFILE": "swing"}).ready_score == 80
+    assert ict_alerts.build_selective_config({"PROFILE": "active"}).require_m15_confirm
+    assert not ict_alerts.build_selective_config({"PROFILE": "active", "M15_CONFIRM": "0"}).require_m15_confirm
+    assert not ict_alerts.build_selective_config({"PROFILE": "scalp", "SIGNAL_LEVEL": "active"}).require_m15_confirm
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp", "SIGNAL_LEVEL": "balanced"}).require_m15_confirm
+
+
+def test_m15_candle_must_confirm_before_a_signal():
+    import dataclasses
+    import test_selective as ts_
+    cfg = dataclasses.replace(ts_.CFG, require_m15_confirm=True)
+    ok = sl.evaluate("XAUUSD", ts_.scenario(), ts_.NOW, cfg, spread=.2)
+    assert ok["action"] == "BUY"                                                            # the M15 candle agrees
+    data = ts_.scenario()
+    last = dict(data["m15"][-1])
+    last["open"], last["close"] = max(last["open"], last["close"]) + 0.5, min(last["open"], last["close"]) - 0.5   # bearish
+    last["high"], last["low"] = last["open"] + 0.1, last["close"] - 0.1
+    data["m15"] = data["m15"][:-1] + [last]
+    blocked = sl.evaluate("XAUUSD", data, ts_.NOW, cfg, spread=.2)
+    assert blocked["action"] == "WAIT" and any("M15 candle does not confirm" in r for r in blocked["reasons"])
+    off = sl.evaluate("XAUUSD", data, ts_.NOW, dataclasses.replace(cfg, require_m15_confirm=False), spread=.2)
+    assert not any("M15 candle does not confirm" in r for r in off["reasons"])
+
+
+def test_news_status_never_reports_unknown_news_as_clear():
+    import extras
+    now = 1_700_000_000
+    assert extras.news_status(now - 600, None, now)[0] == "ok"
+    st, text = extras.news_status(None, "timeout", now)
+    assert st == "unavailable" and "MISSING" in text and "timeout" in text
+    st, text = extras.news_status(now - 7 * 3600, None, now)
+    assert st == "stale" and "STALE" in text and "7h" in text
+    assert extras.news_status(None, None, now, enabled=False)[0] == "off"
+
+
+def test_news_strict_blocks_when_the_calendar_is_missing(monkeypatch):
+    import ict_alerts
+    monkeypatch.setenv("NEWS_STRICT", "1")
+    monkeypatch.setattr(ict_alerts, "get_candles", lambda *a, **k: [])
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "active"})
+    line, alert, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 0), cfgs, None,
+                                               news_status=("unavailable", "NEWS DATA MISSING: x"))
+    assert alert is None and ("NEWS DATA MISSING" in line or "data" in line.lower())
+
+
+def test_zone_memory_survives_a_restart_and_forgets_old_zones(tmp_path):
+    import ict_alerts
+    path = str(tmp_path / "z.json")
+    ict_alerts._save_zone_seen({"A": 1_000_000, "B": 1_000_000 - 30 * 3600}, path)
+    loaded = ict_alerts._load_zone_seen(path, now=1_000_100)
+    assert loaded == {"A": 1_000_000}                                  # B is older than 24 h
+    assert ict_alerts._load_zone_seen(str(tmp_path / "missing.json")) == {}
+    (tmp_path / "bad.json").write_text("{oops")
+    assert ict_alerts._load_zone_seen(str(tmp_path / "bad.json")) == {}
+
+
+def test_legacy_bot_documentation_no_longer_promises_orders():
+    import ict_smc_bot
+    assert "send pending orders" not in ict_smc_bot.__doc__ and "NEVER sends orders" in ict_smc_bot.__doc__

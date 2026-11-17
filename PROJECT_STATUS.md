@@ -59,3 +59,6 @@ Seven markets configured; DAX40 broker symbol and specification still unverified
 
 ## KENAN layout + VWAP/ADX/TP3 (stage 1 of the master upgrade)
 Done: indicators.py (VWAP, ADX), TP3, KENAN layout, counter-trend gate 70. Not done yet: SQLite journal, named OB states, news stale/missing status, MT5 price validation, M5 listing check, backtests. 265 tests pass.
+
+## Audit follow-up done
+Notify 80, M15 confirmation mandatory (switch), news status + NEWS_STRICT, zone memory persisted, legacy doc fixed. 291 tests pass. Still open: SQLite journal, named OB states, MT5 price validation, M5 listing check, backtests (need M5 CSVs from the phone).

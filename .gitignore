@@ -12,3 +12,5 @@ offsets.json
 trading_bot.log*
 paper_state.json
 paper_trades.csv
+zone_seen.json
+zone_seen.json.tmp
