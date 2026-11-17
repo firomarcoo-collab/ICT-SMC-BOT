@@ -387,3 +387,9 @@ Your broker's name (GER40 / DE40 / DAX40.m ...) is never assumed: copy it from M
 When price returns into a FVG / order block created by a complete sweep + MSS but the entry candle has not closed yet, the bot
 prints (once per zone, no sound) a short plain explanation: what happened in order, what it waits for, where the setup is
 cancelled, and `WAITING FOR CANDLE CONFIRMATION - do not enter yet`. Arabic with `ALERT_LANG=ar`. `ZONE_WATCH=0` turns it off.
+
+## Paper bot (simulation only): `paper_bot.py`
+A separate, simple bot: EMA 9/21 cross + RSI 50 on BTCUSDT 15m (public Binance candles, no API key). It keeps a virtual
+balance of 1000 with SL 1.5%, TP 3%, 1% risk per trade, slippage 0.05% and fee 0.1% per side. It cannot place real orders.
+Install: `pip install requests python-dotenv`, copy `.env.example` to `.env` (optional), run `python paper_bot.py`
+(`--once` checks one time). Log: `trading_bot.log`; trades: `paper_trades.csv`; state: `paper_state.json`.

@@ -7,3 +7,8 @@ signals_state.json.bad
 signals_state.jsonl
 last_signal_review.txt
 offsets.json
+
+.env
+trading_bot.log*
+paper_state.json
+paper_trades.csv
