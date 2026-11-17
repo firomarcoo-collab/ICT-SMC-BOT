@@ -393,3 +393,10 @@ A separate, simple bot: EMA 9/21 cross + RSI 50 on BTCUSDT 15m (public Binance c
 balance of 1000 with SL 1.5%, TP 3%, 1% risk per trade, slippage 0.05% and fee 0.1% per side. It cannot place real orders.
 Install: `pip install requests python-dotenv`, copy `.env.example` to `.env` (optional), run `python paper_bot.py`
 (`--once` checks one time). Log: `trading_bot.log`; trades: `paper_trades.csv`; state: `paper_state.json`.
+
+## Volume confirmation of the displacement candle (default on)
+A displacement only counts when, at its close, ALL hold: volume >= 1.5 x the average volume of the previous 20 candles (the
+current one excluded), body > 1.2 x the average body of those 20, and the candle broke the structure (MSS/CHoCH) and left a FVG.
+Multipliers live at the top of `indicators.py` (`VOLUME_MULT`, `BODY_MULT`, `VOLUME_LOOKBACK`) or per run with `VOLUME_MULT=`,
+`BODY_MULT=`; `VOLUME_FILTER=0` turns it off. Where the feed has no volume (many Yahoo forex/index series) the volume rule is
+skipped and the alert says `Volume: n/a`; `VOLUME_REQUIRED=1` rejects such signals instead. Alerts show `Volume Spike: 1.8x Avg`.

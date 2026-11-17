@@ -5,6 +5,11 @@ without volume it is the equal-weighted average of the typical price and is labe
 """
 from datetime import datetime, timedelta, timezone
 
+# ===== Config variables for the volume confirmation of a displacement candle (change them here) =====
+VOLUME_MULT = 1.5       # the candle's volume must be >= VOLUME_MULT x the average volume of the previous candles
+BODY_MULT = 1.2         # the candle's body must be > BODY_MULT x the average body of the previous candles
+VOLUME_LOOKBACK = 20    # how many previous candles (the current one is never included) form the averages
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:      # very old Python: fixed winter offsets are used instead
@@ -116,3 +121,46 @@ def context_points(vw, ax):
     """Quality points from VWAP and ADX: 3 + 3 at most, added after the base score (capped at 100).
     The two are only context, so they never remove points and never replace a mandatory ICT condition."""
     return (3 if vw.get("agree") else 0) + (3 if ax.get("agree") else 0)
+
+
+def volume_displacement(bars, idx, mss, fvg_formed, vol_mult=VOLUME_MULT, body_mult=BODY_MULT,
+                        lookback=VOLUME_LOOKBACK, require_volume=False):
+    """Is the candle at bars[idx] a VALID displacement? All of these must hold when it closes:
+      1. volume >= vol_mult x SMA of the volume of the previous `lookback` candles (current candle excluded)
+      2. body   >  body_mult x average body of the previous `lookback` candles
+      3. the candle broke the structure (MSS / CHoCH, `mss`) and left a fair value gap (`fvg_formed`)
+    When the feed has no volume at all (some forex / index data) rule 1 cannot be measured: it is skipped and says so,
+    unless require_volume is True (then such a candle is rejected).
+    Returns {'valid', 'vol_ratio', 'body_ratio', 'text', 'reasons'}; ratios are None when they cannot be measured."""
+    out = {"valid": False, "vol_ratio": None, "body_ratio": None, "text": "", "reasons": []}
+    prev = bars[max(0, idx - lookback):idx]
+    if idx < 0 or idx >= len(bars) or len(prev) < lookback:
+        out["reasons"].append(f"fewer than {lookback} candles before the displacement candle")
+        return out
+    cur = bars[idx]
+    avg_body = sum(abs(b["close"] - b["open"]) for b in prev) / lookback
+    body = abs(cur["close"] - cur["open"])
+    out["body_ratio"] = body / avg_body if avg_body > 0 else None
+    avg_vol = sum(float(b.get("volume") or 0) for b in prev) / lookback
+    vol = float(cur.get("volume") or 0)
+    if avg_vol > 0 and vol > 0:
+        out["vol_ratio"] = vol / avg_vol
+    elif avg_vol > 0:
+        out["vol_ratio"] = 0.0
+    vol_known = avg_vol > 0
+    if vol_known:
+        if out["vol_ratio"] < vol_mult:
+            out["reasons"].append(f"volume {out['vol_ratio']:.2f}x the {lookback}-candle average (needs {vol_mult:g}x)")
+    elif require_volume:
+        out["reasons"].append("the feed has no volume data and VOLUME_REQUIRED is on")
+    if out["body_ratio"] is None or not body > body_mult * avg_body:
+        out["reasons"].append(f"body {out['body_ratio'] or 0:.2f}x the average body (needs more than {body_mult:g}x)")
+    if not mss:
+        out["reasons"].append("the candle did not break the structure (no MSS / CHoCH)")
+    if not fvg_formed:
+        out["reasons"].append("the candle left no fair value gap (FVG)")
+    out["valid"] = not out["reasons"]
+    vol_txt = f"Volume Spike: {out['vol_ratio']:.1f}x Avg" if vol_known else "Volume: n/a (feed has no volume)"
+    body_txt = f"Body: {out['body_ratio']:.1f}x Avg" if out["body_ratio"] is not None else "Body: n/a"
+    out["text"] = f"{vol_txt} | {body_txt}"
+    return out

@@ -1230,3 +1230,80 @@ def test_scan_prints_the_zone_explanation_only_once(monkeypatch):
     first, _, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 0), cfgs, None)
     second, _, _ = ict_alerts.selective_scan("BTCUSD", _utc(2026, 11, 14, 12, 1), cfgs, None)
     assert "ZONE EXPLAINED" in first and "ZONE EXPLAINED" not in second
+
+
+# ===== volume confirmation of the displacement candle =====
+
+def _vol_bars(n=21, vol=100.0, body=1.0, last_vol=200.0, last_body=3.0):
+    from datetime import datetime, timedelta, timezone
+    t0, out = datetime(2026, 11, 16, tzinfo=timezone.utc), []
+    for i in range(n):
+        last = i == n - 1
+        b, v = (last_body, last_vol) if last else (body, vol)
+        out.append({"time": t0 + timedelta(minutes=15 * i), "open": 100.0, "close": 100.0 + b,
+                    "high": 100.0 + b + 0.1, "low": 99.9, "volume": v})
+    return out
+
+
+def test_volume_displacement_needs_all_three_conditions():
+    import indicators as ind
+    bars = _vol_bars()
+    ok = ind.volume_displacement(bars, 20, True, True)
+    assert ok["valid"] and ok["vol_ratio"] == 2.0 and ok["body_ratio"] == 3.0
+    assert ok["text"] == "Volume Spike: 2.0x Avg | Body: 3.0x Avg"
+    weak_vol = ind.volume_displacement(_vol_bars(last_vol=140.0), 20, True, True)          # 1.4x < 1.5x
+    assert not weak_vol["valid"] and "volume 1.40x" in weak_vol["reasons"][0]
+    assert ind.volume_displacement(_vol_bars(last_vol=150.0), 20, True, True)["valid"]    # exactly 1.5x passes (>=)
+    weak_body = ind.volume_displacement(_vol_bars(last_body=1.1), 20, True, True)         # 1.1x is not more than 1.2x
+    assert not weak_body["valid"] and "body" in weak_body["reasons"][0]
+    assert not ind.volume_displacement(bars, 20, False, True)["valid"]                    # no MSS / CHoCH
+    assert not ind.volume_displacement(bars, 20, True, False)["valid"]                    # no FVG
+    assert not ind.volume_displacement(bars[-10:], 9, True, True)["valid"]                # fewer than 20 previous candles
+
+
+def test_volume_average_excludes_the_current_candle_and_multipliers_are_configurable():
+    import indicators as ind
+    assert ind.VOLUME_MULT == 1.5 and ind.BODY_MULT == 1.2 and ind.VOLUME_LOOKBACK == 20
+    huge = _vol_bars(last_vol=10_000.0)
+    assert ind.volume_displacement(huge, 20, True, True)["vol_ratio"] == 100.0           # average of the 20 BEFORE it
+    assert not ind.volume_displacement(_vol_bars(last_vol=200.0), 20, True, True, vol_mult=2.5)["valid"]
+    assert ind.volume_displacement(_vol_bars(last_vol=200.0), 20, True, True, vol_mult=2.0)["valid"]
+
+
+def test_feed_without_volume_skips_that_rule_unless_required():
+    import indicators as ind
+    bars = [dict(b, volume=0.0) for b in _vol_bars()]
+    skipped = ind.volume_displacement(bars, 20, True, True)
+    assert skipped["valid"] and skipped["vol_ratio"] is None and "n/a" in skipped["text"]
+    strict = ind.volume_displacement(bars, 20, True, True, require_volume=True)
+    assert not strict["valid"] and "no volume data" in strict["reasons"][0]
+    assert not ind.volume_displacement([dict(b, volume=0.0) for b in _vol_bars(last_body=0.5)], 20, True, True)["valid"]
+
+
+def test_evaluate_rejects_an_unconfirmed_displacement_and_shows_the_spike(monkeypatch):
+    import test_selective as ts_
+    cfg = sl.make_config("active", volume_filter=True, require_mss_fvg=True, min_displacement=0.0)
+    monkeypatch.setattr(sl.indicators, "volume_displacement", lambda *a, **k: {
+        "valid": False, "vol_ratio": 1.1, "body_ratio": 2.0, "text": "Volume Spike: 1.1x Avg | Body: 2.0x Avg",
+        "reasons": ["volume 1.10x the 20-candle average (needs 1.5x)"]})
+    res = sl.evaluate("XAUUSD", ts_.scenario(), ts_.NOW, dict_cfg(cfg), spread=.2)
+    assert res["action"] == "WAIT" and any("displacement not confirmed" in r for r in res["reasons"])
+    monkeypatch.setattr(sl.indicators, "volume_displacement", lambda *a, **k: {
+        "valid": True, "vol_ratio": 1.8, "body_ratio": 2.0, "text": "Volume Spike: 1.8x Avg | Body: 2.0x Avg", "reasons": []})
+    res = sl.evaluate("XAUUSD", ts_.scenario(), ts_.NOW, dict_cfg(cfg), spread=.2)
+    assert res["action"] == "BUY" and res["setup"]["volume"]["text"].startswith("Volume Spike: 1.8x Avg")
+    assert "DISPLACEMENT VOLUME: Volume Spike: 1.8x Avg" in sl.format_kenan("XAUUSD", res, 2)
+
+
+def dict_cfg(cfg):
+    import dataclasses
+    return dataclasses.replace(cfg, ready_score=0, min_net_rr=0.0, killzones=())
+
+
+def test_volume_filter_env_switches():
+    import ict_alerts
+    c = ict_alerts.build_selective_config({"PROFILE": "swing"})
+    assert c.volume_filter and c.vol_mult == 1.5 and c.body_mult == 1.2 and not c.volume_required
+    c = ict_alerts.build_selective_config({"PROFILE": "swing", "VOLUME_FILTER": "0", "VOLUME_MULT": "2", "BODY_MULT": "1.5",
+                                           "VOLUME_REQUIRED": "1"})
+    assert not c.volume_filter and c.vol_mult == 2.0 and c.body_mult == 1.5 and c.volume_required

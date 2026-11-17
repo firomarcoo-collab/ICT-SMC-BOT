@@ -68,6 +68,10 @@ class SelectiveConfig:
     htf_mode: str = "default"       # "h1m15" (scalp: H1 + M15 trend), "d1h4" (swing: D1 + H4 trend), else H4/H1/M15 rules
     struct_tf: str = "m15"          # timeframe of the sweep / MSS / FVG-OB analysis ("h1" for swing)
     confirm_tf: str = "m5"          # closed candle that triggers the entry ("m15" for swing; forex always uses M15)
+    volume_filter: bool = False     # a displacement needs volume >= vol_mult x avg AND body > body_mult x avg AND MSS + FVG
+    vol_mult: float = indicators.VOLUME_MULT
+    body_mult: float = indicators.BODY_MULT
+    volume_required: bool = False   # True: a feed without volume data cannot confirm a displacement
     h4_zones: bool = False          # swing: a fresh H4 FVG/OB also counts as the zone of interest (see h4_zone_fallback)
     strict_sequence: bool = False   # sweep -> MSS (displacement >= min_displacement ATR) -> retest of a FRESH FVG/OB; never counter-trend
     late_entry_frac: float = 0.0    # cancel when price already travelled this share of the way to TP1 before the retest (0 = off)
@@ -957,6 +961,21 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         if not fvg_ok:
             res["reasons"].append("no valid fair value gap (FVG) after the structure break")
             return res
+    vd = None
+    if cfg.volume_filter and (cfg.strict_sequence or cfg.require_mss_fvg):
+        disp_idx = (rev["event"]["idx"] if rev["event"] and seq_ok else
+                    max([e["idx"] for e in recent_ev if e["mss"] and e["displacement"]], default=None))
+        if disp_idx is None:
+            res["reasons"].append("no displacement candle to confirm with volume")
+            return res
+        formed = any(f["side"] == want and f["valid"] and abs(f["idx"] - 1 - disp_idx) <= 1 for f in fv_all)
+        vd = indicators.volume_displacement(m15, disp_idx, True, formed, cfg.vol_mult, cfg.body_mult,
+                                            indicators.VOLUME_LOOKBACK, cfg.volume_required)
+        res["volume"] = vd
+        rep["volume"] = vd["text"]
+        if not vd["valid"]:
+            res["reasons"].append("displacement not confirmed: " + "; ".join(vd["reasons"]))
+            return res
     net_rr = (cfg.rr * risk - cost) / (risk + cost)
     if cfg.forex:
         parts, score100 = forex_score(
@@ -1005,7 +1024,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "invalidation": invalidation, "profile": cfg.profile,
                     "counter_trend": mode == "reversal" and not ok_h, "fib": fib_text,
                     "tp1": tp1, "tp3": entry + 1.5 * cfg.rr * risk if side == "buy" else entry - 1.5 * cfg.rr * risk,
-                    "vwap": vw, "adx": ax, "score_context": ctx,
+                    "vwap": vw, "adx": ax, "score_context": ctx, "volume": vd,
                     "trends": {"h4": st.current_trend(st.structure_events(h4, cfg.htf_k)) or "unknown",
                                "h1": st.current_trend(st.structure_events(h1, cfg.htf_k)) or "unknown",
                                "m15": st.current_trend(st.structure_events(c15, 2)) or "unknown"},
@@ -1269,6 +1288,7 @@ def format_kenan(market, res, digits=2, news="not checked", session="not checked
              f"LIQUIDITY SWEEP: {r['liquidity']}", f"BOS / CHoCH: {r['structure']}",
              f"ORDER BLOCK: {ob}", f"FVG: {fvg}",
              f"VWAP: {vw.get('text', 'n/a')}", f"ADX: {ax.get('text', 'n/a')}",
+             f"DISPLACEMENT VOLUME: {(s.get('volume') or {}).get('text', 'filter off')}",
              f"NEWS FILTER: {news}", f"SESSION: {session}", "",
              f"SIGNAL QUALITY: {res['score100']}/100 (base {res['score100'] - s.get('score_context', 0)}"
              f" + VWAP/ADX context {s.get('score_context', 0)}; a ranking of setup quality, not a win probability)",

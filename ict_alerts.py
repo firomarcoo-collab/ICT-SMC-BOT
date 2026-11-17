@@ -579,6 +579,8 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
                      "BLOCKED: " + "; ".join(f"{e['currency']} {e['title']}" for e in near) if near else "clear (no high-impact event near)")
         text = selective.format_kenan(name, dict(res, setup=setup), d, news_text, extras.session_text(now_ts))
         text += "\n" + "\n".join(selective.entry_checklist(setup, res, ar=(lang == "ar")))
+    if (setup.get("volume") or {}).get("text") and os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
+        text += "\nDisplacement volume: " + setup["volume"]["text"]
     if len(agree) > 1:
         text += (f"\nStrategies agreeing on this side: {len(agree)} ({', '.join(x.upper() for x in agree)}) | "
                  f"توافق {len(agree)} استراتيجيات")
@@ -829,6 +831,12 @@ def build_selective_config(env):
         over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "7-11"), env.get("KILLZONE_NY", "12-16"))
     elif profile == "scalp" and (env.get("KILLZONE_LONDON") or env.get("KILLZONE_NY")):
         over["killzones"] = parse_killzones(env.get("KILLZONE_LONDON", "8-11"), env.get("KILLZONE_NY", "13-16.5"))
+    over["volume_filter"] = env.get("VOLUME_FILTER", "1") != "0"
+    if env.get("VOLUME_MULT"):
+        over["vol_mult"] = float(env["VOLUME_MULT"])
+    if env.get("BODY_MULT"):
+        over["body_mult"] = float(env["BODY_MULT"])
+    over["volume_required"] = env.get("VOLUME_REQUIRED", "0") == "1"
     # optional relaxations of the two modes (defaults keep the strict rules)
     if env.get("MIN_DISPLACEMENT"):
         over["min_displacement"] = float(env["MIN_DISPLACEMENT"])
