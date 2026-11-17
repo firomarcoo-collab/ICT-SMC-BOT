@@ -411,7 +411,7 @@ def test_score_bands_and_that_only_ready_can_signal():
     res = sl.evaluate("X", d, NOW, c, spread=.2)                        # a continuation without a sweep
     assert res["action"] == "WAIT" and res["band"] in ("WATCH", "REJECT")
     assert any("score" in r and "/100" in r for r in res["reasons"])
-    assert sum(res["score_parts"].values()) == res["score100"]
+    assert sum(res["score_parts"].values()) + res["score_context"] == res["score100"]
     low = sl.SelectiveConfig(ready_score=0)
     ok = sl.evaluate("X", d, NOW, low, spread=.2)
     assert ok["action"] == "BUY" and ok["setup"]["score100"] == ok["score100"]
@@ -909,7 +909,7 @@ def test_tightened_defaults_in_live_config():
     c = ict_alerts.build_selective_config({"PROFILE": "scalp"})
     assert c.ready_score >= 82 and c.watch_score == 75                  # phone alert 82+, 75-81 = WATCH
     assert c.min_net_rr >= 1.5 and c.rr >= 2.0 and c.spread_margin == 1.25
-    assert c.require_mss_fvg and c.counter_trend_min_score == 90
+    assert c.require_mss_fvg and c.counter_trend_min_score == 70
     assert c.killzones == ((8.0, 11.0), (13.0, 16.5))               # scalp keeps its own sessions
     assert ict_alerts.build_selective_config({"PROFILE": "active"}).killzones == ((7.0, 11.0), (12.0, 16.0))
     off = ict_alerts.build_selective_config({"PROFILE": "active", "KILLZONES": "0", "REQUIRE_MSS_FVG": "0",
@@ -1118,3 +1118,80 @@ def test_dax_scan_reports_market_closed_without_fetching(monkeypatch):
     cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp,swing"})
     line, alert, _ = ict_alerts.selective_scan("DAX40", saturday, cfgs, None)
     assert "MARKET CLOSED" in line and alert is None
+
+
+# ===== VWAP, ADX, TP3 and the KENAN TRADER AI layout =====
+
+def _walk(n, step=0.4, minutes=5, start="2026-11-16T00:00:00+00:00", volume=None):
+    from datetime import datetime, timedelta
+    t0, out, p = datetime.fromisoformat(start), [], 100.0
+    for i in range(n):
+        o, c = p, p + step
+        b = {"time": t0 + timedelta(minutes=minutes * i), "open": o, "high": max(o, c) + 0.1, "low": min(o, c) - 0.1, "close": c}
+        if volume:
+            b["volume"] = volume(i)
+        out.append(b)
+        p = c
+    return out
+
+
+def test_adx_trend_and_range():
+    import indicators as ind
+    up = ind.adx_view(_walk(80, 0.4), "buy")
+    assert up["value"] > 60 and up["agree"] and "agrees with" in up["text"]
+    assert not ind.adx_view(_walk(80, 0.4), "sell")["agree"]                       # DI points the other way
+    flat = [dict(b, open=100.0, close=100.0 + (0.05 if i % 2 else -0.05), high=100.2, low=99.8) for i, b in enumerate(_walk(80))]
+    assert ind.adx_view(flat, "buy")["value"] < 20 and not ind.adx_view(flat, "buy")["agree"]
+    assert ind.adx_view(_walk(10), "buy")["value"] is None                          # too few candles
+
+
+def test_vwap_weighted_by_volume_and_equal_weight_fallback():
+    import indicators as ind
+    bars = _walk(4, 1.0)
+    typ = [(b["high"] + b["low"] + b["close"]) / 3 for b in bars]
+    v, weighted = ind.vwap(bars, 0)
+    assert not weighted and abs(v - sum(typ) / 4) < 1e-9
+    heavy = _walk(4, 1.0, volume=lambda i: 1000 if i == 3 else 1)
+    v2, weighted2 = ind.vwap(heavy, 0)
+    assert weighted2 and v2 > v and abs(v2 - typ[3]) < 0.05
+    assert ind.vwap(bars, 10**12) == (None, False)
+
+
+def test_vwap_session_anchors_follow_time_zone_and_dst():
+    import indicators as ind
+    from datetime import datetime, timezone
+    ts = lambda y, m, d, h: int(datetime(y, m, d, h, tzinfo=timezone.utc).timestamp())   # noqa: E731
+    assert ind.session_start("BTCUSD", ts(2026, 11, 16, 10)) == ts(2026, 11, 16, 0)
+    assert ind.session_start("US30", ts(2026, 11, 16, 15)) == ts(2026, 11, 16, 14) + 1800   # 09:30 New York winter = 14:30 UTC
+    assert ind.session_start("US30", ts(2026, 7, 15, 15)) == ts(2026, 7, 15, 13) + 1800     # summer = 13:30 UTC
+    assert ind.session_start("DAX40", ts(2026, 11, 16, 12)) == ts(2026, 11, 16, 8)          # 09:00 Berlin winter
+    assert ind.session_start("DAX40", ts(2026, 11, 16, 7)) == ts(2026, 11, 15, 8)           # before the open: the previous calendar day (no bars there, so VWAP is "unavailable")
+
+
+def test_vwap_and_adx_are_context_only():
+    import indicators as ind
+    assert ind.context_points({"agree": True}, {"agree": True}) == 6
+    assert ind.context_points({"agree": False}, {"agree": None}) == 0                # never negative
+
+
+def test_signal_carries_tp1_tp2_tp3_vwap_adx_and_kenan_layout(monkeypatch):
+    import test_selective as ts_
+    monkeypatch.setenv("SIGNAL_FORMAT", "kenan")
+    res = sl.evaluate("XAUUSD", ts_.scenario(), ts_.NOW, ts_.CFG, spread=.2)
+    assert res["action"] == "BUY"
+    s = res["setup"]
+    assert s["entry"] < s["tp1"] < s["tp"] < s["tp3"] and s["sl"] < s["entry"]
+    assert abs((s["tp3"] - s["entry"]) - 1.5 * (s["tp"] - s["entry"])) < 1e-6
+    assert sum(res["score_parts"].values()) + res["score_context"] == res["score100"] <= 100
+    text = sl.format_kenan("XAUUSD", res, 2, "clear", "London")
+    for label in ("KENAN TRADER AI", "MARKET:", "DIRECTION:", "SIGNAL STATUS: ENTRY CONFIRMED", "ENTRY:", "STOP LOSS:",
+                  "TP1:", "TP2:", "TP3:", "TIMEFRAME:", "H4 TREND:", "H1 TREND:", "M15 STRUCTURE:", "LIQUIDITY SWEEP:",
+                  "BOS / CHoCH:", "ORDER BLOCK:", "FVG:", "VWAP:", "NEWS FILTER:", "SESSION:", "SIGNAL QUALITY:",
+                  "RISK / REWARD:", "SIGNAL ID:", "TIMESTAMP:", "ENTRY REASON:", "INVALIDATION CONDITION:"):
+        assert label in text, label
+
+
+def test_counter_trend_gate_is_70_with_closed_confirmation():
+    import ict_alerts
+    assert ict_alerts.build_selective_config({"PROFILE": "active"}).counter_trend_min_score == 70
+    assert ict_alerts.build_selective_config({"PROFILE": "active", "COUNTER_TREND_MIN_SCORE": "80"}).counter_trend_min_score == 80

@@ -56,3 +56,6 @@ Strict modes implemented (see README). 253 tests pass. Zones for swing come from
 
 ## DAX40 added (opt-in)
 Seven markets configured; DAX40 broker symbol and specification still unverified (null). Test each market with analyze_now.py on the phone before enabling alerts. 259 tests pass.
+
+## KENAN layout + VWAP/ADX/TP3 (stage 1 of the master upgrade)
+Done: indicators.py (VWAP, ADX), TP3, KENAN layout, counter-trend gate 70. Not done yet: SQLite journal, named OB states, news stale/missing status, MT5 price validation, M5 listing check, backtests. 265 tests pass.

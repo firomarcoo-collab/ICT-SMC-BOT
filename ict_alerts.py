@@ -110,7 +110,7 @@ def parse_binance(rows):
     return [{
         "time": datetime.fromtimestamp(r[0] / 1000, tz=timezone.utc),
         "open": float(r[1]), "high": float(r[2]),
-        "low": float(r[3]), "close": float(r[4]),
+        "low": float(r[3]), "close": float(r[4]), "volume": float(r[5]) if len(r) > 5 else 0.0,
     } for r in rows]
 
 
@@ -122,8 +122,10 @@ def parse_yahoo(data):
         o, h, l, c = quote["open"][i], quote["high"][i], quote["low"][i], quote["close"][i]
         if None in (o, h, l, c):
             continue
+        vols = quote.get("volume") or []
         out.append({"time": datetime.fromtimestamp(t, tz=timezone.utc),
-                    "open": o, "high": h, "low": l, "close": c})
+                    "open": o, "high": h, "low": l, "close": c,
+                    "volume": float(vols[i] or 0) if i < len(vols) else 0.0})
     return out
 
 
@@ -137,11 +139,12 @@ def resample(candles, seconds):
             o["high"] = max(o["high"], c["high"])
             o["low"] = min(o["low"], c["low"])
             o["close"] = c["close"]
+            o["volume"] += c.get("volume") or 0.0
         else:
             out.append({"start": start, "open": c["open"], "high": c["high"],
-                        "low": c["low"], "close": c["close"]})
+                        "low": c["low"], "close": c["close"], "volume": c.get("volume") or 0.0})
     return [{"time": datetime.fromtimestamp(o["start"], tz=timezone.utc), "open": o["open"],
-             "high": o["high"], "low": o["low"], "close": o["close"]} for o in out]
+             "high": o["high"], "low": o["low"], "close": o["close"], "volume": o["volume"]} for o in out]
 
 
 YAHOO_HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
@@ -559,8 +562,15 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
             line += "\n" + selective.explain(res)
         return line, None, False
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
-    fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
-    text = fmt(name, dict(res, setup=setup), d)
+    if os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
+        fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
+        text = fmt(name, dict(res, setup=setup), d)
+    else:
+        near = extras.near_news(news or [], name, now_ts) if news else []
+        news_text = ("no news data loaded (calendar unavailable or empty)" if not news else
+                     "BLOCKED: " + "; ".join(f"{e['currency']} {e['title']}" for e in near) if near else "clear (no high-impact event near)")
+        text = selective.format_kenan(name, dict(res, setup=setup), d, news_text, extras.session_text(now_ts))
+        text += "\n" + "\n".join(selective.entry_checklist(setup, res, ar=(lang == "ar")))
     if len(agree) > 1:
         text += (f"\nStrategies agreeing on this side: {len(agree)} ({', '.join(x.upper() for x in agree)}) | "
                  f"توافق {len(agree)} استراتيجيات")
@@ -801,7 +811,7 @@ def build_selective_config(env):
     over["spread_margin"] = float(env.get("SPREAD_MARGIN") or 1.25)
     if not two_modes:
         over["require_mss_fvg"] = env.get("REQUIRE_MSS_FVG", "1") != "0"
-    over["counter_trend_min_score"] = int(float(env.get("COUNTER_TREND_MIN_SCORE") or 90))
+    over["counter_trend_min_score"] = int(float(env.get("COUNTER_TREND_MIN_SCORE") or 70))
     floor = float(env.get("MIN_NET_RR") or 1.5)
     over["min_net_rr"] = max(base_cfg.min_net_rr, floor)
     if env.get("KILLZONES", "1") == "0":

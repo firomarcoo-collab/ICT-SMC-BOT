@@ -15,8 +15,10 @@ Nothing here claims a win rate. Whether the rules are profitable is a question f
 backtest.py, out-of-sample tests and forward paper trading.
 """
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import ict_engine
+import indicators
 import structure as st
 
 LIVE_SOURCES = ("binance", "yahoo")
@@ -971,16 +973,20 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
             disp_ratio=max(ratios, default=0.0), zone_status=top.get("status", "fresh") if top else None,
             sr_hit=bool(sr_hit), confirm=ok_c, strong=strong, cost_ok=ok_cost, net_rr=net_rr,
             cost_unverified=bool(note))
+    vw = indicators.vwap_view(m5, market, now_ts, entry, side)
+    ax = indicators.adx_view(c15, side)
+    ctx = indicators.context_points(vw, ax)           # at most +6, only context (VWAP side, ADX trend strength)
+    score100 = min(100, score100 + ctx)
     band = score_band(score100, cfg)
-    res.update(score100=score100, score_parts=parts, band=band)
+    res.update(score100=score100, score_parts=parts, band=band, score_context=ctx, vwap=vw, adx=ax)
     if cfg.forex:
         res["strength"] = forex_strength(score100)
     if band == "READY" and cfg.counter_trend_min_score and mode == "reversal" and not ok_h:
-        if score100 < cfg.counter_trend_min_score or not strong:
+        if score100 < cfg.counter_trend_min_score or not ok_c:
             band = "WATCH"
             res["band"] = band
             res["reasons"].insert(0, f"score {score100}/100 is WATCH: COUNTER-TREND needs {cfg.counter_trend_min_score}+ "
-                                  f"and a strong confirmation candle (strong: {'yes' if strong else 'no'}). Parts: "
+                                  f"and a closed confirmation candle (confirmed: {'yes' if ok_c else 'no'}). Parts: "
                                   + ", ".join(f"{k} {v}/{SCORE_MAX.get(k) or FOREX_SCORE_MAX[k]}" for k, v in parts.items()))
             return res
     if band != "READY":
@@ -998,7 +1004,11 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
                     "invalidation": invalidation, "profile": cfg.profile,
                     "counter_trend": mode == "reversal" and not ok_h, "fib": fib_text,
-                    "tp1": tp1 if (cfg.forex or cfg.strict_sequence) else None,
+                    "tp1": tp1, "tp3": entry + 1.5 * cfg.rr * risk if side == "buy" else entry - 1.5 * cfg.rr * risk,
+                    "vwap": vw, "adx": ax, "score_context": ctx,
+                    "trends": {"h4": st.current_trend(st.structure_events(h4, cfg.htf_k)) or "unknown",
+                               "h1": st.current_trend(st.structure_events(h1, cfg.htf_k)) or "unknown",
+                               "m15": st.current_trend(st.structure_events(c15, 2)) or "unknown"},
                     "strength": forex_strength(score100) if cfg.forex else None,
                     "pip": markets_pip(market), "risk": risk, "atr15": atr15,
                     "tf": tf_agreement(side, m1, m5, m15, h1, h4, cfg),
@@ -1167,6 +1177,50 @@ def format_signal_ar(market, res, digits=2):
              f"التكلفة المفترضة: {cost}",
              *entry_checklist(s, res, ar=True),
              "هذه إشارة فقط: نفّذ الصفقة بنفسك في MT5 بعد مقارنة السعر. لا توجد نسبة نجاح مضمونة."]
+    return "\n".join(lines)
+
+
+_TRIGGER = {"swing": "M15 entry candle (H1 structure), M5 agrees", "forex": "M15 (primary), M5 execution check",
+            "scalp": "M15 zone, M5 entry candle, M1/M3 timing"}
+
+
+def format_kenan(market, res, digits=2, news="not checked", session="not checked"):
+    """The KENAN TRADER AI alert layout. Only called for a signal that passed every mandatory condition."""
+    s, r, c = res["setup"], res["report"], res["checks"]
+    f = lambda v: f"{v:.{digits}f}" if v is not None else "n/a"      # noqa: E731
+    risk = abs(s["entry"] - s["sl"]) or 1.0
+    rr = lambda p: f"1:{abs(p - s['entry']) / risk:.2f}"             # noqa: E731
+    net = (abs(s["tp"] - s["entry"]) - s["cost"]) / (risk + s["cost"])
+    tr = s.get("trends") or {}
+    zones = [z for z in s.get("zones", [])]
+    ob = "; ".join(z for z in zones if "OB" in z.upper()) or "none in this setup"
+    fvg = "; ".join(z for z in zones if "FVG" in z.upper()) or "none in this setup"
+    status = "ENTRY CONFIRMED" + (" (COUNTER-TREND REVERSAL: complete sweep + CHoCH + displacement + FVG + retest)"
+                                  if s.get("counter_trend") else "")
+    ts = datetime.fromtimestamp(s["bar_time"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    vw, ax = s.get("vwap") or {}, s.get("adx") or {}
+    lines = ["KENAN TRADER AI", "",
+             f"MARKET: {market}", f"DIRECTION: {s['side'].upper()}", f"SIGNAL STATUS: {status}", "",
+             f"ENTRY: {f(s['entry'])}", f"STOP LOSS: {f(s['sl'])}",
+             f"TP1: {f(s.get('tp1'))} ({rr(s['tp1']) if s.get('tp1') else 'n/a'}, take part, move the stop to entry)",
+             f"TP2: {f(s['tp'])} ({rr(s['tp'])})",
+             f"TP3: {f(s.get('tp3'))} ({rr(s['tp3']) if s.get('tp3') else 'n/a'}, runner)", "",
+             f"TIMEFRAME: {_TRIGGER.get(s.get('profile'), 'M15 zone, M5 entry candle')} | profile {s.get('profile', '?').upper()}",
+             f"H4 TREND: {tr.get('h4', 'n/a')}", f"H1 TREND: {tr.get('h1', 'n/a')}",
+             f"M15 STRUCTURE: {tr.get('m15', 'n/a')}; {r['structure']}", "",
+             f"LIQUIDITY SWEEP: {r['liquidity']}", f"BOS / CHoCH: {r['structure']}",
+             f"ORDER BLOCK: {ob}", f"FVG: {fvg}",
+             f"VWAP: {vw.get('text', 'n/a')}", f"ADX: {ax.get('text', 'n/a')}",
+             f"NEWS FILTER: {news}", f"SESSION: {session}", "",
+             f"SIGNAL QUALITY: {res['score100']}/100 (base {res['score100'] - s.get('score_context', 0)}"
+             f" + VWAP/ADX context {s.get('score_context', 0)}; a ranking of setup quality, not a win probability)",
+             f"RISK / REWARD: TP2 {rr(s['tp'])} gross, net 1:{net:.2f} after cost {s['cost']:.4g}"
+             + (" (COST UNVERIFIED: spread unknown, check MT5)" if s.get("cost_note") else ""), "",
+             f"SIGNAL ID: {res.get('id') or s.get('uses', ['n/a'])[0]}", f"TIMESTAMP: {ts}", "",
+             f"ENTRY REASON: {s['mode']} setup, HTF {s['htf']}; zone(s) {', '.join(zones) or 'n/a'}; "
+             f"confirmation {'strong ' if s.get('strong_confirmation') else ''}closed candle",
+             f"INVALIDATION CONDITION: a close beyond {f(s['invalidation'])} cancels the setup",
+             "Signal only: place the trade yourself in MT5. No win rate is guaranteed."]
     return "\n".join(lines)
 
 

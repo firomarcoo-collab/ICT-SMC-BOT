@@ -372,3 +372,13 @@ XAUUSD, NAS100 (US100), US30, BTCUSD, EURUSD, GBPJPY and **DAX40** (opt-in: `SYM
 DAX40 uses the free Yahoo `^GDAXI` cash index, so it only scans during Xetra hours 09:00-17:30 Frankfurt (`DAX_HOURS_ONLY=0` to disable).
 Your broker's name (GER40 / DE40 / DAX40.m ...) is never assumed: copy it from MT5 > Market Watch > Specification and run
 `python set_spec.py DAX40 ...` like the other markets. Test one market first: `python analyze_now.py DAX40`.
+
+## KENAN TRADER AI signal layout, VWAP, ADX, TP3
+- Alerts use the KENAN TRADER AI layout (MARKET, DIRECTION, SIGNAL STATUS, ENTRY, STOP LOSS, TP1/TP2/TP3 ... INVALIDATION CONDITION).
+  `SIGNAL_FORMAT=classic` brings back the older text.
+- TP1 = half of TP2 (move the stop to entry), TP2 = the profile target, TP3 = 1.5 x TP2 distance (runner).
+- Session VWAP (anchored per market: crypto 00:00 UTC, US indices 09:30 New York, DAX 09:00 Berlin, FX/gold 17:00 New York) and
+  ADX(14) on M15 are context only: up to +3 points each (+6 max, capped at 100), never an entry on their own and they never
+  replace a mandatory ICT condition. Without volume in the feed (most Yahoo FX/index data) VWAP uses equal weights and says so.
+- COUNTER-TREND needs a complete reversal (sweep, CHoCH/MSS, displacement, FVG, retest), a closed confirmation candle and
+  score 70+ (`COUNTER_TREND_MIN_SCORE`); a phone alert still needs the profile score gate (82+ by default), so in practice the higher of the two applies.

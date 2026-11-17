@@ -333,7 +333,7 @@ def test_arabic_entry_alert():
     import ict_alerts
     res = sl.evaluate("XAUUSD", scenario(), NOW, CFG, spread=.2)
     text = sl.format_signal_ar("XAUUSD", res)
-    for part in ("إشارة دخول: شراء الذهب", "الدخول:", "الإبطال:", "وقف الخسارة:", "الهدف:",
+    for part in ("إشارة دخول: شراء الذهب", "الدخول:", "الإبطال:", "وقف الخسارة:", "الهدف الأول",
                  "التوافق", "شمعة التأكيد M5", "إشارة فقط"):
         assert part in text, part
     assert f"{res['setup']['entry']:.2f}" in text
