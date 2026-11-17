@@ -1281,16 +1281,17 @@ def test_feed_without_volume_skips_that_rule_unless_required():
 
 
 def test_evaluate_rejects_an_unconfirmed_displacement_and_shows_the_spike(monkeypatch):
-    import test_selective as ts_
+    import test_ict_engine as te
+    data, _ = te.reversal_scenario("valid", h_up=False)
     cfg = sl.make_config("active", volume_filter=True, require_mss_fvg=True, min_displacement=0.0)
     monkeypatch.setattr(sl.indicators, "volume_displacement", lambda *a, **k: {
         "valid": False, "vol_ratio": 1.1, "body_ratio": 2.0, "text": "Volume Spike: 1.1x Avg | Body: 2.0x Avg",
         "reasons": ["volume 1.10x the 20-candle average (needs 1.5x)"]})
-    res = sl.evaluate("XAUUSD", ts_.scenario(), ts_.NOW, dict_cfg(cfg), spread=.2)
+    res = sl.evaluate("XAUUSD", data, te.NOW, dict_cfg(cfg), spread=.2)
     assert res["action"] == "WAIT" and any("displacement not confirmed" in r for r in res["reasons"])
     monkeypatch.setattr(sl.indicators, "volume_displacement", lambda *a, **k: {
         "valid": True, "vol_ratio": 1.8, "body_ratio": 2.0, "text": "Volume Spike: 1.8x Avg | Body: 2.0x Avg", "reasons": []})
-    res = sl.evaluate("XAUUSD", ts_.scenario(), ts_.NOW, dict_cfg(cfg), spread=.2)
+    res = sl.evaluate("XAUUSD", data, te.NOW, dict_cfg(cfg), spread=.2)
     assert res["action"] == "BUY" and res["setup"]["volume"]["text"].startswith("Volume Spike: 1.8x Avg")
     assert "DISPLACEMENT VOLUME: Volume Spike: 1.8x Avg" in sl.format_kenan("XAUUSD", res, 2)
 
@@ -1298,6 +1299,16 @@ def test_evaluate_rejects_an_unconfirmed_displacement_and_shows_the_spike(monkey
 def dict_cfg(cfg):
     import dataclasses
     return dataclasses.replace(cfg, ready_score=0, min_net_rr=0.0, killzones=())
+
+
+def test_real_volume_data_decides_the_reversal_signal():
+    import test_ict_engine as te
+    data, _ = te.reversal_scenario("valid", h_up=False)
+    cfg = dict_cfg(sl.make_config("active", volume_filter=True, require_mss_fvg=True, min_displacement=0.0))
+    res = sl.evaluate("XAUUSD", data, te.NOW, cfg, spread=.2)
+    assert res["action"] == "BUY" and "n/a" in res["setup"]["volume"]["text"]            # no volume in this feed: rule skipped
+    strict = sl.evaluate("XAUUSD", data, te.NOW, __import__("dataclasses").replace(cfg, volume_required=True), spread=.2)
+    assert strict["action"] == "WAIT" and any("no volume data" in r for r in strict["reasons"])
 
 
 def test_volume_filter_env_switches():
