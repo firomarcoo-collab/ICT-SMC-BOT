@@ -74,3 +74,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## Score 70 and H1 frame (done)
 `MIN_NOTIFY_SCORE` default 70, `HTF_MODE` default h1m15 (all profiles except swing). To be judged only on real results.
+
+## NY session engine, phase 1 (done, display only)
+`ny_session.py` + `test_ny_session.py` (7 tests) + wiring in `ict_alerts.ny_view`. Next: market-state engine, IFVG/mitigation/OTE, RSI/MACD confirmation, performance reports by session, real backtests (needs M5 CSVs), then scoring weights. Tag `backup-before-ny-session` marks the state before this phase.

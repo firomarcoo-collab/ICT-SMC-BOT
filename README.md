@@ -435,3 +435,7 @@ Phone alerts now start at score 70 (`MIN_NOTIFY_SCORE=70`; scalp keeps 85, swing
 ## TP4 / TP5 (display only)
 
 The KENAN signal now also lists TP4 and TP5 (2.0x and 2.5x the TP2 distance) as extended runner levels. The tracker and the results still use TP2 for win/loss; TP4/TP5 are only for you to trail the trade by hand. The bot's order blocks and FVGs are its supply/demand zones.
+
+## New York session engine (phase 1, display only)
+
+`ny_session.py` reads closed M15 candles in America/New_York time (daylight saving handled by the timezone, not a fixed UTC hour). It lists the Asia, London, previous-day and New York opening-range levels and classifies eleven opening scenarios: buy-/sell-side sweep reversals, London High/Low and Previous Day High/Low sweeps, Opening Range Breakout, Failed Breakout, Judas Swing, trend continuation and New York reversal. A sweep alone is shown as UNCONFIRMED; it only becomes a reversal after a close-based structure break with displacement. The result appears at the end of the scan line and in the signal's SESSION line. It does NOT change any signal decision yet. `NY_SESSION=0` turns it off. Not yet measured on real results.

@@ -41,6 +41,7 @@ from datetime import datetime, timezone
 
 import alert_classes
 import reversal_tracker
+import ny_session
 import data_layer
 import events
 import extras
@@ -445,6 +446,20 @@ def alert_state():
     return _ALERT_STATE
 
 
+def ny_view(data, now_ts):
+    """New York session picture (print-only, never a trade decision). NY_SESSION=0 turns it off. Returns the ny_session
+    result or None when there is no M15 data or anything fails."""
+    if os.environ.get("NY_SESSION", "1") == "0":
+        return None
+    try:
+        bars = selective.closed_only(data.get("m15") or [], 900, now_ts)
+        trend = structure.current_trend(structure.structure_events(selective.closed_only(data.get("h1") or [], 3600, now_ts), 3)) \
+            if data.get("h1") else None
+        return ny_session.analyze(bars, now_ts, trend)
+    except Exception:
+        return None
+
+
 def track_setups(market, name, data, now_ts, cfg, calendar, lang):
     """Runs the six-class setup tracker for one market. Returns the text lines to print (and phones the alerts).
     Nothing returned here is ever a trade signal, except what the normal signal path sends."""
@@ -616,6 +631,9 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     d = inst["digits"]
     if res["action"] == "WAIT":
         line = wait_line(name, res)
+        ny = ny_view(data, now_ts)
+        if ny and ny_session.summary(ny):
+            line += f" [{ny_session.summary(ny)}, {ny['phase']}]"
         if os.environ.get("ALERT_CLASSES", "1") != "0":
             line += track_setups(market, name, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang)
         elif os.environ.get("ZONE_WATCH", "1") != "0":
@@ -644,7 +662,9 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         else:
             news_text = "clear (no high-impact event near)"
         ttl_h = float(os.environ.get("SIGNAL_TTL_HOURS") or (72 if setup.get("profile") == "swing" else 6))
-        text = selective.format_kenan(name, dict(res, setup=setup), d, news_text, extras.session_text(now_ts), ttl_h)
+        ny = ny_view(data, now_ts)
+        ny_note = (" | " + ny_session.summary(ny)) if ny and ny_session.summary(ny) else ""
+        text = selective.format_kenan(name, dict(res, setup=setup), d, news_text, extras.session_text(now_ts) + ny_note, ttl_h)
         text += "\n" + "\n".join(selective.entry_checklist(setup, res, ar=(lang == "ar")))
     if (setup.get("volume") or {}).get("text") and os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
         text += "\nDisplacement volume: " + setup["volume"]["text"]
