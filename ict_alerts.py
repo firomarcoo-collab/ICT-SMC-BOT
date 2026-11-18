@@ -1108,6 +1108,9 @@ def run():
     seen = set()
     print(f"ICT SMC alerts started for: {', '.join(names)} on {', '.join(tfs)}", flush=True)
     print(describe_config(scfg, engine), flush=True)
+    if not structure.tz_ok():
+        print("WARNING: no timezone database. New York sessions and killzones are one hour wrong in summer. "
+              "Fix: pip install tzdata", flush=True)
     if offsets:
         print(f"Price offsets: {offsets}", flush=True)
 

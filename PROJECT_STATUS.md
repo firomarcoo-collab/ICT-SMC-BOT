@@ -86,3 +86,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## Reports by session / market / strategy, phase 4 (done)
 `journal.py` (session_of, by-key report, auto-upgrade of old files), `tracker.py` writes session/profile/mode. Still open: real backtests (needs M5 CSVs, which the user must create on the phone), scoring weights after real trades.
+
+## Deployment notes (done)
+`DEPLOY_AR.md` (Termux steps, switches, reports). Startup now warns when the timezone database is missing (`pip install tzdata`). Per-market isolation: each market is scanned inside its own try/except in the main loop.

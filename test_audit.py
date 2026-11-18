@@ -1637,3 +1637,13 @@ def test_rsi_macd_values_and_the_signal_text_are_information_only():
     mid = [{"close": 100 + (1 if i % 2 else -1) * 0.5 + i * 0.05} for i in range(60)]
     assert ind.momentum_view(mid, "buy")["rsi_agree"] is True
     assert ind.momentum_view(up[:5], "buy")["rsi"] is None and "unavailable" in ind.momentum_view(up[:5], "buy")["macd_text"]
+
+
+def test_tz_ok_reports_a_missing_timezone_database(monkeypatch):
+    import structure
+    import sys
+    assert structure.tz_ok() is True
+    monkeypatch.setitem(sys.modules, "zoneinfo", None)                      # import zoneinfo now fails
+    assert structure.tz_ok() is False
+    from datetime import datetime, timezone
+    assert structure._ny_local(datetime(2026, 11, 18, 14, 0, tzinfo=timezone.utc)).hour == 9     # the fixed UTC-5 fallback still works

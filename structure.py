@@ -107,6 +107,17 @@ def current_trend(events):
 
 # ===== Liquidity =====
 
+def tz_ok():
+    """False when the timezone database is missing: New York time then falls back to a fixed UTC-5, which is one hour
+    wrong in summer (daylight saving). Fix on Termux: pip install tzdata."""
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo("America/New_York")
+        return True
+    except Exception:
+        return False
+
+
 def _ny_local(dt):
     """New York wall-clock time (falls back to fixed UTC-5 without a timezone database)."""
     try:
