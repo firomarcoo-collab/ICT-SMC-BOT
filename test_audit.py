@@ -1183,10 +1183,11 @@ def test_signal_carries_tp1_tp2_tp3_vwap_adx_and_kenan_layout(monkeypatch):
     s = res["setup"]
     assert s["entry"] < s["tp1"] < s["tp"] < s["tp3"] and s["sl"] < s["entry"]
     assert abs((s["tp3"] - s["entry"]) - 1.5 * (s["tp"] - s["entry"])) < 1e-6
+    assert s["tp3"] < s["tp4"] < s["tp5"] and abs((s["tp5"] - s["entry"]) - 2.5 * (s["tp"] - s["entry"])) < 1e-6
     assert sum(res["score_parts"].values()) + res["score_context"] == res["score100"] <= 100
     text = sl.format_kenan("XAUUSD", res, 2, "clear", "London")
     for label in ("KENAN TRADER AI", "MARKET:", "DIRECTION:", "SIGNAL STATUS: ENTRY CONFIRMED", "ENTRY:", "STOP LOSS:",
-                  "TP1:", "TP2:", "TP3:", "TIMEFRAME:", "H4 TREND:", "H1 TREND:", "M15 STRUCTURE:", "LIQUIDITY SWEEP:",
+                  "TP1:", "TP2:", "TP3:", "TP4:", "TP5:", "TIMEFRAME:", "H4 TREND:", "H1 TREND:", "M15 STRUCTURE:", "LIQUIDITY SWEEP:",
                   "BOS / CHoCH:", "ORDER BLOCK:", "FVG:", "VWAP:", "NEWS FILTER:", "SESSION:", "SIGNAL QUALITY:",
                   "RISK / REWARD:", "SIGNAL ID:", "TIMESTAMP:", "SIGNAL EXPIRY:", "ENTRY REASON:", "INVALIDATION CONDITION:"):
         assert label in text, label

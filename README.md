@@ -431,3 +431,7 @@ Every tracked setup shows one state: REVERSAL DETECTED, REVERSAL DEVELOPING, MSS
 ## Defaults changed: alert score 70, H1 as the general frame
 
 Phone alerts now start at score 70 (`MIN_NOTIFY_SCORE=70`; scalp keeps 85, swing keeps 80; raise it back with `MIN_NOTIFY_SCORE=80`). The general market frame is H1 + M15 trend (`HTF_MODE=h1m15`, set `HTF_MODE=default` for the old H4/H1/M15 rules; swing keeps D1 + H4). A lower score means more but weaker signals: it is a technical rating, not a win probability.
+
+## TP4 / TP5 (display only)
+
+The KENAN signal now also lists TP4 and TP5 (2.0x and 2.5x the TP2 distance) as extended runner levels. The tracker and the results still use TP2 for win/loss; TP4/TP5 are only for you to trail the trade by hand. The bot's order blocks and FVGs are its supply/demand zones.
