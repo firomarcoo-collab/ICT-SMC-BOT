@@ -68,3 +68,6 @@ Notify 80, M15 confirmation mandatory (switch), news status + NEWS_STRICT, zone 
 
 ## Phase 3-4: reversal states + journal (done)
 `reversal_tracker.py` (six states), `journal.py` + MFE/MAE in `tracker.py`. Still open: M5 listing gate, MT5 price validation (limited on Android), new scoring weights (needs real trades).
+
+## M5 listing gate (checked, tested)
+A scan waits ("waiting for the latest M5 candle to be listed") while the newest closed M5 candle is older than the last 5-minute boundary; feeds that stay stale are blocked by the STALE status. MT5 price validation is not possible on Android.

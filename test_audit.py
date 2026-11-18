@@ -1544,3 +1544,19 @@ def test_reversal_states_follow_the_setup_record(tmp_path):
     got = rt.update(state, "XAUUSD", 1003)
     assert got[0][2] == "ENTRY CONFIRMED" and "not an entry" not in got[0][3]
     assert "انعكاس" in rt.update(ac.AlertState(str(tmp_path / "n.json")), "X", 1, "ar") or True
+
+
+def test_scan_waits_when_the_latest_closed_m5_candle_is_not_listed_yet(monkeypatch):
+    import ict_alerts
+    from datetime import datetime, timezone
+    now = _utc(2026, 11, 14, 12, 7)                                    # the 12:00-12:05 candle must already be listed
+    bar = lambda start: {"time": datetime.fromtimestamp(start, tz=timezone.utc), "open": 1, "high": 2, "low": 1, "close": 1.5}   # noqa: E731
+    base = _utc(2026, 11, 14, 12, 0)
+    feeds = {"late": [bar(base - 300)], "ok": [bar(base)]}          # newest closed bar ends 12:00 (late) / 12:05 (ok)
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp"})
+    monkeypatch.setattr(ict_alerts.selective, "data_status", lambda *a, **k: "LIVE")
+    monkeypatch.setattr(ict_alerts.data_layer, "check_candles", lambda *a, **k: type("Q", (), {"blocked": True, "reason": "stop here"})())
+    for kind, expect in (("late", "waiting for the latest M5 candle"), ("ok", "SELECTIVE WAIT")):
+        monkeypatch.setattr(ict_alerts, "get_candles", lambda inst, tf, k=kind: feeds[k])
+        line, sig, _ = ict_alerts.selective_scan("BTCUSD", now, cfgs, None)
+        assert expect in line and sig is None
