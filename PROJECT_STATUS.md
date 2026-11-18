@@ -83,3 +83,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## RSI / MACD, phase 3 (done, display only)
 `indicators.rsi/macd/momentum_view`, shown in the KENAN signal. Tag `backup-before-rsi-macd`. Next: performance reports by session/market, then real backtests (no M5 CSVs yet: fetch_binance_history.py / fetch_dukascopy_history.py can create them on the phone).
+
+## Reports by session / market / strategy, phase 4 (done)
+`journal.py` (session_of, by-key report, auto-upgrade of old files), `tracker.py` writes session/profile/mode. Still open: real backtests (needs M5 CSVs, which the user must create on the phone), scoring weights after real trades.

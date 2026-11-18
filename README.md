@@ -447,3 +447,7 @@ The KENAN signal now also lists TP4 and TP5 (2.0x and 2.5x the TP2 distance) as 
 ## RSI and MACD in the signal (display only)
 
 The KENAN signal now shows `RSI:` (Wilder, 14) and `MACD:` (12/26/9 histogram) on M15 with whether each agrees with the direction, and warns when RSI is stretched against the trade (BUY at 70+, SELL at 30-). They are information for you: they do not create, block or score a signal.
+
+## Performance report by session, market and strategy
+
+`journal.csv` now also stores the entry time, the New York based session (Asia, London, London / New York pre-open, New York open, New York, After hours), the profile (scalp, swing, forex...) and the mode (reversal / continuation). An older journal is upgraded automatically (old rows keep empty new columns, shown as `unknown`). Run `python journal.py` (symbol, session and profile) or pick: `python journal.py session`, `python journal.py profile mode side`. The session view adds a combined "New York (all)" line. Every line shows trades, win rate, total and average R, profit factor, max drawdown, MFE/MAE and false signals; with fewer than 30 trades it says the sample is too small. These are results of your own signals, not a forecast.
