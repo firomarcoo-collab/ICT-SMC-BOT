@@ -332,6 +332,69 @@ def order_blocks(bars, events):
     return out
 
 
+def ifvgs(bars):
+    """Inverse FVG: a fair value gap that price CLOSED through (it failed as support / resistance), so it now works the
+    other way round. [{'kind': 'IFVG', 'side', 'low', 'high', 'idx', 'status'}], status: 'valid' / 'tested' / 'invalid'
+    (invalid = price later closed back through it again). Built from closed bars only."""
+    out = []
+    for g in fvgs(bars, include_filled=True):
+        for x in range(g["idx"] + 1, len(bars)):
+            c = bars[x]
+            flipped = c["close"] < g["low"] if g["side"] == "bull" else c["close"] > g["high"]
+            if not flipped:
+                continue
+            side = "bear" if g["side"] == "bull" else "bull"
+            status = "valid"
+            for later in bars[x + 1:]:
+                if (side == "bear" and later["close"] > g["high"]) or (side == "bull" and later["close"] < g["low"]):
+                    status = "invalid"
+                    break
+                if (side == "bear" and later["high"] >= g["low"]) or (side == "bull" and later["low"] <= g["high"]):
+                    status = "tested"
+            out.append({"kind": "IFVG", "side": side, "low": g["low"], "high": g["high"], "idx": x, "status": status})
+            break
+    return out
+
+
+def mitigation_blocks(bars, k=2):
+    """Mitigation block: after a swing that FAILED to take the previous swing's liquidity (a lower high before a bearish
+    break, a higher low before a bullish break), the last opposite candle of that failed swing. Price tends to return
+    to it to mitigate before continuing. Needs a later close-based break of the opposite swing with displacement.
+    [{'kind': 'MITIGATION', 'side', 'low', 'high', 'idx', 'status'}], status 'valid' / 'mitigated' / 'broken'."""
+    out = []
+    pv = pivots(bars, k)
+    for kind, side in (("H", "bear"), ("L", "bull")):
+        same = [p for p in pv if p[1] == kind]
+        other = [p for p in pv if p[1] != kind]
+        for a, b in zip(same, same[1:]):
+            failed = b[2] < a[2] if kind == "H" else b[2] > a[2]
+            if not failed:
+                continue
+            between = [p for p in other if a[0] < p[0] < b[0]]
+            if not between:
+                continue
+            level = (min if kind == "H" else max)(p[2] for p in between)           # the swing whose break confirms the shift
+            brk = next((x for x in range(b[0] + k, len(bars))
+                        if (bars[x]["close"] < level if kind == "H" else bars[x]["close"] > level)), None)
+            if brk is None or not is_displacement(bars, brk):
+                continue
+            j = next((x for x in range(b[0], max(-1, b[0] - 6), -1)
+                      if (bars[x]["close"] > bars[x]["open"]) == (kind == "H") and bars[x]["close"] != bars[x]["open"]), None)
+            if j is None:
+                continue
+            zlow, zhigh = bars[j]["low"], bars[j]["high"]
+            status = "valid"
+            for c in bars[brk + 1:]:
+                if (side == "bear" and c["close"] > zhigh) or (side == "bull" and c["close"] < zlow):
+                    status = "broken"
+                    break
+                if (side == "bear" and c["high"] >= zlow) or (side == "bull" and c["low"] <= zhigh):
+                    status = "mitigated"
+            out.append({"kind": "MITIGATION", "side": side, "low": zlow, "high": zhigh, "idx": j, "status": status,
+                        "break_idx": brk})
+    return out
+
+
 def inducement(bars, ob):
     """True when a minor swing between the block and price was taken before price reached the block."""
     start = ob["idx"] + 1

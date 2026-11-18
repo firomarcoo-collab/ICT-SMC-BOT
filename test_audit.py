@@ -1598,3 +1598,25 @@ def test_scan_line_shows_the_new_york_scenario_and_it_can_be_switched_off(monkey
     monkeypatch.setattr(ict_alerts.ny_session, "analyze", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     line, _, _ = ict_alerts.selective_scan("XAUUSD", _utc(2026, 11, 18, 14, 50), cfgs, None)
     assert "NY:" not in line and "SELECTIVE WAIT" in line                       # the analysis can never stop a scan
+
+
+def test_scan_line_shows_the_market_state_and_it_can_be_switched_off(monkeypatch):
+    import ict_alerts
+    cfgs = ict_alerts.build_selective_configs({"PROFILE": "scalp"})
+    wait = {"action": "WAIT", "reasons": ["x"], "report": {}, "checks": {}}
+    monkeypatch.setattr(ict_alerts.selective, "process", lambda *a, **k: wait)
+    monkeypatch.setattr(ict_alerts, "get_candles", lambda inst, tf: [])
+    monkeypatch.setattr(ict_alerts.selective, "data_status", lambda *a, **k: "LIVE")
+    monkeypatch.setattr(ict_alerts.selective, "closed_only", lambda *a, **k: [])
+    monkeypatch.setattr(ict_alerts.data_layer, "check_candles", lambda *a, **k: type("Q", (), {"blocked": False, "reason": ""})())
+    monkeypatch.setenv("ALERT_CLASSES", "0")
+    monkeypatch.setenv("ZONE_WATCH", "0")
+    monkeypatch.setattr(ict_alerts.market_state, "classify", lambda *a, **k: {"state": "RANGING"})
+    line, _, _ = ict_alerts.selective_scan("XAUUSD", _utc(2026, 11, 18, 14, 50), cfgs, None)
+    assert "[state: RANGING]" in line
+    monkeypatch.setenv("MARKET_STATE", "0")
+    assert "state:" not in ict_alerts.selective_scan("XAUUSD", _utc(2026, 11, 18, 14, 50), cfgs, None)[0]
+    monkeypatch.delenv("MARKET_STATE")
+    monkeypatch.setattr(ict_alerts.market_state, "classify", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    line = ict_alerts.selective_scan("XAUUSD", _utc(2026, 11, 18, 14, 50), cfgs, None)[0]
+    assert "state:" not in line and "SELECTIVE WAIT" in line

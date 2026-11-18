@@ -77,3 +77,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## NY session engine, phase 1 (done, display only)
 `ny_session.py` + `test_ny_session.py` (7 tests) + wiring in `ict_alerts.ny_view`. Next: market-state engine, IFVG/mitigation/OTE, RSI/MACD confirmation, performance reports by session, real backtests (needs M5 CSVs), then scoring weights. Tag `backup-before-ny-session` marks the state before this phase.
+
+## Market state + IFVG + mitigation blocks, phase 2 (done, display only)
+`market_state.py`, `structure.ifvgs`, `structure.mitigation_blocks`, `test_market_state.py` (5 tests) + wiring in `ict_alerts.state_view`. IFVG and mitigation blocks are not used by the entry decision yet. Tag `backup-before-market-state` marks the state before this phase.
