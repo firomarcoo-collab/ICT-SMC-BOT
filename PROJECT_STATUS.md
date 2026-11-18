@@ -80,3 +80,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## Market state + IFVG + mitigation blocks, phase 2 (done, display only)
 `market_state.py`, `structure.ifvgs`, `structure.mitigation_blocks`, `test_market_state.py` (5 tests) + wiring in `ict_alerts.state_view`. IFVG and mitigation blocks are not used by the entry decision yet. Tag `backup-before-market-state` marks the state before this phase.
+
+## RSI / MACD, phase 3 (done, display only)
+`indicators.rsi/macd/momentum_view`, shown in the KENAN signal. Tag `backup-before-rsi-macd`. Next: performance reports by session/market, then real backtests (no M5 CSVs yet: fetch_binance_history.py / fetch_dukascopy_history.py can create them on the phone).

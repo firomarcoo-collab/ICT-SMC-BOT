@@ -1000,6 +1000,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
             cost_unverified=bool(note))
     vw = indicators.vwap_view(m5, market, now_ts, entry, side)
     ax = indicators.adx_view(c15, side)
+    mom = indicators.momentum_view(c15, side)         # display only, not part of any gate or score
     ctx = indicators.context_points(vw, ax)           # at most +6, only context (VWAP side, ADX trend strength)
     score100 = min(100, score100 + ctx)
     band = score_band(score100, cfg)
@@ -1032,7 +1033,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "tp1": tp1, "tp3": entry + 1.5 * cfg.rr * risk if side == "buy" else entry - 1.5 * cfg.rr * risk,
                     "tp4": entry + 2.0 * cfg.rr * risk if side == "buy" else entry - 2.0 * cfg.rr * risk,
                     "tp5": entry + 2.5 * cfg.rr * risk if side == "buy" else entry - 2.5 * cfg.rr * risk,
-                    "vwap": vw, "adx": ax, "score_context": ctx, "volume": vd,
+                    "vwap": vw, "adx": ax, "momentum": mom, "score_context": ctx, "volume": vd,
                     "trends": {"h4": st.current_trend(st.structure_events(h4, cfg.htf_k)) or "unknown",
                                "h1": st.current_trend(st.structure_events(h1, cfg.htf_k)) or "unknown",
                                "m15": st.current_trend(st.structure_events(c15, 2)) or "unknown"},
@@ -1338,6 +1339,7 @@ def format_kenan(market, res, digits=2, news="not checked", session="not checked
              f"LIQUIDITY SWEEP: {r['liquidity']}", f"BOS / CHoCH: {r['structure']}",
              f"ORDER BLOCK: {ob}", f"FVG: {fvg}",
              f"VWAP: {vw.get('text', 'n/a')}", f"ADX: {ax.get('text', 'n/a')}",
+             f"RSI: {(s.get('momentum') or {}).get('rsi_text', 'n/a')}", f"MACD: {(s.get('momentum') or {}).get('macd_text', 'n/a')}",
              f"DISPLACEMENT VOLUME: {(s.get('volume') or {}).get('text', 'filter off')}",
              f"NEWS FILTER: {news}", f"SESSION: {session}", "",
              f"SIGNAL QUALITY: {res['score100']}/100 (base {res['score100'] - s.get('score_context', 0)}"

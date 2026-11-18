@@ -1187,7 +1187,7 @@ def test_signal_carries_tp1_tp2_tp3_vwap_adx_and_kenan_layout(monkeypatch):
     assert sum(res["score_parts"].values()) + res["score_context"] == res["score100"] <= 100
     text = sl.format_kenan("XAUUSD", res, 2, "clear", "London")
     for label in ("KENAN TRADER AI", "MARKET:", "DIRECTION:", "SIGNAL STATUS: ENTRY CONFIRMED", "ENTRY:", "STOP LOSS:",
-                  "TP1:", "TP2:", "TP3:", "TP4:", "TP5:", "TIMEFRAME:", "H4 TREND:", "H1 TREND:", "M15 STRUCTURE:", "LIQUIDITY SWEEP:",
+                  "TP1:", "TP2:", "TP3:", "TP4:", "TP5:", "RSI:", "MACD:", "TIMEFRAME:", "H4 TREND:", "H1 TREND:", "M15 STRUCTURE:", "LIQUIDITY SWEEP:",
                   "BOS / CHoCH:", "ORDER BLOCK:", "FVG:", "VWAP:", "NEWS FILTER:", "SESSION:", "SIGNAL QUALITY:",
                   "RISK / REWARD:", "SIGNAL ID:", "TIMESTAMP:", "SIGNAL EXPIRY:", "ENTRY REASON:", "INVALIDATION CONDITION:"):
         assert label in text, label
@@ -1620,3 +1620,20 @@ def test_scan_line_shows_the_market_state_and_it_can_be_switched_off(monkeypatch
     monkeypatch.setattr(ict_alerts.market_state, "classify", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     line = ict_alerts.selective_scan("XAUUSD", _utc(2026, 11, 18, 14, 50), cfgs, None)[0]
     assert "state:" not in line and "SELECTIVE WAIT" in line
+
+
+def test_rsi_macd_values_and_the_signal_text_are_information_only():
+    import indicators as ind
+    up = [{"close": 100 + i} for i in range(60)]
+    down = [{"close": 200 - i} for i in range(60)]
+    flat = [{"close": 100.0} for _ in range(60)]
+    assert ind.rsi(up) == 100.0 and ind.rsi(down) == 0.0 and ind.rsi(flat) == 50.0
+    assert ind.rsi(up[:10]) is None and ind.macd(up[:20]) is None
+    line, sig, hist, prev = ind.macd(up)
+    assert line > 0 and hist >= 0 and ind.macd(down)[2] <= 0
+    v = ind.momentum_view(up, "buy")
+    assert v["rsi_agree"] is False and "stretched" in v["rsi_text"]            # RSI 100 on a BUY: overbought, may be late
+    assert ind.momentum_view(up, "sell")["macd_agree"] is False
+    mid = [{"close": 100 + (1 if i % 2 else -1) * 0.5 + i * 0.05} for i in range(60)]
+    assert ind.momentum_view(mid, "buy")["rsi_agree"] is True
+    assert ind.momentum_view(up[:5], "buy")["rsi"] is None and "unavailable" in ind.momentum_view(up[:5], "buy")["macd_text"]

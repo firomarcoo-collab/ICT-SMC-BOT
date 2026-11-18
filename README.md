@@ -443,3 +443,7 @@ The KENAN signal now also lists TP4 and TP5 (2.0x and 2.5x the TP2 distance) as 
 ## Market state, IFVG and mitigation blocks (phase 2, display only)
 
 `market_state.py` names the stage the market is in on M15: REVERSAL, LIQUIDITY SWEEP, DISPLACEMENT, RETEST, TRENDING, ACCUMULATION, DISTRIBUTION, RANGING or WAITING FOR CONFIRMATION (strongest evidence first; ADX 25 / 20 and a 20% volatility contraction are plain constants, not tuned on results). It shows as `[state: ...]` on the scan line and `MARKET STATE:` in a signal; `MARKET_STATE=0` turns it off. It never creates or blocks a signal. `structure.py` gained `ifvgs()` (a fair value gap price closed through, now working the other way) and `mitigation_blocks()` (the last opposite candle of a failed swing, after a displaced break); they are tested helpers, not yet part of the entry decision. OTE (0.62-0.79) and the Fibonacci levels 0.5 / 0.618 / 0.705 / 0.786 already existed in `structure.premium_discount`.
+
+## RSI and MACD in the signal (display only)
+
+The KENAN signal now shows `RSI:` (Wilder, 14) and `MACD:` (12/26/9 histogram) on M15 with whether each agrees with the direction, and warns when RSI is stretched against the trade (BUY at 70+, SELL at 30-). They are information for you: they do not create, block or score a signal.

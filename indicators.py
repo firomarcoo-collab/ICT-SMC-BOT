@@ -164,3 +164,65 @@ def volume_displacement(bars, idx, mss, fvg_formed, vol_mult=VOLUME_MULT, body_m
     body_txt = f"Body: {out['body_ratio']:.1f}x Avg" if out["body_ratio"] is not None else "Body: n/a"
     out["text"] = f"{vol_txt} | {body_txt}"
     return out
+
+
+# ===== RSI and MACD: display-only confirmation (they never create, block or score a signal) =====
+
+def ema(values, period):
+    """Exponential moving average of a list, same length (seeded with the first value)."""
+    if not values:
+        return []
+    k = 2 / (period + 1)
+    out = [values[0]]
+    for v in values[1:]:
+        out.append(v * k + out[-1] * (1 - k))
+    return out
+
+
+def rsi(bars, period=14):
+    """Wilder RSI of the closes, or None with fewer than period + 1 bars."""
+    if len(bars) < period + 1:
+        return None
+    closes = [b["close"] for b in bars]
+    gains = [max(c - p, 0.0) for p, c in zip(closes, closes[1:])]
+    losses = [max(p - c, 0.0) for p, c in zip(closes, closes[1:])]
+    ag, al = sum(gains[:period]) / period, sum(losses[:period]) / period
+    for g, l in zip(gains[period:], losses[period:]):
+        ag, al = (ag * (period - 1) + g) / period, (al * (period - 1) + l) / period
+    if al == 0:
+        return 100.0 if ag > 0 else 50.0
+    return 100 - 100 / (1 + ag / al)
+
+
+def macd(bars, fast=12, slow=26, signal=9):
+    """(macd line, signal line, histogram, previous histogram) of the closes, or None without slow + signal bars."""
+    if len(bars) < slow + signal:
+        return None
+    closes = [b["close"] for b in bars]
+    line = [a - b for a, b in zip(ema(closes, fast), ema(closes, slow))]
+    sig = ema(line, signal)
+    hist = [m - s for m, s in zip(line, sig)]
+    return line[-1], sig[-1], hist[-1], hist[-2]
+
+
+def momentum_view(bars, side):
+    """RSI and MACD text for the signal, and whether each agrees with the side. Information only."""
+    out = {"rsi": None, "macd": None, "rsi_text": "RSI unavailable (not enough candles)",
+           "macd_text": "MACD unavailable (not enough candles)", "rsi_agree": None, "macd_agree": None}
+    r = rsi(bars)
+    if r is not None:
+        zone = "overbought" if r >= 70 else "oversold" if r <= 30 else "bullish side" if r > 50 else "bearish side"
+        agree = r > 50 if side == "buy" else r < 50
+        warn = (side == "buy" and r >= 70) or (side == "sell" and r <= 30)
+        out.update(rsi=r, rsi_agree=agree and not warn,
+                   rsi_text=f"RSI {r:.1f} ({zone}), {'agrees with' if agree else 'against'} the {side.upper()}"
+                            + (", stretched: the move may be late" if warn else ""))
+    m = macd(bars)
+    if m is not None:
+        line, sig, hist, prev = m
+        agree = hist > 0 if side == "buy" else hist < 0
+        rising = hist > prev if side == "buy" else hist < prev
+        out.update(macd=hist, macd_agree=agree,
+                   macd_text=f"MACD histogram {hist:+.4g} ({'momentum building' if rising else 'momentum fading'}), "
+                             f"{'agrees with' if agree else 'against'} the {side.upper()}")
+    return out
