@@ -914,12 +914,17 @@ def build_selective_config(env):
             "ready_score": num("READY_SCORE", int)}
     over = {k: v for k, v in over.items() if v is not None}
     # --- tightened filtering (all on by default; each has an env switch to relax it)
-    notify = int(float(env.get("MIN_NOTIFY_SCORE") or 80))          # phone alert only from this score; below = WATCH
+    notify = int(float(env.get("MIN_NOTIFY_SCORE") or 70))          # phone alert only from this score; below = WATCH
     base_cfg = selective.make_config(profile)
     two_modes = profile in ("scalp", "swing")                       # these two keep their own score gate (85 / 80)
     if "ready_score" not in over and not two_modes:                 # an explicit READY_SCORE always wins
-        over["ready_score"] = max(base_cfg.ready_score, notify)
-    over["watch_score"] = min(base_cfg.watch_score, 75)
+        over["ready_score"] = notify or base_cfg.ready_score         # default 70 (MIN_NOTIFY_SCORE; 0 = the profile's own)
+    over["watch_score"] = min(base_cfg.watch_score, 75 if two_modes or not notify else max(notify - 5, 50))
+    htf = (env.get("HTF_MODE") or "h1m15").strip().lower()          # the general frame is H1 (swing keeps D1 + H4)
+    if htf not in ("h1m15", "default"):
+        raise SystemExit("HTF_MODE must be h1m15 or default")
+    if profile != "swing":
+        over["htf_mode"] = htf
     over["spread_margin"] = float(env.get("SPREAD_MARGIN") or 1.25)
     if not two_modes:
         over["require_mss_fvg"] = env.get("REQUIRE_MSS_FVG", "1") != "0"

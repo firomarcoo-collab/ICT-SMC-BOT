@@ -71,3 +71,6 @@ Notify 80, M15 confirmation mandatory (switch), news status + NEWS_STRICT, zone 
 
 ## M5 listing gate (checked, tested)
 A scan waits ("waiting for the latest M5 candle to be listed") while the newest closed M5 candle is older than the last 5-minute boundary; feeds that stay stale are blocked by the STALE status. MT5 price validation is not possible on Android.
+
+## Score 70 and H1 frame (done)
+`MIN_NOTIFY_SCORE` default 70, `HTF_MODE` default h1m15 (all profiles except swing). To be judged only on real results.

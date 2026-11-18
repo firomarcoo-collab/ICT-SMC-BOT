@@ -427,3 +427,7 @@ State is saved in `alerts_state.json` (survives restarts, forgets setups after 2
 ## Reversal states and trade journal
 
 Every tracked setup shows one state: REVERSAL DETECTED, REVERSAL DEVELOPING, MSS CONFIRMED, RETEST PENDING, ENTRY CONFIRMED, INVALIDATED (print-only; only ENTRY CONFIRMED is a signal). Finished trades are also written to `journal.csv` (next to `results.csv`, which keeps its old format) with MFE / MAE in R. `python journal.py` prints per-market trades, win rate, avg R, profit factor, max drawdown, average MFE/MAE and false-signal rate (a loss that never reached +0.5R). Fewer than 30 trades means no conclusion.
+
+## Defaults changed: alert score 70, H1 as the general frame
+
+Phone alerts now start at score 70 (`MIN_NOTIFY_SCORE=70`; scalp keeps 85, swing keeps 80; raise it back with `MIN_NOTIFY_SCORE=80`). The general market frame is H1 + M15 trend (`HTF_MODE=h1m15`, set `HTF_MODE=default` for the old H4/H1/M15 rules; swing keeps D1 + H4). A lower score means more but weaker signals: it is a technical rating, not a win probability.

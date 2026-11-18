@@ -477,7 +477,8 @@ def test_live_config_keeps_each_profile_defaults_unless_a_variable_is_set():
     """Regression: an unset READY_SCORE used to override the active profile's 80 with 86."""
     c = ict_alerts.build_selective_config({"PROFILE": "active", "MIN_NOTIFY_SCORE": "0"})
     assert (c.profile, c.ready_score, c.min_confluence) == ("active", 80, 4)
-    assert ict_alerts.build_selective_config({}).ready_score == 86
+    assert ict_alerts.build_selective_config({}).ready_score == 70            # default phone-alert score
+    assert ict_alerts.build_selective_config({"MIN_NOTIFY_SCORE": "0"}).ready_score == 86
     assert ict_alerts.build_selective_config({"PROFILE": "active", "READY_SCORE": "70"}).ready_score == 70
     assert ict_alerts.build_selective_config({"PROFILE": "strict", "MIN_CONFLUENCE": "4"}).min_confluence == 4
     risk = ict_alerts.build_selective_config({"PROFILE": "loose"})
@@ -529,7 +530,7 @@ def test_startup_line_states_the_active_rules():
     assert "profile LOOSE" in line and "score 60+/100" in line and "4/8" in line
     assert "0.25%/trade" in line and "3 losses" in line and "1.5% a day" in line and "UNVERIFIED" in line
     strict = ict_alerts.describe_config(ict_alerts.build_selective_config({"ALLOW_UNKNOWN_COST": "0"}), "selective")
-    assert "profile STRICT" in strict and "score 86+" in strict and "UNVERIFIED" not in strict
+    assert "profile STRICT" in strict and "score 70+" in strict and "UNVERIFIED" not in strict
     default = ict_alerts.describe_config(ict_alerts.build_selective_config({}), "selective")
     assert "cost UNVERIFIED allowed" in default                      # unknown spread is labelled, not blocked
     assert ict_alerts.describe_config(None, "legacy") == "Engine: legacy"
@@ -914,7 +915,7 @@ def test_tightened_defaults_in_live_config():
     assert ict_alerts.build_selective_config({"PROFILE": "active"}).killzones == ((7.0, 11.0), (12.0, 16.0))
     off = ict_alerts.build_selective_config({"PROFILE": "active", "KILLZONES": "0", "REQUIRE_MSS_FVG": "0",
                                             "MIN_NOTIFY_SCORE": "75", "COUNTER_TREND_MIN_SCORE": "0"})
-    assert off.killzones == () and not off.require_mss_fvg and off.ready_score == 80 and off.counter_trend_min_score == 0
+    assert off.killzones == () and not off.require_mss_fvg and off.ready_score == 75 and off.counter_trend_min_score == 0
 
 
 def test_killzone_window_utc():
@@ -1345,7 +1346,7 @@ def test_signal_level_presets_relax_quality_gates_but_never_the_cost_floor():
 
 def test_notify_default_80_and_m15_confirmation_switch():
     import ict_alerts
-    assert ict_alerts.build_selective_config({"PROFILE": "active"}).ready_score == 80
+    assert ict_alerts.build_selective_config({"PROFILE": "active"}).ready_score == 70
     assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).ready_score == 85      # the scalp mode keeps its own gate
     assert ict_alerts.build_selective_config({"PROFILE": "swing"}).ready_score == 80
     assert ict_alerts.build_selective_config({"PROFILE": "active"}).require_m15_confirm
@@ -1560,3 +1561,14 @@ def test_scan_waits_when_the_latest_closed_m5_candle_is_not_listed_yet(monkeypat
         monkeypatch.setattr(ict_alerts, "get_candles", lambda inst, tf, k=kind: feeds[k])
         line, sig, _ = ict_alerts.selective_scan("BTCUSD", now, cfgs, None)
         assert expect in line and sig is None
+
+
+def test_default_alert_score_70_and_h1_general_frame():
+    c = ict_alerts.build_selective_config({"PROFILE": "forex"})
+    assert c.ready_score == 70 and c.watch_score <= 65 and c.htf_mode == "h1m15"
+    assert ict_alerts.build_selective_config({"PROFILE": "forex", "HTF_MODE": "default"}).htf_mode == "default"
+    assert ict_alerts.build_selective_config({"PROFILE": "swing"}).htf_mode == "d1h4"           # swing keeps D1 + H4
+    assert ict_alerts.build_selective_config({"PROFILE": "scalp"}).ready_score == 85            # scalp keeps its own gate
+    assert ict_alerts.build_selective_config({"MIN_NOTIFY_SCORE": "80"}).ready_score == 80
+    with pytest.raises(SystemExit):
+        ict_alerts.build_selective_config({"HTF_MODE": "h4"})
