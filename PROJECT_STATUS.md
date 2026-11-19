@@ -98,3 +98,5 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## IFVG signal + decisions (done)
 `flip_ifvg.py` (score, cost gate, FINAL layout, pending plans), `decisions.py`, `decide.py`, buttons in `alert_classes.deliver` and `ict_alerts.notify`, one open signal per market enforced through the signal store. IFVG is now part of the final decision (default on, `IFVG_SIGNALS=0` off) and is measured separately in the journal (profile `ifvg`). Not tested on live data: the Termux notification buttons run on the phone only. Tag `backup-before-ifvg-signal`.
+
+- Structural Stop Loss for IFVG plans (Hard SL behind sweep/swing extreme + 0.5 ATR, Early Exit separate, entry at 50-75% depth, limit/market flag). 354 tests pass. Not yet measured on real trades.

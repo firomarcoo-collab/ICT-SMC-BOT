@@ -1288,7 +1288,7 @@ def run():
                         save_for_review(alert["text"])
                         if track:
                             track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],
-                                      ref=alert["id"], market=True)
+                                      ref=alert["id"], market=alert["setup"].get("market_entry", True))
                 except Exception as e:
                     print(f"[{stamp} sel] {name}: error: {e}", flush=True)
         for tf in tfs:

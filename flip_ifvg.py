@@ -23,7 +23,9 @@ LOOKBACK = 12              # a break older than this many M15 candles is not a f
 MAX_BARS = 32              # an IFVG setup older than this many M15 candles expires
 CHASE_ATR = 1.0            # price this far from the zone without a retest = missed, do not chase
 MIN_ROOM_R = 1.0           # the next liquidity must be at least this many R away
-SL_MARGIN_ATR = 0.25       # safety margin behind the invalidation level
+SL_ATR = 0.5               # Hard SL: behind the sweep / swing extreme by this many ATR (IFVG_SL_ATR overrides)
+SWING_BARS = 24            # M15 candles looked at (up to the break) for the sweep / swing extreme
+DEPTH_LOW, DEPTH_HIGH = 0.50, 0.75   # optimal entry: 50%-75% into the IFVG, measured from the edge price comes from
 STRONG_SESSIONS = ("London", "London / New York pre-open", "New York open", "New York")
 
 
@@ -229,6 +231,31 @@ def render(kind, market, side, tf, h1, session, reason, invalidation, targets, c
     return "\n".join(lines)
 
 
+def structural_extreme(m15, side, flip_idx, zone_edge):
+    """Highest high (SELL) / lowest low (BUY) of the last SWING_BARS M15 candles up to the break: the sweep or swing extreme the
+    Hard SL must sit behind. Never tighter than the IFVG's own far edge."""
+    seg = m15[max(0, flip_idx - SWING_BARS + 1): flip_idx + 1]
+    if not seg:
+        return zone_edge
+    return max([zone_edge] + [b["high"] for b in seg]) if side == "sell" else min([zone_edge] + [b["low"] for b in seg])
+
+
+def optimal_entry(zone, side, close):
+    """Entry at 50%-75% depth of the IFVG (62.5% target). Returns (price, is_market): if the confirmation close is already inside
+    the band or deeper it is a market entry at that close, otherwise a limit order at the 62.5% level."""
+    w = zone["high"] - zone["low"]
+    if side == "sell":
+        lo, tgt = zone["low"] + DEPTH_LOW * w, zone["low"] + (DEPTH_LOW + DEPTH_HIGH) / 2 * w
+        return (close, True) if close >= lo else (tgt, False)
+    hi, tgt = zone["high"] - DEPTH_LOW * w, zone["high"] - (DEPTH_LOW + DEPTH_HIGH) / 2 * w
+    return (close, True) if close <= hi else (tgt, False)
+
+
+def hard_sl(side, extreme, atr):
+    m = float(os.environ.get("IFVG_SL_ATR") or SL_ATR) * (atr or 0)
+    return extreme + m if side == "sell" else extreme - m
+
+
 def _inside(z, price):
     return z["low"] <= price <= z["high"]
 
@@ -334,9 +361,9 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
         if rec["phase"] == "retest" and not rec.get("confirmed"):
             dir_ok = p5["close"] < p5["open"] if side == "sell" else p5["close"] > p5["open"]
             if _inside(z, p5["close"]) and dir_ok and state.fire(sid, "IFVG_CONFIRMED", now):
-                entry = p5["close"]
-                margin = SL_MARGIN_ATR * (atr or 0)
-                sl = rec["extreme"] + margin if side == "sell" else rec["extreme"] - margin
+                entry, is_market = optimal_entry(z, side, p5["close"])
+                sw_ext = structural_extreme(m15, side, rec["flip_idx"], z["high"] if side == "sell" else z["low"])
+                sl = hard_sl(side, sw_ext, atr)
                 risk = abs(sl - entry)
                 tg = _targets(m15, side, entry, calendar)
                 room = abs(tg[0]["price"] - entry) / risk if tg and risk else 0.0
@@ -355,11 +382,18 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                 inv = f"{'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)} (full M15 close)"
                 tps = [_f(t["price"], digits) for t in tg]
                 tgt_txt = [f"{_f(t['price'], digits)} ({t['name']})" for t in tg]
-                sug = (f"entry {_f(entry, digits)} (the closed M5 candle), stop {_f(sl, digits)}, "
-                       + ", ".join(f"TP{i + 1} {_f(t['price'], digits)}" for i, t in enumerate(tg)) + f", R:R about 1:{rr:.1f}")
+                be = " (move the stop to break-even there)"
+                sug = (("Optimal Entry " + _f(entry, digits) + (" (market: the closed M5 candle is already in the 50-75% band)" if is_market
+                                                                else " (LIMIT at 62.5% depth of the IFVG)"))
+                       + f"\n🛑 Hard SL {_f(sl, digits)} (behind the {'sweep/swing high' if side == 'sell' else 'sweep/swing low'} "
+                         f"{_f(sw_ext, digits)} + {os.environ.get('IFVG_SL_ATR') or SL_ATR} ATR; not at the IFVG edge)"
+                       + f"\n🚪 Early Exit: an M15 candle closing fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"
+                       + "".join(f"\n🎯 TP{i + 1} {_f(t['price'], digits)}" + (be if i == 0 else "") for i, t in enumerate(tg))
+                       + f"\n⚖️ R:R about 1:{rr:.1f} (from the structural stop)")
                 reason = ("closed M5 confirmation candle inside the IFVG after the retest, with room to the next liquidity" if lang != "ar"
                           else "إغلاق شمعة تأكيد M5 داخل IFVG بعد إعادة الاختبار مع مساحة كافية للسيولة التالية")
                 plan = {"entry": _f(entry, digits), "sl": _f(sl, digits), "tps": tps, "rr": f"{rr:.1f}", "invalid": inv,
+                        "early_exit": inv, "limit": not is_market,
                         "wait": "this setup is already confirmed: if you did not enter, do not chase it once price is more than 0.5 ATR "
                                 "from the entry; cancel it if an M15 candle closes fully beyond the invalidation"}
                 age = now - (int(p5["time"].timestamp()) + 300)
@@ -374,6 +408,7 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                     setup = {"side": side, "entry": float(entry), "sl": float(sl), "tp": float(final_t), "tp1": float(tg[0]["price"]),
                              "mode": "flip", "profile": "ifvg", "bar_time": int(p5["time"].timestamp()),
                              "uses": [f"ifvg|{z['low']}|{z['high']}|{rec['flip_idx']}"], "score100": score, "invalidation": inv,
+                             "market_entry": is_market, "early_exit": inv,
                              "zones": [f"IFVG {z['low']}-{z['high']}"], "parts": parts, "h1": h1_trend or "neutral", "session": phase}
                     ok, why = gate({"risk": risk, "reward": reward, "setup": setup})
                     if ok:

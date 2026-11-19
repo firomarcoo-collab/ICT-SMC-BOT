@@ -93,7 +93,7 @@ def test_retest_then_a_closed_m5_confirmation_inside_the_zone_with_room(tmp_path
     got = run(st, b, [conf])
     assert [c for c, _, _ in got] == ["IFVG_CONFIRMED"]
     t = got[0][2]
-    assert "[CONFIRMED]" in t and "Suggested (analysis): entry 100.90" in t and "TP1 96.00" in t and "R:R about" in t and "not an automatic order" in t
+    assert "[CONFIRMED]" in t and "Optimal Entry 101.44 (LIMIT at 62.5% depth" in t and "Hard SL" in t and "Early Exit" in t and "TP1 96.00" in t and "break-even" in t and "R:R about" in t and "not an automatic order" in t
     assert run(st, b, [conf]) == []
 
 
@@ -191,7 +191,7 @@ def test_a_confirmed_ifvg_that_passes_every_gate_becomes_the_signal(tmp_path, mo
     assert plan["risk"] > 0 and plan["reward"] > plan["risk"] * 2 and plan["setup"]["profile"] == "ifvg" and plan["setup"]["side"] == "sell"
     sid = got[0][1]
     assert st.setups[sid]["plan"]["tp"] == 93.0 and st.setups[sid]["plan"]["tp1"] == 96.0 and st.setups[sid]["plan"]["uses"][0].startswith("ifvg|")
-    assert st.meta["pending"][sid]["entry"] == "100.90" and st.meta["pending"][sid]["tps"] == ["96.00", "93.00"]
+    assert st.meta["pending"][sid]["entry"] == "101.44" and st.setups[sid]["plan"]["market_entry"] is False and st.meta["pending"][sid]["tps"] == ["96.00", "93.00"]
     again = fl.process(st, "XAUUSD", m15(), [m5_bar(m15(), 101.5, 101.7, 100.6, 100.9)], "down", now_after(m15()), "en", 2, gate=lambda p: (True, ""))
     assert again == []                                                                             # one signal per setup
 
@@ -326,3 +326,25 @@ def test_every_ifvg_alert_lists_completed_missing_and_the_effect_out_of_four(tmp
     up = m15([(98.8, 102.6, 98.7, 102.4)])
     inv = run(st2, up)
     assert [c for c, _, _ in inv] == ["INVALIDATED"] and "- Missing:" in inv[0][2] and "Confluence: [" in inv[0][2]
+
+
+def test_optimal_entry_is_inside_the_50_75_band_limit_or_market():
+    z = {"low": 100.0, "high": 104.0}
+    assert fl.optimal_entry(z, "sell", 101.0) == (102.5, False)                                  # 62.5% from the low edge, limit
+    assert fl.optimal_entry(z, "sell", 102.4) == (102.4, True)                                   # already deep enough: market
+    assert fl.optimal_entry(z, "buy", 103.0) == (101.5, False)
+    assert fl.optimal_entry(z, "buy", 101.8) == (101.8, True)
+
+
+def test_hard_sl_sits_behind_the_sweep_extreme_not_the_ifvg_edge(monkeypatch):
+    bars = [{"high": 100.0 + i * 0.1, "low": 99.0 + i * 0.1} for i in range(30)]
+    bars[20]["high"] = 109.0                                                                      # the sweep high
+    ext = fl.structural_extreme(bars, "sell", 25, 104.0)
+    assert ext == 109.0 and fl.hard_sl("sell", ext, 2.0) == 110.0                                # + 0.5 ATR
+    assert fl.hard_sl("sell", ext, 2.0) > 104.0 + 0.25 * 2.0                                     # wider than the old edge stop
+    bars[20]["low"] = 90.0
+    low = fl.structural_extreme(bars, "buy", 25, 99.0)
+    assert low == 90.0 and fl.hard_sl("buy", low, 2.0) == 89.0
+    monkeypatch.setenv("IFVG_SL_ATR", "1")
+    assert fl.hard_sl("sell", 109.0, 2.0) == 111.0
+    assert fl.structural_extreme([], "sell", 0, 104.0) == 104.0                                  # never tighter than the zone edge

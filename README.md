@@ -473,3 +473,9 @@ Every rejection is logged to `rejections.log` (one JSON line per change of reaso
 ## The 4-condition confluence in every IFVG alert
 
 Every IFVG alert (state flip, retest, confirmed, signal, invalidated) now shows `Confluence [X/4]`, the conditions completed, the conditions missing (or "none") and what the missing ones mean for the trade. The four conditions: H1 bias; a liquidity sweep first; a true body break (IFVG, not a wick); session killzone plus a closed confirmation candle (only counted once the closed M5 candle is inside the zone). Arabic with `ALERT_LANG=ar`. The regular engine signal keeps its own entry checklist.
+
+## Structural Stop Loss (IFVG plan)
+- Hard SL = behind the sweep/swing extreme of the last 24 M15 candles up to the break, plus 0.5 ATR (`IFVG_SL_ATR`). Never at the IFVG edge.
+- Early Exit (structural invalidation) = a full M15 close beyond the IFVG far edge. It is separate from the Hard SL.
+- Optimal Entry = 50%-75% depth of the IFVG (62.5% limit; market if the confirmation close is already in the band).
+- R:R, the 2R gate and the cost check use the new wider stop. Tracking uses `market_entry` (limit orders wait for the fill).
