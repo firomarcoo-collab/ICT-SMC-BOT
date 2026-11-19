@@ -43,6 +43,7 @@ import alert_classes
 import rejections
 import reversal_machine
 import reversal_tracker
+import decisions
 import flip_ifvg
 import market_state
 import ny_session
@@ -486,13 +487,18 @@ def h1_trend(data, now_ts):
         return None
 
 
-def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2):
+def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2, gate=None, signals=None):
     """Runs the setup tracker for one market: the six alert classes, the reversal state machine (one setup per direction,
     one direction at a time) and the rejection log. Returns the text lines to print (and phones the alerts).
     Nothing returned here is ever a trade signal, except what the normal signal path sends."""
     observations, last_close = selective.watch_observations(market, data, now_ts, cfg, calendar, lang,
                                                             alert_classes.APPROACH_ATR)
     state = alert_state()
+    skip = decisions.ignored()                                    # setups you chose to IGNORE are finished for the bot
+    for sid in skip:
+        if sid in state.setups and not state.setups[sid].get("done"):
+            state.setups[sid]["done"] = "ignored"
+    observations = [o for o in observations if o["sid"] not in skip]
     active = {sg["side"] for sg in store.active_list(market)} if store is not None else set()
     kept, notes = reversal_machine.arbitrate(state, market, observations, now_ts, h1_trend(data, now_ts), active)
     extra = ""
@@ -510,12 +516,20 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
         try:
             m15 = selective.closed_only(data.get("m15") or [], 900, now_ts)
             m5 = selective.closed_only(data.get("m5") or [], 300, now_ts)
-            for cls, sid, text in flip_ifvg.process(state, market, m15, m5, h1_trend(data, now_ts), now_ts, lang, digits, calendar):
+            for cls, sid, text in flip_ifvg.process(state, market, m15, m5, h1_trend(data, now_ts), now_ts, lang, digits, calendar,
+                                                    gate if os.environ.get("IFVG_SIGNALS", "1") != "0" else None):
                 if cls == "DROP":
                     rejections.log(market, state.setups[sid]["side"] if sid in state.setups else None, "IFVG", [text], now_ts)
                     continue
+                if cls == "IFVG_SIGNAL" and signals is not None:            # a real signal: the caller notifies and tracks it
+                    plan = state.setups[sid]["plan"]
+                    signals.append({"text": text, "setup": plan, "market": market, "decision_id": sid, "bar_time": plan["bar_time"],
+                                    "id": f"{market}-{plan['side']}-{plan['bar_time']}"})
+                    continue
                 extra += "\n" + text
-                alert_classes.deliver(cls, text)
+                if sid in skip:
+                    continue
+                alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("flip/IFVG watch failed for %s: %s", market, e)
     for o in kept:
@@ -694,8 +708,25 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         if mstate:
             line += f" [state: {mstate}]"
         if os.environ.get("ALERT_CLASSES", "1") != "0":
-            line += track_setups(market, name, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang,
-                                 store, res.get("reasons"), inst["digits"])
+            cfg0 = candidates[0][0]
+
+            def gate(plan, _cfg=cfg0):
+                ok, why = flip_ifvg.cost_check(plan["risk"], plan["reward"], spread, commission_price, _cfg)
+                if not ok:
+                    return False, why
+                if store is None:
+                    return False, "no signal store"
+                return store.open(market, plan["setup"], now_ts)               # one open signal per market, no opposite side
+
+            ifvg_sigs = []
+            line += track_setups(market, name, data, now_ts, cfg0, structure.calendar_for(inst["source"]), lang,
+                                 store, res.get("reasons"), inst["digits"], gate, ifvg_sigs)
+            if ifvg_sigs:                                                       # an IFVG setup passed every gate: it is the signal
+                a = ifvg_sigs[0]
+                a["setup"] = {k: (round(v, d) if isinstance(v, float) else v) for k, v in a["setup"].items()}
+                if os.environ.get("ALERT_CLASSES", "1") != "0":
+                    alert_state().mark_confirmed(market, a["setup"]["side"], now_ts)
+                return f"{name}: SELECTIVE {a['setup']['side'].upper()} (IFVG)", a, False
         elif os.environ.get("ZONE_WATCH", "1") != "0":
             for zw in selective.zone_watch(market, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang):
                 if _ZONE_SEEN.get(zw["id"]) is None:       # once per zone (a restart may show it once more)
@@ -737,6 +768,16 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     warn = fallback_note(inst)
     if warn:
         text += "\n" + warn
+    sid_reg = res.get("id")
+    if sid_reg:
+        tps = [setup.get(k) for k in ("tp1", "tp", "tp3") if setup.get(k) is not None]
+        risk0 = abs(setup["entry"] - setup["sl"]) or 1
+        flip_ifvg._pending(alert_state(), sid_reg, market, setup["side"], now_ts, lang, entry=setup["entry"], sl=setup["sl"], tps=tps,
+                           rr=f"{abs(setup['tp'] - setup['entry']) / risk0:.1f}", invalid=setup.get("invalidation", ""),
+                           wait="this signal is already confirmed: if you did not enter, do not chase it once price is more than 0.5 ATR "
+                                "from the entry; cancel it if the invalidation level is closed beyond")
+        alert_state().save()
+        text += "\n" + decisions.options_text(sid_reg, lang)
     lot = extras.lot_text(balance, risk_percent, setup, spec, (contracts or {}).get(name)).strip()
     if lot:
         text += "\n" + lot
@@ -748,7 +789,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
                 text += "\n" + usd_text
     except Exception as e:
         log.warning("dollar monitor failed: %s", e)
-    return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market,
+    return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market, "decision_id": sid_reg,
                                                   "id": res.get("id"), "bar_time": setup["bar_time"]}, False
 
 
@@ -822,7 +863,7 @@ def save_for_review(text, path=None):
     return pack
 
 
-def notify(text, entry=False, side=None, alert=False):
+def notify(text, entry=False, side=None, alert=False, decision_id=None):
     """Shows the message. Only entry=True (a trade ready to enter) makes a sound; everything
     else (sessions, news, results, heads-up events) is only printed on the Termux screen
     (INFO_NOTIFY=1 also shows it as a silent phone notification).
@@ -848,6 +889,7 @@ def notify(text, entry=False, side=None, alert=False):
                "--content", text, "--priority", "high" if entry or alert else "low"]
         if led:
             cmd += ["--led-color", led]
+        cmd += decisions.button_args(decision_id)                      # ENTER / WAIT / IGNORE buttons (you decide, the bot never trades)
         if loud and not sound:
             cmd.append("--sound")  # no custom sound: use the phone's notification sound
         try:
@@ -1242,7 +1284,7 @@ def run():
                         wait_stats.setdefault(name, {})[key] = wait_stats.setdefault(name, {}).get(key, 0) + 1
                     if alert:
                         hour_signals += 1
-                        notify(alert["text"], entry=True, side=alert["setup"]["side"])
+                        notify(alert["text"], entry=True, side=alert["setup"]["side"], decision_id=alert.get("decision_id"))
                         save_for_review(alert["text"])
                         if track:
                             track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],

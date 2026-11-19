@@ -1647,3 +1647,15 @@ def test_tz_ok_reports_a_missing_timezone_database(monkeypatch):
     assert structure.tz_ok() is False
     from datetime import datetime, timezone
     assert structure._ny_local(datetime(2026, 11, 18, 14, 0, tzinfo=timezone.utc)).hour == 9     # the fixed UTC-5 fallback still works
+
+
+def test_a_regular_signal_carries_your_three_choices_and_a_pending_plan(monkeypatch):
+    import decisions
+    d = scenario()
+    serve(d)
+    status, alert, _ = ict_alerts.selective_scan("XAUUSD", NOW, CFG, tmp_store()[0], None, {"XAUUSD": .2}, None, "en")
+    assert alert and alert["decision_id"] == alert["id"] and f"python decide.py {alert['id']} enter|wait|ignore" in alert["text"]
+    plan = ict_alerts.alert_state().meta["pending"][alert["id"]]
+    assert plan["side"] == alert["setup"]["side"] and plan["entry"] == alert["setup"]["entry"] and plan["sl"] == alert["setup"]["sl"]
+    assert plan["tps"] and plan["rr"] and "do not chase" in plan["wait"]
+    assert decisions.button_args(alert["decision_id"])[1] == "ENTER"

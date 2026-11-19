@@ -95,3 +95,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## State flip + IFVG watch (done, analysis only)
 `flip_ifvg.py`, `test_flip_ifvg.py` (9 tests), `alert_classes.EXTRA_CLASSES` (3 new alerts) and a persisted `meta` (flip cooldown). IFVG is not part of the FINAL signal decision. Tag `backup-before-ifvg-flip`.
+
+## IFVG signal + decisions (done)
+`flip_ifvg.py` (score, cost gate, FINAL layout, pending plans), `decisions.py`, `decide.py`, buttons in `alert_classes.deliver` and `ict_alerts.notify`, one open signal per market enforced through the signal store. IFVG is now part of the final decision (default on, `IFVG_SIGNALS=0` off) and is measured separately in the journal (profile `ifvg`). Not tested on live data: the Termux notification buttons run on the phone only. Tag `backup-before-ifvg-signal`.

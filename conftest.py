@@ -11,6 +11,8 @@ def isolated_defaults(monkeypatch, tmp_path):
     monkeypatch.setattr(alert_classes, "STATE_FILE", str(tmp_path / "alerts_state.json"))
     monkeypatch.setattr(ict_alerts, "_ALERT_STATE", None)
     monkeypatch.setattr(ict_alerts, "ZONE_SEEN_FILE", str(tmp_path / "zone_seen.json"))
+    import decisions
+    monkeypatch.setattr(decisions, "FILE", str(tmp_path / "decisions.csv"))
     import rejections
     monkeypatch.setattr(rejections, "FILE", str(tmp_path / "rejections.log"))
     monkeypatch.setattr(rejections, "_last", {})

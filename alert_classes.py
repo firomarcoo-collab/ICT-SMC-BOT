@@ -13,6 +13,7 @@ Sounds do not need audio files: every class has its own vibration pattern and a 
 text-to-speech, ALERT_VOICE=0 turns the voice off); CONFIRMED also keeps the normal alert tone.
 All phone calls are started without waiting for them (the scan never blocks on a notification).
 """
+import decisions
 import json
 import os
 import shutil
@@ -36,8 +37,12 @@ CLASSES = {
 EXTRA_CLASSES = {      # IFVG / state-flip alerts (flip_ifvg.py): analysis only, never an entry order
     "STATE_FLIP": {"emoji": "🔄", "title": "STATE FLIP", "vibrate": "200,80,200,80,200", "voice": "State flip, zone failed"},
     "IFVG_RETEST": {"emoji": "🟤", "title": "IFVG RETEST", "vibrate": "120,60,120", "voice": "I F V G retest"},
+    "IFVG_SIGNAL": {"emoji": "🟢", "title": "IFVG SIGNAL", "vibrate": "700,120,700,120,700", "voice": "I F V G signal"},
     "IFVG_CONFIRMED": {"emoji": "🟩", "title": "IFVG CONFIRMED", "vibrate": "500,100,500,100,500", "voice": "I F V G confirmation"},
 }
+
+
+DECISION_CLASSES = ("STATE_FLIP", "IFVG_RETEST", "IFVG_CONFIRMED", "IFVG_SIGNAL")     # alerts that carry ENTER / WAIT / IGNORE buttons
 
 
 def setup_id(market, side, sweep):
@@ -175,7 +180,7 @@ def process(state, market, observations, last_close, now, lang="en"):
     return out
 
 
-def deliver(cls, text):
+def deliver(cls, text, sid=None):
     """Phone side of an alert: notification, vibration pattern and spoken label, all started without waiting.
     Returns the list of commands started (empty outside Termux)."""
     spec, started = CLASSES.get(cls) or EXTRA_CLASSES[cls], []
@@ -188,7 +193,8 @@ def deliver(cls, text):
             except OSError:
                 pass
     run(["termux-notification", "--title", f"{spec['emoji']} {spec['title']}", "--content", text,
-         "--priority", "high", "--vibrate", spec["vibrate"], "--id", f"kenan-{cls}"])
+         "--priority", "high", "--vibrate", spec["vibrate"], "--id", f"kenan-{cls}"]
+        + (decisions.button_args(sid) if sid and cls in DECISION_CLASSES else []))
     if os.environ.get("ALERT_VOICE", "1") != "0":
         run(["termux-tts-speak", spec["voice"]])
     return started

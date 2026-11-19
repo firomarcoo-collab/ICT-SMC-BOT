@@ -153,7 +153,7 @@ def test_custom_sound_is_played(monkeypatch=None):
 def test_only_entry_alerts_may_make_a_sound():
     import inspect
     src = inspect.getsource(ict_alerts.run)
-    assert 'notify(alert["text"], entry=True, side=alert["setup"]["side"])' in src                       # selective entry
+    assert 'notify(alert["text"], entry=True, side=alert["setup"]["side"], decision_id=' in src                      # selective entry
     assert 'entry=alert["kind"] in ENTRY_KINDS' in src                      # legacy: ict / classic / rct only
     assert "event" not in ict_alerts.ENTRY_KINDS
     for call in ("notify(f\"US OPEN", "notify(\"US MARKET", "notify(f\"SESSION", "notify(f\"NEWS", "notify(note, alert="):

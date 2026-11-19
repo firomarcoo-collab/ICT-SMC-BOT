@@ -15,6 +15,7 @@ import math
 import os
 
 import alert_classes as ac
+import decisions
 import ny_session
 import structure as st
 
@@ -54,6 +55,46 @@ def _once(state, key, now):
         for k in [k for k, t in seen.items() if now - t > 86400]:
             seen.pop(k, None)
     return True
+
+
+def ifvg_score(conf, h1_trend, room_r):
+    """Transparent 100-point rating of a confirmed IFVG setup (a technical rating, NOT a win probability)."""
+    parts = {"htf": 25 if conf["h1"] else (10 if h1_trend not in ("up", "down") else 0),
+             "sweep": 20 if conf["sweep"] else 0, "session": 15 if conf["session"] else 0,
+             "displacement": 15, "retest_confirm": 15,
+             "room": 10 if room_r >= 2 else 5 if room_r >= MIN_ROOM_R else 0}
+    return sum(parts.values()), parts
+
+
+def min_score(h1_aligned_or_neutral):
+    base = int(float(os.environ.get("IFVG_MIN_SCORE") or 70))
+    return base if h1_aligned_or_neutral else max(base, 80)            # against the H1 trend: stricter
+
+
+def cost_check(risk, reward, spread, commission_price, cfg):
+    """(ok, reason): spread / commission / slippage against the stop and the net and gross R:R of the final target."""
+    if spread is None and not cfg.allow_unknown_cost:
+        return False, "spread unknown (set SPREAD_<SYMBOL> or fill markets.json)"
+    cost = (spread or 0.0) * cfg.spread_margin + (commission_price or 0.0) + cfg.slippage
+    if risk <= 0:
+        return False, "no stop distance"
+    if cost / risk > cfg.max_cost_frac:
+        return False, f"cost {cost:.4g} is {cost / risk:.0%} of the stop (limit {cfg.max_cost_frac:.0%})"
+    min_rr = float(os.environ.get("IFVG_MIN_RR") or 2.0)
+    if reward / risk < min_rr:
+        return False, f"R:R 1:{reward / risk:.1f} to the final target is under 1:{min_rr:g}"
+    net = (reward - cost) / (risk + cost)
+    if net < cfg.min_net_rr:
+        return False, f"net R:R {net:.2f} after costs is under {cfg.min_net_rr}"
+    return True, "" if spread is not None else "COST UNVERIFIED"
+
+
+def _pending(state, sid, market, side, now, lang, **plan):
+    """What decide.py needs to answer ENTER / WAIT / IGNORE for this alert (kept one day)."""
+    pend = state.meta.setdefault("pending", {})
+    pend[sid] = dict(plan, market=market, side=side, lang=lang, created=int(now))
+    for k in [k for k, v in pend.items() if now - v.get("created", now) > 86400]:
+        pend.pop(k, None)
 
 
 def _sid(market, z, bars):
@@ -105,11 +146,26 @@ def _confluence_text(c, lang):
 
 
 def render(kind, market, side, tf, h1, session, reason, invalidation, targets, confluence, lang="en", old_side=None,
-           suggested=None):
+           suggested=None, score=None, parts=None):
     """The three alert layouts. kind: SETUP | CONFIRMED | FLIP. Text only, no decisions."""
     ar = lang == "ar"
     head_side = side.upper()
     tgt = " / ".join(targets) if targets else ("لا سيولة واضحة" if ar else "no clear liquidity")
+    if kind == "FINAL":
+        ttl = os.environ.get("SIGNAL_TTL_HOURS") or "6"
+        lines = [f"🟩 KENAN TRADER AI — IFVG SIGNAL | {market} | {head_side}",
+                 (f"التقييم: {score}/100 (تقييم فني وليس احتمال ربح) | الفريم: {tf} (اتجاه H1: {_trend_word(h1, lang)}) | الجلسة: {session}" if ar
+                  else f"Score: {score}/100 (a technical rating, NOT a win probability) | TF: {tf} (H1 trend: {_trend_word(h1, lang)}) | Session: {session}"),
+                 (f"🎯 السبب: {reason}" if ar else f"🎯 Reason: {reason}"),
+                 (f"📐 {suggested}" if suggested else ""),
+                 (f"🛑 الإبطال: {invalidation}" if ar else f"🛑 Invalidation: {invalidation}"),
+                 (f"💧 الأهداف: {tgt}" if ar else f"💧 Targets: {tgt}"),
+                 (f"📊 التوافق: {_confluence_text(confluence, lang)}" if ar else f"📊 Confluence: {_confluence_text(confluence, lang)}"),
+                 (f"🧮 نقاط التقييم: {parts}" if ar else f"🧮 Score parts: {parts}"),
+                 (f"⏳ صلاحية الإشارة: {ttl} ساعات | الحالة: CONFIRMED" if ar else f"⏳ Signal expiry: {ttl} h | Status: CONFIRMED"),
+                 ("⚠️ إشارة فقط: نفّذ الصفقة بنفسك في MT5. لا نسبة نجاح مضمونة." if ar
+                  else "⚠️ Signal only: place the trade yourself in MT5. No win rate is guaranteed.")]
+        return "\n".join(l for l in lines if l)
     if kind == "FLIP":
         old = (old_side or ("buy" if side == "sell" else "sell")).upper()
         title = (f"🔄 [STATE FLIP: {old} ❌ ➔ {head_side} REVERSAL ⚠️] — {market}")
@@ -142,9 +198,11 @@ def _inside(z, price):
     return z["low"] <= price <= z["high"]
 
 
-def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar="utc"):
+def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar="utc", gate=None):
     """Creates flip setups and walks them through retest / confirmation. m15, m5: closed candles, oldest first.
-    Returns [(class, sid, text)] (phone alerts) and logs nothing itself; reasons for drops come back as ('DROP', sid, text)."""
+    Returns [(class, sid, text)] (phone alerts); reasons for drops come back as ('DROP', sid, text).
+    gate(plan) -> (ok, reason) is the caller's last word before a FINAL signal (cost check, one open signal per market); without
+    a gate an IFVG is never more than an analysis alert (IFVG_CONFIRMED). rec['plan'] holds the signal setup of an IFVG_SIGNAL."""
     out = []
     n = len(m15)
     if n < 40:
@@ -185,7 +243,14 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                else f"إغلاق شمعة كاملة {'أعلى' if side == 'sell' else 'أسفل'} {_f(far, digits)}")
         conf = _confluence(m15, side, h1_trend, phase, fl["idx"])
         if state.fire(sid, "STATE_FLIP", now):
-            out.append(("STATE_FLIP", sid, render("FLIP", market, side, "M15", h1_trend, phase, reason, inv, tg, conf, lang, old_side)))
+            wait = (f"wait for price to come back into {_f(z['low'], digits)}-{_f(z['high'], digits)} and for a closed M5 candle inside it in the "
+                    f"{side.upper()} direction; cancel if an M15 candle closes fully {'above' if side == 'sell' else 'below'} {_f(far, digits)}"
+                    if lang != "ar" else
+                    f"انتظر عودة السعر إلى {_f(z['low'], digits)}-{_f(z['high'], digits)} وإغلاق شمعة M5 داخلها في اتجاه {side.upper()}؛ "
+                    f"ويُلغى إذا أغلقت M15 كاملة {'أعلى' if side == 'sell' else 'أسفل'} {_f(far, digits)}")
+            _pending(state, sid, market, side, now, lang, wait=wait, entry=None, invalid=inv)
+            out.append(("STATE_FLIP", sid, render("FLIP", market, side, "M15", h1_trend, phase, reason, inv, tg, conf, lang, old_side)
+                        + "\n" + decisions.options_text(sid, lang)))
     # 2. walk the open IFVG setups
     last15 = m15[-1]
     p5 = m5[-1] if m5 else None
@@ -222,29 +287,76 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                 reason = (f"price returned into the IFVG {_f(z['low'], digits)}-{_f(z['high'], digits)} (50% = {_f(mid, digits)}); "
                           "waiting for a closed M5 confirmation candle inside it" if lang != "ar" else
                           f"عاد السعر إلى IFVG {_f(z['low'], digits)}-{_f(z['high'], digits)} (المنتصف {_f(mid, digits)})؛ بانتظار إغلاق شمعة M5 تأكيد داخل المنطقة")
+                _pending(state, sid, market, side, now, lang, entry=None, invalid=inv,
+                         wait=(f"a closed M5 candle must close inside {_f(z['low'], digits)}-{_f(z['high'], digits)} in the {side.upper()} direction; "
+                               f"skip it if an M15 candle closes fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"))
                 out.append(("IFVG_RETEST", sid, render("SETUP", market, side, "M5/M15", h1_trend, phase, reason, inv, tg,
-                                                       _confluence(m15, side, h1_trend, phase, rec["flip_idx"]), lang)))
+                                                       _confluence(m15, side, h1_trend, phase, rec["flip_idx"]), lang)
+                            + "\n" + decisions.options_text(sid, lang)))
         if rec["phase"] == "retest" and not rec.get("confirmed"):
             dir_ok = p5["close"] < p5["open"] if side == "sell" else p5["close"] > p5["open"]
             if _inside(z, p5["close"]) and dir_ok and state.fire(sid, "IFVG_CONFIRMED", now):
-                risk = abs(rec["extreme"] - mid) + SL_MARGIN_ATR * (atr or 0)
-                sl = rec["extreme"] + SL_MARGIN_ATR * (atr or 0) if side == "sell" else rec["extreme"] - SL_MARGIN_ATR * (atr or 0)
-                tg = _targets(m15, side, mid, calendar)
-                room = abs(tg[0]["price"] - mid) / risk if tg and risk else 0.0
+                entry = p5["close"]
+                margin = SL_MARGIN_ATR * (atr or 0)
+                sl = rec["extreme"] + margin if side == "sell" else rec["extreme"] - margin
+                risk = abs(sl - entry)
+                tg = _targets(m15, side, entry, calendar)
+                room = abs(tg[0]["price"] - entry) / risk if tg and risk else 0.0
                 if not tg or room < MIN_ROOM_R:
                     rec["done"] = "skipped"
                     out.append(("DROP", sid, f"{market} {side.upper()} IFVG confirmed but skipped: the next liquidity is too close "
                                              f"({room:.1f}R, at least {MIN_ROOM_R:.0f}R needed)"))
                     continue
                 rec["confirmed"] = True
-                rr = abs(tg[-1]["price"] - mid) / risk if risk else 0.0
-                sug = (f"entry {_f(mid, digits)} (50% of the zone), stop {_f(sl, digits)}, "
-                       + ", ".join(f"TP{i + 1} {_f(t['price'], digits)}" for i, t in enumerate(tg)) + f", R:R about 1:{rr:.1f}")
+                final_t = tg[-1]["price"]
+                reward = abs(final_t - entry)
+                rr = reward / risk if risk else 0.0
+                conf = _confluence(m15, side, h1_trend, phase, rec["flip_idx"])
+                score, parts = ifvg_score(conf, h1_trend, room)
+                aligned = conf["h1"] or h1_trend not in ("up", "down")
                 inv = f"{'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)} (full M15 close)"
+                tps = [_f(t["price"], digits) for t in tg]
+                tgt_txt = [f"{_f(t['price'], digits)} ({t['name']})" for t in tg]
+                sug = (f"entry {_f(entry, digits)} (the closed M5 candle), stop {_f(sl, digits)}, "
+                       + ", ".join(f"TP{i + 1} {_f(t['price'], digits)}" for i, t in enumerate(tg)) + f", R:R about 1:{rr:.1f}")
                 reason = ("closed M5 confirmation candle inside the IFVG after the retest, with room to the next liquidity" if lang != "ar"
                           else "إغلاق شمعة تأكيد M5 داخل IFVG بعد إعادة الاختبار مع مساحة كافية للسيولة التالية")
-                out.append(("IFVG_CONFIRMED", sid, render("CONFIRMED", market, side, "M5/M15", h1_trend, phase, reason, inv,
-                            [f"{_f(t['price'], digits)} ({t['name']})" for t in tg],
-                            _confluence(m15, side, h1_trend, phase, rec["flip_idx"]), lang, suggested=sug)))
+                plan = {"entry": _f(entry, digits), "sl": _f(sl, digits), "tps": tps, "rr": f"{rr:.1f}", "invalid": inv,
+                        "wait": "this setup is already confirmed: if you did not enter, do not chase it once price is more than 0.5 ATR "
+                                "from the entry; cancel it if an M15 candle closes fully beyond the invalidation"}
+                age = now - (int(p5["time"].timestamp()) + 300)
+                max_age = int(float(os.environ.get("IFVG_MAX_AGE") or 420))
+                gate_why = ""
+                final = False
+                if score < min_score(aligned):
+                    gate_why = f"score {score}/100 is under {min_score(aligned)}" + ("" if aligned else " (against the H1 trend: stricter)")
+                elif age > max_age:
+                    gate_why = f"the confirmation candle closed {age} s ago (limit {max_age} s): not issued late"
+                elif gate is not None:
+                    setup = {"side": side, "entry": float(entry), "sl": float(sl), "tp": float(final_t), "tp1": float(tg[0]["price"]),
+                             "mode": "flip", "profile": "ifvg", "bar_time": int(p5["time"].timestamp()),
+                             "uses": [f"ifvg|{z['low']}|{z['high']}|{rec['flip_idx']}"], "score100": score, "invalidation": inv,
+                             "zones": [f"IFVG {z['low']}-{z['high']}"], "parts": parts, "h1": h1_trend or "neutral", "session": phase}
+                    ok, why = gate({"risk": risk, "reward": reward, "setup": setup})
+                    if ok:
+                        final = True
+                        rec["plan"] = setup
+                        plan["note"] = f"score {score}/100"
+                    else:
+                        gate_why = why
+                else:
+                    gate_why = "analysis only (no signal gate)"
+                _pending(state, sid, market, side, now, lang, **plan)
+                parts_txt = ", ".join(f"{k} {v}" for k, v in parts.items())
+                if final:
+                    out.append(("IFVG_SIGNAL", sid, render("FINAL", market, side, "M5 confirm / M15", h1_trend, phase, reason, inv, tgt_txt, conf,
+                                                          lang, suggested=sug, score=score, parts=parts_txt)
+                                + "\n" + decisions.options_text(sid, lang)))
+                else:
+                    out.append(("IFVG_CONFIRMED", sid, render("CONFIRMED", market, side, "M5/M15", h1_trend, phase, reason, inv, tgt_txt, conf,
+                                                              lang, suggested=sug)
+                                + f"\n⛔ NOT issued as a signal: {gate_why}" + f" (score {score}/100: {parts_txt})\n" + decisions.options_text(sid, lang)))
+                    if gate is not None:
+                        out.append(("DROP", sid, f"{market} {side.upper()} IFVG not issued as a signal: {gate_why}"))
     state.save()
     return out
