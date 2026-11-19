@@ -303,3 +303,26 @@ def test_scan_returns_an_ifvg_signal_with_the_store_id_buttons_and_the_one_open_
     assert alert["id"] == f"XAUUSD-sell-{alert['setup']['bar_time']}" and alert["id"] in store.active_signals    # the store lock was taken
     assert alert["decision_id"].startswith("XAUUSD-sell-IFVG-") and "python decide.py" in alert["text"]
     assert store.active("XAUUSD")["side"] == "sell"
+
+
+def test_every_ifvg_alert_lists_completed_missing_and_the_effect_out_of_four(tmp_path, monkeypatch):
+    full = {"h1": True, "sweep": True, "session": True, "body_break": True}
+    t = fl.confluence_block(full, True)
+    assert "[4/4]" in t and "- Missing: none" in t and "full confluence" in t
+    part = {"h1": False, "sweep": False, "session": True, "body_break": True}
+    t = fl.confluence_block(part, False)
+    assert "[1/4]" in t and "Completed: true body break (IFVG)" in t and "Missing: H1 bias, liquidity sweep first, session + confirmation candle" in t
+    assert "H1 is not with the trade" in t and "wait for the closed M5 candle" in t
+    ar = fl.confluence_block(part, True, "ar")
+    assert "[2/4]" in ar and "- المكتملة:" in ar and "- الناقصة:" in ar and "أثر النواقص" in ar
+    # the flip, the retest, the confirmation and the invalidation all carry it
+    st, got = confirm_ready(tmp_path, monkeypatch, lambda plan: (False, "blocked"))
+    assert "- Completed:" in got[0][2] and "- Missing:" in got[0][2] and "- Effect of the missing:" in got[0][2]
+    flip = fl.render("FLIP", "XAUUSD", "sell", "M15", "down", "London", "r", "i", ["t"], part)
+    assert "[1/4]" in flip and "session + confirmation candle" in flip.split("Missing:")[1]                   # not confirmed yet at the flip
+    b = m15()
+    st2 = fresh(tmp_path, "i.json")
+    run(st2, b)
+    up = m15([(98.8, 102.6, 98.7, 102.4)])
+    inv = run(st2, up)
+    assert [c for c, _, _ in inv] == ["INVALIDATED"] and "- Missing:" in inv[0][2] and "Confluence: [" in inv[0][2]

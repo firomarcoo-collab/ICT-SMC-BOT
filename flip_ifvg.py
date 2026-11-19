@@ -138,11 +138,46 @@ def _confluence(m15, side, h1_trend, phase, flip_idx):
             "session": phase in STRONG_SESSIONS, "body_break": True}
 
 
+FOUR = (("h1", "H1 bias", "توافق الفريم الأعلى"), ("sweep", "liquidity sweep first", "سحب السيولة المسبق"),
+        ("body_break", "true body break (IFVG)", "كسر الجسم الحقيقي IFVG"), ("session_confirm", "session + confirmation candle", "الجلسة وشمعة التأكيد"))
+EFFECT = {"h1": ("H1 is not with the trade: smaller risk and the stricter score applies",
+                 "H1 غير موافق: خفّف المخاطرة ويُطبَّق حد تقييم أعلى"),
+          "sweep": ("no prior liquidity sweep: weaker setup, smaller risk",
+                    "لا سحب سيولة مسبق: إعداد أضعف، خفّف المخاطرة"),
+          "body_break": ("not a true body break: a wick is not a flip, wait",
+                         "ليس كسر جسم حقيقياً: الذيل ليس تبدلاً، انتظر"),
+          "session_confirm": ("no strong session or no closed confirmation candle yet: wait for the closed M5 candle inside the zone",
+                              "لا جلسة قوية أو لا شمعة تأكيد مغلقة بعد: انتظر إغلاق M5 داخل المنطقة")}
+
+
+def four_view(c, confirmed):
+    """The four conditions of the method: [(key, english, arabic, met)]. Condition 4 needs the closed confirmation candle."""
+    met = {"h1": c["h1"], "sweep": c["sweep"], "body_break": c["body_break"], "session_confirm": bool(c["session"] and confirmed)}
+    return [(k, en, ar, met[k]) for k, en, ar in FOUR]
+
+
 def _confluence_text(c, lang):
     names = {"h1": ("H1", "اتجاه H1"), "sweep": ("sweep first", "سحب سيولة مسبق"), "session": ("strong session", "جلسة قوية"),
              "body_break": ("true body break", "كسر جسم حقيقي")}
     got = [names[k][1 if lang == "ar" else 0] for k, v in c.items() if v]
     return f"{sum(c.values())}/4" + (f" ({'، '.join(got)})" if lang == "ar" else f" ({', '.join(got)})")
+
+
+def confluence_block(c, confirmed, lang="en"):
+    """Score [X/4], completed, missing and what the missing ones mean for the trade (in every alert)."""
+    v = four_view(c, confirmed)
+    ar = lang == "ar"
+    done = [(a if ar else e) for k, e, a, m in v if m]
+    miss = [(a if ar else e) for k, e, a, m in v if not m]
+    effect = [EFFECT[k][1 if ar else 0] for k, e, a, m in v if not m]
+    sep = "، " if ar else ", "
+    if ar:
+        return "\n".join([f"📊 التوافق (Confluence): [{len(done)}/4]", f"- المكتملة: {sep.join(done) or 'لا يوجد'}",
+                          f"- الناقصة: {sep.join(miss) or 'لا يوجد'}",
+                          f"- أثر النواقص: {'؛ '.join(effect) or 'توافق كامل، لا أثر'}"])
+    return "\n".join([f"📊 Confluence: [{len(done)}/4]", f"- Completed: {sep.join(done) or 'none'}",
+                      f"- Missing: {sep.join(miss) or 'none'}",
+                      f"- Effect of the missing: {'; '.join(effect) or 'full confluence, no effect'}"])
 
 
 def render(kind, market, side, tf, h1, session, reason, invalidation, targets, confluence, lang="en", old_side=None,
@@ -160,7 +195,7 @@ def render(kind, market, side, tf, h1, session, reason, invalidation, targets, c
                  (f"📐 {suggested}" if suggested else ""),
                  (f"🛑 الإبطال: {invalidation}" if ar else f"🛑 Invalidation: {invalidation}"),
                  (f"💧 الأهداف: {tgt}" if ar else f"💧 Targets: {tgt}"),
-                 (f"📊 التوافق: {_confluence_text(confluence, lang)}" if ar else f"📊 Confluence: {_confluence_text(confluence, lang)}"),
+                 confluence_block(confluence, True, lang),
                  (f"🧮 نقاط التقييم: {parts}" if ar else f"🧮 Score parts: {parts}"),
                  (f"⏳ صلاحية الإشارة: {ttl} ساعات | الحالة: CONFIRMED" if ar else f"⏳ Signal expiry: {ttl} h | Status: CONFIRMED"),
                  ("⚠️ إشارة فقط: نفّذ الصفقة بنفسك في MT5. لا نسبة نجاح مضمونة." if ar
@@ -176,7 +211,8 @@ def render(kind, market, side, tf, h1, session, reason, invalidation, targets, c
                  ("📌 الحالة الحالية: مراقبة انعكاس (Setup Only — بانتظار إعادة الاختبار والتأكيد دون ملاحقة شمعة الكسر)" if ar
                   else "📌 Current state: reversal watch (Setup only: wait for the retest and confirmation, do not chase the break candle)"),
                  (f"🛑 مستوى الإبطال الجديد: {invalidation}" if ar else f"🛑 New invalidation: {invalidation}"),
-                 (f"💧 السيولة التالية (Targets): {tgt}" if ar else f"💧 Next liquidity (targets): {tgt}")]
+                 (f"💧 السيولة التالية (Targets): {tgt}" if ar else f"💧 Next liquidity (targets): {tgt}"),
+                 confluence_block(confluence, False, lang)]
     else:
         mark = "🟢 [CONFIRMED]" if kind == "CONFIRMED" else "🟡 [SETUP]"
         lines = [f"{mark} — {market} | {head_side}",
@@ -185,8 +221,7 @@ def render(kind, market, side, tf, h1, session, reason, invalidation, targets, c
                  (f"🎯 السبب: {reason}" if ar else f"🎯 Reason: {reason}"),
                  (f"🛑 مستوى الإبطال (Invalidation): {invalidation}" if ar else f"🛑 Invalidation: {invalidation}"),
                  (f"💧 السيولة التالية (Targets): {tgt}" if ar else f"💧 Next liquidity (targets): {tgt}"),
-                 (f"📊 التوافق (Confluence): {_confluence_text(confluence, lang)} شروط مكتملة" if ar
-                  else f"📊 Confluence: {_confluence_text(confluence, lang)} conditions met")]
+                 confluence_block(confluence, kind == "CONFIRMED", lang)]
         if suggested:
             lines.append(("📐 مقترح للتحليل: " if ar else "📐 Suggested (analysis): ") + suggested)
     lines.append("⚠️ ملاحظة: تنبيه تحليل ومراقبة فقط — وليس أمراً تنفيذياً تلقائياً." if ar
@@ -230,8 +265,9 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
         if prior is not None and not prior.get("done"):
             prior["done"] = "flipped"
         far = z["high"] if side == "sell" else z["low"]                      # a body close beyond this edge cancels the new setup
+        conf0 = _confluence(m15, side, h1_trend, phase, fl["idx"])
         state.setups[sid] = {"market": market, "side": side, "kind": "IFVG", "extreme": far, "zone": {"kind": "IFVG", "low": z["low"],
-                             "high": z["high"]}, "phase": "watching", "created": now, "done": "", "flip_idx": fl["idx"]}
+                             "high": z["high"]}, "phase": "watching", "created": now, "done": "", "flip_idx": fl["idx"], "conf": conf0}
         tg = [f"{_f(t['price'], digits)} ({t['name']})" for t in _targets(m15, side, (z["low"] + z["high"]) / 2, calendar)]
         edge = "below" if side == "sell" else "above"
         reason = (f"{'bullish' if side == 'sell' else 'bearish'} FVG {_f(z['low'], digits)}-{_f(z['high'], digits)} was "
@@ -264,7 +300,9 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
             rec["done"] = "invalidated"
             if state.fire(sid, "INVALIDATED", now):
                 out.append(("INVALIDATED", sid, ac._text("INVALIDATED", {"side": side, "market": market, "level": "", "zone": z}, lang,
-                            f"an M15 candle closed fully {'above' if side == 'sell' else 'below'} the IFVG ({_f(rec['extreme'], digits)})")))
+                            f"an M15 candle closed fully {'above' if side == 'sell' else 'below'} the IFVG ({_f(rec['extreme'], digits)})")
+                            + "\n" + confluence_block(rec.get("conf") or {"h1": False, "sweep": False, "session": False, "body_break": True},
+                                                      bool(rec.get("confirmed")), lang)))
             continue
         if age > MAX_BARS:
             rec["done"] = "expired"
