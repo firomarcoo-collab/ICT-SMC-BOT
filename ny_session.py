@@ -220,3 +220,24 @@ def summary(res):
         return ""
     s = max(sc, key=lambda x: len(x["ids"]))
     return f"NY: {s['name']} ({'confirmed' if s['confirmed'] else 'unconfirmed'})"
+
+
+def us_window_closed(now_ts, spec=None):
+    """US100 / US30 are only reviewed in the New York open window (US_NY_WINDOW, default 09:30-12:00 New York time, DST-aware).
+    Returns '' when inside the window, otherwise the reason. US_MODE=0 turns the gate off."""
+    import os
+    if os.environ.get("US_MODE", "1") == "0":
+        return ""
+    spec = spec or os.environ.get("US_NY_WINDOW") or "09:30-12:00"
+    try:
+        a, b = spec.split("-")
+        start = dtime(*[int(x) for x in a.split(":")])
+        end = dtime(*[int(x) for x in b.split(":")])
+    except (ValueError, TypeError):
+        raise SystemExit(f"US_NY_WINDOW must look like 09:30-12:00 (New York time), got {spec!r}")
+    t = _et(now_ts)
+    if t.weekday() >= 5:
+        return "weekend"
+    if start <= t.time() < end:
+        return ""
+    return f"outside the New York open window {spec} (now {t.strftime('%H:%M')} New York)"

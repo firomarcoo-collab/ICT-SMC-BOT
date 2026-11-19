@@ -479,3 +479,6 @@ Every IFVG alert (state flip, retest, confirmed, signal, invalidated) now shows 
 - Early Exit (structural invalidation) = a full M15 close beyond the IFVG far edge. It is separate from the Hard SL.
 - Optimal Entry = 50%-75% depth of the IFVG (62.5% limit; market if the confirmation close is already in the band).
 - R:R, the 2R gate and the cost check use the new wider stop. Tracking uses `market_entry` (limit orders wait for the fill).
+
+## US mode (US100 / US30)
+US100 and US30 are reviewed only inside the New York open window, default 09:30-12:00 New York time (`US_NY_WINDOW`, DST-aware). Outside it the scan says WAIT and writes the reason to rejections.log. `US_MODE=0` turns the gate off. Structural stop, 4/4 confluence block and ENTER/WAIT/IGNORE options are the same as for the IFVG plan.

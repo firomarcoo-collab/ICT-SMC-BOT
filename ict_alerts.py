@@ -621,6 +621,11 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         closed = extras.us_cash_closed(now_ts)
         if closed:   # the free feed is only live in the US cash session: do not scan stale candles
             return f"{name}: MARKET CLOSED (US session 09:30-16:00 New York, {closed})", None, False
+    if market in US_INDEX_MARKETS:
+        out_win = ny_session.us_window_closed(now_ts)
+        if out_win:   # US100 / US30: a review only inside the New York open window (US_MODE=0 turns this off)
+            rejections.log(market, None, "us_window", [out_win], now=now_ts)
+            return f"{name}: WAIT (US mode) - {out_win}", None, False
     if market == "DAX40" and str(inst["id"]).startswith("^") and os.environ.get("DAX_HOURS_ONLY", "1") != "0":
         closed = extras.dax_cash_closed(now_ts)
         if closed:   # the free feed only moves in the Xetra session: do not scan stale candles
