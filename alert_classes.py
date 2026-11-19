@@ -159,6 +159,8 @@ def process(state, market, observations, last_close, now, lang="en"):
         why = invalidation_reason(rec, last_close)
         if why:
             rec["done"] = "invalidated"
+            if rec.get("suppressed"):                       # a suppressed setup ends silently
+                continue
             if state.fire(sid, "INVALIDATED", now):
                 out.append(("INVALIDATED", sid, _text("INVALIDATED", {"side": rec["side"], "market": market, "level": "", "zone": rec.get("zone")}, lang, why)))
     state.save()

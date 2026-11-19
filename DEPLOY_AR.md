@@ -45,3 +45,10 @@ python fetch_dukascopy_history.py --symbol XAUUSD --days 90 --out XAUUSD_M5.csv
 
 ## تذكير
 البوت إشارات فقط ولا ينفذ صفقات. الدرجة تقييم فني وليست احتمال ربح. الفرع الحالي `phase2-restart-persistence` غير مدموج في `main`.
+
+## لماذا لم تصدر فرصة؟ (سجل الرفض)
+```
+python why.py XAUUSD
+python why.py XAUUSD 30
+```
+يعرض آخر أسباب الرفض لكل سوق واتجاه. وصار الافتراضي إشارة واحدة فقط لكل سوق بلا شراء وبيع معاً (`MAX_ACTIVE=1` و`ALLOW_OPPOSITE=0`).

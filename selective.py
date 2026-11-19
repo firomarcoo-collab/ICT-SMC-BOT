@@ -1310,6 +1310,21 @@ _TRIGGER = {"swing": "M15 entry candle (H1 structure), M5 agrees", "forex": "M15
             "scalp": "M15 zone, M5 entry candle, M1/M3 timing"}
 
 
+def _htf_note(s):
+    """One plain sentence on how H4 / H1 relate to the direction (a rating factor, never silent about a conflict)."""
+    tr = s.get("trends") or {}
+    want = "up" if s["side"] == "buy" else "down"
+    h4, h1 = tr.get("h4", "unknown"), tr.get("h1", "unknown")
+    agree = [n for n, t in (("H4", h4), ("H1", h1)) if t == want]
+    against = [f"{n} {t}" for n, t in (("H4", h4), ("H1", h1)) if t in ("up", "down") and t != want]
+    if len(agree) == 2:
+        return f"H4 and H1 both agree with the {s['side'].upper()}"
+    if not against:
+        return f"{' and '.join(agree) or 'no higher timeframe'} agree(s), the other is unknown: weaker support"
+    why = "a counter-trend reversal (sweep + MSS with displacement + retest)" if s.get("counter_trend") else "see the structure lines above"
+    return f"{', '.join(against)} is against the {s['side'].upper()}; accepted because: {why}"
+
+
 def format_kenan(market, res, digits=2, news="not checked", session="not checked", ttl_hours=6.0):
     """The KENAN TRADER AI alert layout. Only called for a signal that passed every mandatory condition."""
     s, r, c = res["setup"], res["report"], res["checks"]
@@ -1341,7 +1356,9 @@ def format_kenan(market, res, digits=2, news="not checked", session="not checked
              f"VWAP: {vw.get('text', 'n/a')}", f"ADX: {ax.get('text', 'n/a')}",
              f"RSI: {(s.get('momentum') or {}).get('rsi_text', 'n/a')}", f"MACD: {(s.get('momentum') or {}).get('macd_text', 'n/a')}",
              f"DISPLACEMENT VOLUME: {(s.get('volume') or {}).get('text', 'filter off')}",
-             f"NEWS FILTER: {news}", f"SESSION: {session}", "",
+             f"NEWS FILTER: {news}", f"SESSION: {session}",
+             f"ANALYSIS STAGES: {s.get('stage_trail') or 'FINAL ' + s['side'].upper()}",
+             f"HTF NOTE: {_htf_note(s)}", "",
              f"SIGNAL QUALITY: {res['score100']}/100 (base {res['score100'] - s.get('score_context', 0)}"
              f" + VWAP/ADX context {s.get('score_context', 0)}; a ranking of setup quality, not a win probability)",
              f"RISK / REWARD: TP2 {rr(s['tp'])} gross, net 1:{net:.2f} after cost {s['cost']:.4g}"

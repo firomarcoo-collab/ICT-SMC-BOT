@@ -40,6 +40,8 @@ import urllib.request
 from datetime import datetime, timezone
 
 import alert_classes
+import rejections
+import reversal_machine
 import reversal_tracker
 import market_state
 import ny_session
@@ -474,18 +476,41 @@ def state_view(data, now_ts, calendar="utc"):
         return ""
 
 
-def track_setups(market, name, data, now_ts, cfg, calendar, lang):
-    """Runs the six-class setup tracker for one market. Returns the text lines to print (and phones the alerts).
+def h1_trend(data, now_ts):
+    """H1 structure trend ('up' / 'down' / None) from closed candles, or None."""
+    try:
+        h1 = selective.closed_only(data.get("h1") or [], 3600, now_ts)
+        return structure.current_trend(structure.structure_events(h1, 3)) if h1 else None
+    except Exception:
+        return None
+
+
+def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None):
+    """Runs the setup tracker for one market: the six alert classes, the reversal state machine (one setup per direction,
+    one direction at a time) and the rejection log. Returns the text lines to print (and phones the alerts).
     Nothing returned here is ever a trade signal, except what the normal signal path sends."""
     observations, last_close = selective.watch_observations(market, data, now_ts, cfg, calendar, lang,
                                                             alert_classes.APPROACH_ATR)
+    state = alert_state()
+    active = {sg["side"] for sg in store.active_list(market)} if store is not None else set()
+    kept, notes = reversal_machine.arbitrate(state, market, observations, now_ts, h1_trend(data, now_ts), active)
     extra = ""
-    for cls, sid, text in alert_classes.process(alert_state(), market, observations, last_close, now_ts, lang):
+    for _kind, sid, text in notes:
+        extra += "\n" + text
+        rejections.log(market, state.setups[sid]["side"], "SUPPRESSED", [text], now_ts)
+    for cls, sid, text in alert_classes.process(state, market, kept, last_close, now_ts, lang):
         extra += "\n" + text
         alert_classes.deliver(cls, text)
-    for _sid, _old, _new, text in reversal_tracker.update(alert_state(), market, now_ts, lang):
+    for kind, sid, text in reversal_machine.update(state, market, kept, now_ts, lang):
         extra += "\n" + text
-    alert_state().save()
+        if kind == "EXPIRED":
+            rejections.log(market, state.setups[sid]["side"], "EXPIRED", [text], now_ts)
+    for o in kept:
+        idx = reversal_machine.target_stage(o)
+        rejections.log(market, o["side"], reversal_machine.stage_name(idx, o["side"]), reasons or ["waiting for the next stage"], now_ts)
+    if not observations:
+        rejections.log(market, None, "NO SETUP", reasons or ["no sweep with a structure break"], now_ts)
+    state.save()
     return extra
 
 
@@ -598,6 +623,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
                 log.info("selective: optional %s data for %s unavailable: %s", tf, name, e)
     status = selective.data_status(inst["source"], data.get("m5"), 300, now_ts, connected)
     if status != "LIVE":
+        rejections.log(market, None, "BLOCKED", [f"data {status}"], now_ts)
         return f"{name}: SELECTIVE WAIT (data {status})", None, False
     m5_closed = selective.closed_only(data["m5"], 300, now_ts)
     if m5_closed and int(m5_closed[-1]["time"].timestamp()) + 300 < now_ts - now_ts % 300:
@@ -605,11 +631,14 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     for tf, key in SELECTIVE_TFS:  # same data-quality gate as the other engines
         quality = data_layer.check_candles(data[key], tf, now_ts, inst["source"] == "binance", min_bars=1)
         if quality.blocked:
+            rejections.log(market, None, "BLOCKED", [f"data quality {tf}: {quality.reason}"], now_ts)
             return f"{name}: SELECTIVE WAIT (data quality {tf}: {quality.reason})", None, False
     if news_status and news_status[0] in ("unavailable", "stale") and os.environ.get("NEWS_STRICT") == "1":
+        rejections.log(market, None, "BLOCKED", [news_status[1]], now_ts)
         return f"{name}: SELECTIVE WAIT ({news_status[1]})", None, False        # NEWS_STRICT=1: no calendar, no signal
     if news_block and extras.near_news(news or [], name, now_ts):
         near = extras.near_news(news, name, now_ts)[0]
+        rejections.log(market, None, "BLOCKED", [f"high-impact news: {near['currency']} {near['title']}"], now_ts)
         return f"{name}: SELECTIVE WAIT (high-impact news: {near['currency']} {near['title']})", None, False
     spec = (specs or {}).get(market)
     spread = (spreads or {}).get(name)
@@ -652,7 +681,8 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         if mstate:
             line += f" [state: {mstate}]"
         if os.environ.get("ALERT_CLASSES", "1") != "0":
-            line += track_setups(market, name, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang)
+            line += track_setups(market, name, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang,
+                                 store, res.get("reasons"))
         elif os.environ.get("ZONE_WATCH", "1") != "0":
             for zw in selective.zone_watch(market, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang):
                 if _ZONE_SEEN.get(zw["id"]) is None:       # once per zone (a restart may show it once more)
@@ -664,6 +694,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         return line, None, False
     setup = {k: (round(v, d) if isinstance(v, float) else v) for k, v in res["setup"].items()}
     if os.environ.get("ALERT_CLASSES", "1") != "0":
+        setup["stage_trail"] = reversal_machine.mark_final(alert_state(), market, setup["side"], now_ts)
         alert_state().mark_confirmed(market, setup["side"], now_ts)     # CONFIRMED: the watch setups of this side are finished
     if os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
         fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
@@ -1091,8 +1122,8 @@ def run():
     ttl_hours = float(os.environ.get("SIGNAL_TTL_HOURS") or (72 if os.environ.get("PROFILE", "").lower() == "swing" else 6))
     store = signal_store.SignalStore(
         os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE), ttl=ttl_hours * 3600,
-        max_active=int(os.environ.get("MAX_ACTIVE") or 3),
-        allow_opposite=os.environ.get("ALLOW_OPPOSITE", "1") != "0") if use_selective else None
+        max_active=int(os.environ.get("MAX_ACTIVE") or 1),
+        allow_opposite=os.environ.get("ALLOW_OPPOSITE", "0") != "0") if use_selective else None
     track = tracker.Tracker(os.environ.get("RESULTS_FILE", tracker.DEFAULT_CSV)) \
         if os.environ.get("TRACK", "1") != "0" else None
     last_bucket = {}

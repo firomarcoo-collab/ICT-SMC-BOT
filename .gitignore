@@ -17,3 +17,5 @@ zone_seen.json.tmp
 alerts_state.json
 alerts_state.json.tmp
 journal.csv
+rejections.log
+rejections.log.1

@@ -89,3 +89,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## Deployment notes (done)
 `DEPLOY_AR.md` (Termux steps, switches, reports). Startup now warns when the timezone database is missing (`pip install tzdata`). Per-market isolation: each market is scanned inside its own try/except in the main loop.
+
+## Reversal state machine + arbitration + rejection log (done)
+`reversal_machine.py`, `rejections.py`, `why.py`, `test_reversal_machine.py` (13 tests); `alert_classes.py` (suppressed setups end silently), `ict_alerts.py` (track_setups with arbitration, FINAL trail, rejection logging, defaults MAX_ACTIVE=1 / ALLOW_OPPOSITE=0), `selective.py` (ANALYSIS STAGES and HTF NOTE lines). Confirmation candle stays the closed M5 (user decision). Not measured on real results. Tag `backup-before-reversal-machine`.
