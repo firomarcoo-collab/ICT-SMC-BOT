@@ -33,6 +33,13 @@ CLASSES = {
 }
 
 
+EXTRA_CLASSES = {      # IFVG / state-flip alerts (flip_ifvg.py): analysis only, never an entry order
+    "STATE_FLIP": {"emoji": "🔄", "title": "STATE FLIP", "vibrate": "200,80,200,80,200", "voice": "State flip, zone failed"},
+    "IFVG_RETEST": {"emoji": "🟤", "title": "IFVG RETEST", "vibrate": "120,60,120", "voice": "I F V G retest"},
+    "IFVG_CONFIRMED": {"emoji": "🟩", "title": "IFVG CONFIRMED", "vibrate": "500,100,500,100,500", "voice": "I F V G confirmation"},
+}
+
+
 def setup_id(market, side, sweep):
     """Stable id of one setup: market, direction and the swept liquidity (type, level, time)."""
     return f"{market}-{side}-{sweep['type']}-{sweep['level']}-{int(sweep['time'].timestamp())}"
@@ -43,7 +50,7 @@ class AlertState:
 
     def __init__(self, path=None):
         self.path = path or STATE_FILE
-        self.setups, self.fired = {}, {}
+        self.setups, self.fired, self.meta = {}, {}, {}
         self._load()
 
     def _load(self):
@@ -51,15 +58,16 @@ class AlertState:
             with open(self.path) as f:
                 raw = json.load(f)
             self.setups, self.fired = dict(raw.get("setups", {})), dict(raw.get("fired", {}))
+            self.meta = dict(raw.get("meta", {}))
         except FileNotFoundError:
             pass
         except (OSError, ValueError, TypeError, AttributeError):      # a damaged file must never stop the bot
-            self.setups, self.fired = {}, {}
+            self.setups, self.fired, self.meta = {}, {}, {}
 
     def save(self):
         try:
             with open(self.path + ".tmp", "w") as f:
-                json.dump({"setups": self.setups, "fired": self.fired}, f)
+                json.dump({"setups": self.setups, "fired": self.fired, "meta": self.meta}, f)
             os.replace(self.path + ".tmp", self.path)
         except OSError:
             pass
@@ -154,8 +162,8 @@ def process(state, market, observations, last_close, now, lang="en"):
         elif rel in ("near", "far") and rec["phase"] == "in":
             rec["phase"] = "out"
     for sid, rec in list(state.setups.items()):                   # the invalidation check covers every tracked setup of the market
-        if rec["market"] != market or rec["done"] or last_close is None:
-            continue
+        if rec["market"] != market or rec["done"] or last_close is None or rec.get("kind") == "IFVG":
+            continue                                        # IFVG setups are judged by flip_ifvg (M15 body closes), not here
         why = invalidation_reason(rec, last_close)
         if why:
             rec["done"] = "invalidated"
@@ -170,7 +178,7 @@ def process(state, market, observations, last_close, now, lang="en"):
 def deliver(cls, text):
     """Phone side of an alert: notification, vibration pattern and spoken label, all started without waiting.
     Returns the list of commands started (empty outside Termux)."""
-    spec, started = CLASSES[cls], []
+    spec, started = CLASSES.get(cls) or EXTRA_CLASSES[cls], []
 
     def run(cmd):
         if shutil.which(cmd[0]):

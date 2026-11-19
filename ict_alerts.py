@@ -43,6 +43,7 @@ import alert_classes
 import rejections
 import reversal_machine
 import reversal_tracker
+import flip_ifvg
 import market_state
 import ny_session
 import data_layer
@@ -485,7 +486,7 @@ def h1_trend(data, now_ts):
         return None
 
 
-def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None):
+def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2):
     """Runs the setup tracker for one market: the six alert classes, the reversal state machine (one setup per direction,
     one direction at a time) and the rejection log. Returns the text lines to print (and phones the alerts).
     Nothing returned here is ever a trade signal, except what the normal signal path sends."""
@@ -505,6 +506,18 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
         extra += "\n" + text
         if kind == "EXPIRED":
             rejections.log(market, state.setups[sid]["side"], "EXPIRED", [text], now_ts)
+    if os.environ.get("FLIP_IFVG", "1") != "0":                    # state flip / IFVG watch (analysis only, never fails a scan)
+        try:
+            m15 = selective.closed_only(data.get("m15") or [], 900, now_ts)
+            m5 = selective.closed_only(data.get("m5") or [], 300, now_ts)
+            for cls, sid, text in flip_ifvg.process(state, market, m15, m5, h1_trend(data, now_ts), now_ts, lang, digits, calendar):
+                if cls == "DROP":
+                    rejections.log(market, state.setups[sid]["side"] if sid in state.setups else None, "IFVG", [text], now_ts)
+                    continue
+                extra += "\n" + text
+                alert_classes.deliver(cls, text)
+        except Exception as e:                                       # noqa: BLE001
+            log.warning("flip/IFVG watch failed for %s: %s", market, e)
     for o in kept:
         idx = reversal_machine.target_stage(o)
         rejections.log(market, o["side"], reversal_machine.stage_name(idx, o["side"]), reasons or ["waiting for the next stage"], now_ts)
@@ -682,7 +695,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
             line += f" [state: {mstate}]"
         if os.environ.get("ALERT_CLASSES", "1") != "0":
             line += track_setups(market, name, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang,
-                                 store, res.get("reasons"))
+                                 store, res.get("reasons"), inst["digits"])
         elif os.environ.get("ZONE_WATCH", "1") != "0":
             for zw in selective.zone_watch(market, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang):
                 if _ZONE_SEEN.get(zw["id"]) is None:       # once per zone (a restart may show it once more)

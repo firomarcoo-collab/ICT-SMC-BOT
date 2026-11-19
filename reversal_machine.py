@@ -126,7 +126,7 @@ def update(state, market, observations, now, lang="en"):
             r.setdefault("history", []).append({"stage": STAGES[new], "t": now})
             out.append(("STAGE", o["sid"], _line(market, o["side"], STAGES[new], lang)))
     for sid, r in list(state.setups.items()):
-        if r.get("market") != market or r.get("done"):
+        if r.get("market") != market or r.get("done") or r.get("kind") == "IFVG":
             continue
         age = (now - int(r.get("created", now))) / BAR
         if (r.get("mstage", 0) <= 0 and age > wait_mss_bars()) or age > max_bars():

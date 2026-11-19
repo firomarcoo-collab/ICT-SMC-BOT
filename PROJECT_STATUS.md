@@ -92,3 +92,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## Reversal state machine + arbitration + rejection log (done)
 `reversal_machine.py`, `rejections.py`, `why.py`, `test_reversal_machine.py` (13 tests); `alert_classes.py` (suppressed setups end silently), `ict_alerts.py` (track_setups with arbitration, FINAL trail, rejection logging, defaults MAX_ACTIVE=1 / ALLOW_OPPOSITE=0), `selective.py` (ANALYSIS STAGES and HTF NOTE lines). Confirmation candle stays the closed M5 (user decision). Not measured on real results. Tag `backup-before-reversal-machine`.
+
+## State flip + IFVG watch (done, analysis only)
+`flip_ifvg.py`, `test_flip_ifvg.py` (9 tests), `alert_classes.EXTRA_CLASSES` (3 new alerts) and a persisted `meta` (flip cooldown). IFVG is not part of the FINAL signal decision. Tag `backup-before-ifvg-flip`.
