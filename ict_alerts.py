@@ -4,7 +4,7 @@ Runs on Termux with the Python standard library only (no pip install needed).
 Prices come from free public sources, so they can differ from your broker's prices.
 
 Environment variables (all optional):
-    SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY (JPYGBP is opt-in)
+    SYMBOLS           comma list, default BTCUSD,XAUUSD,EURUSD,GBPJPY (US100,US30 and JPYGBP are opt-in)
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
     FUTURES           1 = futures for gold/indices instead of spot; or a list: FUTURES=US100,US30
@@ -1123,7 +1123,7 @@ def describe_config(scfg, engine):
 
 def run():
     names = [markets.feed_name(n) for n in os.environ.get(
-        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY").split(",") if n.strip()]
+        "SYMBOLS", "BTCUSD,XAUUSD,EURUSD,GBPJPY").split(",") if n.strip()]
     unknown = [n for n in names if n not in INSTRUMENTS]
     if unknown:
         raise SystemExit(f"Unknown symbols: {unknown}. Choose from {list(INSTRUMENTS)}")
