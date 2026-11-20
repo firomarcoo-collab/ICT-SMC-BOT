@@ -102,3 +102,4 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 - Structural Stop Loss for IFVG plans (Hard SL behind sweep/swing extreme + 0.5 ATR, Early Exit separate, entry at 50-75% depth, limit/market flag). 354 tests pass. Not yet measured on real trades.
 - US mode: US100/US30 only reviewed in the New York open window (US_NY_WINDOW, US_MODE). 355 tests pass. Pattern filtering for the other two retracements is not done yet.
 - US100/US30 removed from the default SYMBOLS (opt-in) at the user's request.
+- US100/US30 back in default SYMBOLS, any hour; NY window gate is opt-in (US_MODE=1).

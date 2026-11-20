@@ -481,6 +481,6 @@ Every IFVG alert (state flip, retest, confirmed, signal, invalidated) now shows 
 - R:R, the 2R gate and the cost check use the new wider stop. Tracking uses `market_entry` (limit orders wait for the fill).
 
 ## US mode (US100 / US30)
-US100 and US30 are reviewed only inside the New York open window, default 09:30-12:00 New York time (`US_NY_WINDOW`, DST-aware). Outside it the scan says WAIT and writes the reason to rejections.log. `US_MODE=0` turns the gate off. Structural stop, 4/4 confluence block and ENTER/WAIT/IGNORE options are the same as for the IFVG plan.
+US100 and US30 are reviewed only inside the New York open window, default 09:30-12:00 New York time (`US_NY_WINDOW`, DST-aware). Only when `US_MODE=1` (default off): outside it the scan says WAIT and writes the reason to rejections.log. Structural stop, 4/4 confluence block and ENTER/WAIT/IGNORE options are the same as for the IFVG plan.
 
-**US100 / US30 are OFF by default** (no signals on them at any hour). Turn them on with `SYMBOLS=BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY`.
+**US100 / US30 are ON again at any hour** (default SYMBOLS includes them). The New York window gate is OFF by default; `US_MODE=1` turns it on.

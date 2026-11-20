@@ -224,9 +224,9 @@ def summary(res):
 
 def us_window_closed(now_ts, spec=None):
     """US100 / US30 are only reviewed in the New York open window (US_NY_WINDOW, default 09:30-12:00 New York time, DST-aware).
-    Returns '' when inside the window, otherwise the reason. US_MODE=0 turns the gate off."""
+    Returns '' when inside the window, otherwise the reason. US_MODE=1 turns the gate on (default off: any hour)."""
     import os
-    if os.environ.get("US_MODE", "1") == "0":
+    if os.environ.get("US_MODE", "0") != "1":
         return ""
     spec = spec or os.environ.get("US_NY_WINDOW") or "09:30-12:00"
     try:

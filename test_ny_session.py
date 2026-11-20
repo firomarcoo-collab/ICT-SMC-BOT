@@ -118,11 +118,11 @@ def test_summer_time_moves_the_utc_hours():
 def test_us_window_gate_is_new_york_time_and_dst_aware(monkeypatch):
     from datetime import datetime, timezone
     ts = lambda y, m, d, h, mi: int(datetime(y, m, d, h, mi, tzinfo=timezone.utc).timestamp())   # noqa: E731
-    monkeypatch.delenv("US_MODE", raising=False)
+    monkeypatch.setenv("US_MODE", "1")
     monkeypatch.delenv("US_NY_WINDOW", raising=False)
     assert ny.us_window_closed(ts(2026, 11, 19, 14, 45)) == ""                  # 09:45 EST
     assert ny.us_window_closed(ts(2026, 7, 15, 13, 45)) == ""                   # 09:45 EDT, the UTC hour moved by itself
     assert "outside" in ny.us_window_closed(ts(2026, 11, 19, 18, 3))            # 13:03 New York
     assert ny.us_window_closed(ts(2026, 11, 21, 15, 0)) == "weekend"
-    monkeypatch.setenv("US_MODE", "0")
-    assert ny.us_window_closed(ts(2026, 11, 19, 18, 3)) == ""
+    monkeypatch.delenv("US_MODE")
+    assert ny.us_window_closed(ts(2026, 11, 19, 18, 3)) == ""                    # default: any hour
