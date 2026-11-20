@@ -103,3 +103,4 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 - US mode: US100/US30 only reviewed in the New York open window (US_NY_WINDOW, US_MODE). 355 tests pass. Pattern filtering for the other two retracements is not done yet.
 - US100/US30 removed from the default SYMBOLS (opt-in) at the user's request.
 - US100/US30 back in default SYMBOLS, any hour; NY window gate is opt-in (US_MODE=1).
+- Gold Asia-range breakout strategy added (asia_breakout.py, on by default, signals only; ASIA_BREAKOUT=0 turns off). 364 tests pass. Unmeasured: no backtest yet.

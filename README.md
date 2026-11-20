@@ -484,3 +484,8 @@ Every IFVG alert (state flip, retest, confirmed, signal, invalidated) now shows 
 US100 and US30 are reviewed only inside the New York open window, default 09:30-12:00 New York time (`US_NY_WINDOW`, DST-aware). Only when `US_MODE=1` (default off): outside it the scan says WAIT and writes the reason to rejections.log. Structural stop, 4/4 confluence block and ENTER/WAIT/IGNORE options are the same as for the IFVG plan.
 
 **US100 / US30 are ON again at any hour** (default SYMBOLS includes them). The New York window gate is OFF by default; `US_MODE=1` turns it on.
+
+## Gold Asia-range breakout (`asia_breakout.py`, signals only)
+XAUUSD only, closed M15 candles. Asia range 19:00-03:00 New York; a breakout candle must close 03:00-08:00 ET (nothing new after 09:30 ET).
+Filters: range 1.0-3.0 x H1 ATR; body >= 50% of the candle; close >= 0.1 ATR beyond the edge; tick volume >= 1.2 x the 20-candle average; H1 structure trend agrees. Then: retest of the edge, and a closed M15 confirmation candle. Two closes back inside = fake breakout (cancelled); > 1 ATR beyond the breakout candle without a retest = missed.
+Plan: Hard SL behind the retest extreme +/- 0.5 ATR (`ASIA_SL_ATR`), Early Exit = an M15 close back inside the range, TP1 1R (stop to break-even), TP2 2R (the tracked target), TP3 3R or the next liquidity. Goes through the same cost check, one-signal-per-market lock and ENTER/WAIT/IGNORE options as the IFVG signal. The DXY filter is not used (no feed). `ASIA_BREAKOUT=0` turns it off. All numbers are starting hypotheses: measure it with `python journal.py profile` (profile `asia`) before trusting it.

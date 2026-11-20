@@ -44,6 +44,7 @@ import rejections
 import reversal_machine
 import reversal_tracker
 import decisions
+import asia_breakout
 import flip_ifvg
 import market_state
 import ny_session
@@ -532,6 +533,26 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
                 alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("flip/IFVG watch failed for %s: %s", market, e)
+    if asia_breakout.enabled(market):                               # gold Asia-range breakout (signals only, never fails a scan)
+        try:
+            m15 = selective.closed_only(data.get("m15") or [], 900, now_ts)
+            h1 = selective.closed_only(data.get("h1") or [], 3600, now_ts)
+            for cls, sid, text in asia_breakout.process(state, market, m15, h1, h1_trend(data, now_ts), now_ts, lang, digits, calendar,
+                                                        gate if os.environ.get("IFVG_SIGNALS", "1") != "0" else None):
+                if cls == "DROP":
+                    rejections.log(market, state.setups[sid]["side"] if sid in state.setups else None, "ASIA", [text], now_ts)
+                    continue
+                if cls == "ASIA_SIGNAL" and signals is not None:
+                    plan = state.setups[sid]["plan"]
+                    signals.append({"text": text, "setup": plan, "market": market, "decision_id": sid, "bar_time": plan["bar_time"],
+                                    "tag": "ASIA", "id": f"{market}-{plan['side']}-{plan['bar_time']}"})
+                    continue
+                extra += "\n" + text
+                if sid in skip:
+                    continue
+                alert_classes.deliver(cls, text, sid)
+        except Exception as e:                                       # noqa: BLE001
+            log.warning("Asia breakout failed for %s: %s", market, e)
     for o in kept:
         idx = reversal_machine.target_stage(o)
         rejections.log(market, o["side"], reversal_machine.stage_name(idx, o["side"]), reasons or ["waiting for the next stage"], now_ts)
@@ -731,7 +752,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
                 a["setup"] = {k: (round(v, d) if isinstance(v, float) else v) for k, v in a["setup"].items()}
                 if os.environ.get("ALERT_CLASSES", "1") != "0":
                     alert_state().mark_confirmed(market, a["setup"]["side"], now_ts)
-                return f"{name}: SELECTIVE {a['setup']['side'].upper()} (IFVG)", a, False
+                return f"{name}: SELECTIVE {a['setup']['side'].upper()} ({a.get('tag', 'IFVG')})", a, False
         elif os.environ.get("ZONE_WATCH", "1") != "0":
             for zw in selective.zone_watch(market, data, now_ts, candidates[0][0], structure.calendar_for(inst["source"]), lang):
                 if _ZONE_SEEN.get(zw["id"]) is None:       # once per zone (a restart may show it once more)

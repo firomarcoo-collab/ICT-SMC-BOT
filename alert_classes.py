@@ -39,10 +39,13 @@ EXTRA_CLASSES = {      # IFVG / state-flip alerts (flip_ifvg.py): analysis only,
     "IFVG_RETEST": {"emoji": "🟤", "title": "IFVG RETEST", "vibrate": "120,60,120", "voice": "I F V G retest"},
     "IFVG_SIGNAL": {"emoji": "🟢", "title": "IFVG SIGNAL", "vibrate": "700,120,700,120,700", "voice": "I F V G signal"},
     "IFVG_CONFIRMED": {"emoji": "🟩", "title": "IFVG CONFIRMED", "vibrate": "500,100,500,100,500", "voice": "I F V G confirmation"},
+    "ASIA_SETUP": {"emoji": "🌏", "title": "ASIA BREAKOUT SETUP", "vibrate": "120,60,120", "voice": "Asia breakout setup"},
+    "ASIA_CONFIRMED": {"emoji": "🟩", "title": "ASIA BREAKOUT CONFIRMED", "vibrate": "500,100,500,100,500", "voice": "Asia breakout confirmation"},
+    "ASIA_SIGNAL": {"emoji": "🟢", "title": "ASIA BREAKOUT SIGNAL", "vibrate": "700,120,700,120,700", "voice": "Asia breakout signal"},
 }
 
 
-DECISION_CLASSES = ("STATE_FLIP", "IFVG_RETEST", "IFVG_CONFIRMED", "IFVG_SIGNAL")     # alerts that carry ENTER / WAIT / IGNORE buttons
+DECISION_CLASSES = ("STATE_FLIP", "IFVG_RETEST", "IFVG_CONFIRMED", "IFVG_SIGNAL", "ASIA_SETUP", "ASIA_CONFIRMED", "ASIA_SIGNAL")     # alerts that carry ENTER / WAIT / IGNORE buttons
 
 
 def setup_id(market, side, sweep):
