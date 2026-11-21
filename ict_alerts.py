@@ -32,6 +32,17 @@ Environment variables (all optional):
 import json
 import logging
 import os
+import termfix
+
+import builtins
+
+_builtin_print = builtins.print
+
+
+def print(*args, **kwargs):          # noqa: A001 - Arabic on the Termux screen is shaped (see termfix.py); notifications are untouched
+    _builtin_print(*[termfix.shape(a) for a in args], **kwargs)
+
+
 import shutil
 import subprocess
 import time
@@ -554,7 +565,7 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
     for cls, sid, text in alert_classes.process(state, market, kept, last_close, now_ts, lang):
         extra += "\n" + text
         alert_classes.deliver(cls, text)
-    for kind, sid, text in reversal_machine.update(state, market, kept, now_ts, lang):
+    for kind, sid, text in reversal_machine.update(state, market, kept, now_ts, "en"):   # stage lines are screen-only: English
         extra += "\n" + text
         if kind == "EXPIRED":
             rejections.log(market, state.setups[sid]["side"], "EXPIRED", [text], now_ts)

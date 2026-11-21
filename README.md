@@ -498,3 +498,6 @@ Set `TWELVEDATA_API_KEY` (your own free key, never commit it) and US100 / US30 g
 
 ## Trades report (`daily_report.py`)
 Every `TRADES_REPORT_MINUTES` (default 30, 0 = off) the bot prints an Arabic report: open signals (entered or waiting for the entry price, with the floating P/L in R), signals closed today, and the last 7 days (trades, wins / losses, net R). The same text updates ONE silent notification (tap = the whole report). `RISK_USD` (the money you risk per trade) adds approximate dollar amounts. On demand: `python daily_report.py`. These are the bot's followed signals, not your MT5 account; R is a unit of risk, and past results do not guarantee the future.
+
+## Arabic on the Termux screen
+Termux draws Arabic reversed and unjoined (a terminal limit; notifications are fine). `termfix.py` shapes Arabic text for the SCREEN only when `arabic-reshaper` and `python-bidi` are installed (`pip install arabic-reshaper python-bidi`); `ALERT_TERMINAL_BIDI=0` turns it off. The stage lines (STAGE ...) are screen-only and are always English. Notifications and the tap-to-open text are never shaped.

@@ -107,3 +107,4 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 - Optional Twelve Data fallback for US100/US30 (TWELVEDATA_API_KEY). Unverified: symbol names and free-plan coverage/limits.
 - Alerts are Arabic by default (ALERT_LANG=ar): titles, explanations, trade plan, buttons, tap-to-open full text. Terminal stage/report lines not translated yet.
 - Periodic Arabic trades report (open / closed / per day, R and optional RISK_USD money). 379 tests pass.
+- Termux screen Arabic fix: termfix.py shaping (needs pip install arabic-reshaper python-bidi), stage lines English. 383 tests pass. Shaping untested on a real phone.
