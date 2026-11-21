@@ -1279,6 +1279,8 @@ def run():
     last_beat = 0
     wait_stats, hour_signals = {}, 0
     report_minutes = float(os.environ.get("REPORT_MINUTES") or 60)    # 0 = no periodic report
+    trades_report_minutes = float(os.environ.get("TRADES_REPORT_MINUTES") or 30)   # open / closed trades and P/L per day; 0 = off
+    last_trades_report = 0
     last_report = 0
     us_names = [n for n in names if markets.canonical(n) in US_INDEX_MARKETS and str(INSTRUMENTS[n]["id"]).startswith("^")]
     us_open = None
@@ -1295,6 +1297,22 @@ def run():
                 print(report_tools.market_report(names, now_ts, wait_stats, offsets, hour_signals), flush=True)
             except Exception as e:   # a report must never stop the bot
                 log.warning("market report failed: %s", e)
+        if trades_report_minutes and now_ts - last_trades_report >= trades_report_minutes * 60:
+            last_trades_report = now_ts
+            try:
+                import daily_report
+                prices = {}
+                for _n in names:
+                    try:
+                        prices[markets.canonical(_n)] = get_candles(INSTRUMENTS[_n], "5m")[-1]["close"] + offsets.get(_n, 0.0)
+                    except Exception:                                   # a missing price only hides that market's open P/L
+                        pass
+                states = {it["ref"]: it["state"] for it in (track.items if track else []) if it.get("ref")}
+                text = daily_report.build(store, now_ts, prices, states, track.tally() if track else None)
+                print(text, flush=True)
+                daily_report.notify(text)
+            except Exception as e:                                      # a report must never stop the bot
+                log.warning("trades report failed: %s", e)
         if now_ts - last_beat >= 3600:
             if last_beat and use_selective:
                 print(wait_summary(wait_stats, hour_signals), flush=True)

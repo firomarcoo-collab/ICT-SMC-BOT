@@ -495,3 +495,6 @@ Set `TWELVEDATA_API_KEY` (your own free key, never commit it) and US100 / US30 g
 
 ## Arabic-only alerts
 `ALERT_LANG=ar` is the default (`ALERT_LANG=en` goes back to English). Notification titles, bodies, reasons, trade plan, confluence block, gate reasons and the ENTER/WAIT/IGNORE buttons (دخول / انتظار / تجاهل) are Arabic, and every alert ends with a short Arabic explanation (what it means and what to do). Tapping a notification opens the whole alert with its explanation as a text file (`alert_texts/`, newest 40 kept; needs `termux-open`). The spoken label uses `termux-tts-speak -l ar` (it needs an Arabic voice installed on the phone). Terminal stage lines and the market report stay as they were.
+
+## Trades report (`daily_report.py`)
+Every `TRADES_REPORT_MINUTES` (default 30, 0 = off) the bot prints an Arabic report: open signals (entered or waiting for the entry price, with the floating P/L in R), signals closed today, and the last 7 days (trades, wins / losses, net R). The same text updates ONE silent notification (tap = the whole report). `RISK_USD` (the money you risk per trade) adds approximate dollar amounts. On demand: `python daily_report.py`. These are the bot's followed signals, not your MT5 account; R is a unit of risk, and past results do not guarantee the future.
