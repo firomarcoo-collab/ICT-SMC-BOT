@@ -107,6 +107,15 @@ for _n, _id in FUTURES_IDS.items():  # FUTURES=1 for all, or a list such as FUTU
         INSTRUMENTS[_n]["id"] = _id
 
 
+TD_TF = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h", "4h": "4h", "1d": "1day"}
+TD_DEFAULT_SYMBOLS = {"US100": "NDX", "US30": "DJI"}      # Twelve Data names; override with TWELVEDATA_SYMBOL_US100 / _US30
+if os.environ.get("TWELVEDATA_API_KEY", "").strip():   # a free Twelve Data key adds a second source for the US indices
+    for _n, _sym in TD_DEFAULT_SYMBOLS.items():
+        if _n in INSTRUMENTS and not os.environ.get(f"FALLBACK_{_n}"):
+            INSTRUMENTS[_n]["fallbacks"] = list(INSTRUMENTS[_n].get("fallbacks", [])) + \
+                ["twelvedata:" + (os.environ.get(f"TWELVEDATA_SYMBOL_{_n}") or _sym)]
+
+
 # ===== Data =====
 
 def fetch_json(url):
@@ -121,6 +130,30 @@ def parse_binance(rows):
         "open": float(r[1]), "high": float(r[2]),
         "low": float(r[3]), "close": float(r[4]), "volume": float(r[5]) if len(r) > 5 else 0.0,
     } for r in rows]
+
+
+def parse_twelvedata(data):
+    """Candles (oldest first, UTC) from a Twelve Data time_series answer requested with order=asc&timezone=UTC."""
+    if not isinstance(data, dict) or data.get("status") == "error" or "values" not in data:
+        raise ValueError("Twelve Data: " + str((data or {}).get("message", "no values"))[:120])
+    out = []
+    for v in data["values"]:
+        t = datetime.strptime(v["datetime"][:19].replace("T", " "), "%Y-%m-%d %H:%M:%S" if len(v["datetime"]) > 10 else "%Y-%m-%d")
+        out.append({"time": t.replace(tzinfo=timezone.utc), "open": float(v["open"]), "high": float(v["high"]),
+                    "low": float(v["low"]), "close": float(v["close"]), "volume": float(v.get("volume") or 0)})
+    return sorted(out, key=lambda c: c["time"])
+
+
+def _twelvedata_candles(symbol, tf):
+    key = os.environ.get("TWELVEDATA_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("Twelve Data: TWELVEDATA_API_KEY is not set")
+    url = (f"https://api.twelvedata.com/time_series?symbol={urllib.parse.quote(symbol, safe='')}&interval={TD_TF[tf]}"
+           f"&outputsize=300&order=asc&timezone=UTC&apikey={urllib.parse.quote(key, safe='')}")
+    try:
+        return parse_twelvedata(fetch_json(url))
+    except Exception as e:                                   # never let the key reach a log line
+        raise RuntimeError(str(e).replace(key, "***")) from None
 
 
 def parse_yahoo(data):
@@ -216,6 +249,18 @@ def _fetch_candles(inst, tf="5m"):
                 _drop_cache(primary)
                 print(f"DATA SOURCE: {primary} is unavailable ({last_error}); using {sid} for "
                       f"{FALLBACK_SECONDS // 60} min. Its price differs from spot: set OFFSET.", flush=True)
+            return candles[-300:]
+        if sid.startswith("twelvedata:"):               # keyed free fallback (TWELVEDATA_API_KEY): cash index, not futures
+            try:
+                candles = _twelvedata_candles(sid.split(":", 1)[1], tf)
+            except Exception as e:
+                last_error = e
+                continue
+            if sid != primary and (primary not in _STICKY):
+                _STICKY[primary] = (sid, time.time() + FALLBACK_SECONDS)
+                _drop_cache(primary)
+                print(f"DATA SOURCE: {primary} is unavailable ({last_error}); using {sid} for "
+                      f"{FALLBACK_SECONDS // 60} min. Its price differs from your broker: set OFFSET.", flush=True)
             return candles[-300:]
         for host in YAHOO_HOSTS:
             sym = urllib.parse.quote(sid, safe="")

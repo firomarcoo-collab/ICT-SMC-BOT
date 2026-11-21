@@ -104,3 +104,4 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 - US100/US30 removed from the default SYMBOLS (opt-in) at the user's request.
 - US100/US30 back in default SYMBOLS, any hour; NY window gate is opt-in (US_MODE=1).
 - Gold Asia-range breakout strategy added (asia_breakout.py, on by default, signals only; ASIA_BREAKOUT=0 turns off). 364 tests pass. Unmeasured: no backtest yet.
+- Optional Twelve Data fallback for US100/US30 (TWELVEDATA_API_KEY). Unverified: symbol names and free-plan coverage/limits.
