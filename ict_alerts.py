@@ -951,7 +951,9 @@ def notify(text, entry=False, side=None, alert=False, decision_id=None):
     loud = entry or (alert and os.environ.get("MANAGE_SOUND", "1") != "0")
     sound = sound_path() if loud and shutil.which("termux-media-player") else None
     if shutil.which("termux-notification"):
-        title = "ICT SMC" if entry else "ICT SMC (manage)" if alert else "ICT SMC (info)"
+        arabic = alert_classes.arabic()
+        title = ("ICT SMC" if entry else "ICT SMC (manage)" if alert else "ICT SMC (info)") if not arabic else \
+                ("إشارة دخول" if entry else "إدارة الصفقة" if alert else "معلومة")
         if side:
             title = f"{emoji} {side.upper()} - ICT SMC"
         elif emoji:
@@ -960,6 +962,9 @@ def notify(text, entry=False, side=None, alert=False, decision_id=None):
                "--content", text, "--priority", "high" if entry or alert else "low"]
         if led:
             cmd += ["--led-color", led]
+        path = alert_classes.save_full_text("NOTIFY", text) if arabic else ""
+        if path:
+            cmd += ["--action", f"termux-open {path}"]                 # tap = open the full text
         cmd += decisions.button_args(decision_id)                      # ENTER / WAIT / IGNORE buttons (you decide, the bot never trades)
         if loud and not sound:
             cmd.append("--sound")  # no custom sound: use the phone's notification sound
@@ -1234,7 +1239,7 @@ def run():
     if engine not in ("selective", "legacy", "both"):
         raise SystemExit("ENGINE must be selective, legacy or both")
     use_selective = engine in ("selective", "both")
-    alert_lang = os.environ.get("ALERT_LANG", "en").lower()  # en (default) or ar
+    alert_lang = os.environ.get("ALERT_LANG", "ar").lower()  # ar (default: Arabic only) or en
     opts["news_block"] = os.environ.get("NEWS_BLOCK", "1" if use_selective else "0") == "1"
     opts["legacy_ict"] = engine in ("legacy", "both")
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both

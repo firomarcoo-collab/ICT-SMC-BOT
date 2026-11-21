@@ -492,3 +492,6 @@ Plan: Hard SL behind the retest extreme +/- 0.5 ATR (`ASIA_SL_ATR`), Early Exit 
 
 ## Optional second data source: Twelve Data (US100 / US30)
 Set `TWELVEDATA_API_KEY` (your own free key, never commit it) and US100 / US30 get `twelvedata:NDX` / `twelvedata:DJI` as a fallback after Yahoo fails (override names with `TWELVEDATA_SYMBOL_US100` / `TWELVEDATA_SYMBOL_US30`). The symbols and the free plan's coverage and request limits are NOT verified: check them on twelvedata.com first. It is a cash index, so its price differs from your broker and from the futures: run `calc_offset.py`. Without a key nothing changes.
+
+## Arabic-only alerts
+`ALERT_LANG=ar` is the default (`ALERT_LANG=en` goes back to English). Notification titles, bodies, reasons, trade plan, confluence block, gate reasons and the ENTER/WAIT/IGNORE buttons (دخول / انتظار / تجاهل) are Arabic, and every alert ends with a short Arabic explanation (what it means and what to do). Tapping a notification opens the whole alert with its explanation as a text file (`alert_texts/`, newest 40 kept; needs `termux-open`). The spoken label uses `termux-tts-speak -l ar` (it needs an Arabic voice installed on the phone). Terminal stage lines and the market report stay as they were.

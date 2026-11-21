@@ -15,6 +15,7 @@ FILE = os.environ.get("DECISIONS_FILE") or os.path.join(os.path.dirname(os.path.
 COLUMNS = ["time_utc", "id", "market", "side", "choice", "entry", "sl", "targets", "note"]
 CHOICES = ("enter", "wait", "ignore")
 LABELS = {"enter": "ENTER", "wait": "WAIT", "ignore": "IGNORE"}
+LABELS_AR = {"enter": "دخول", "wait": "انتظار", "ignore": "تجاهل"}
 
 
 def record(sid, choice, plan=None, now=None, path=None):
@@ -59,7 +60,8 @@ def button_args(sid, python=None, script=None):
     script = script or os.path.join(os.path.dirname(os.path.abspath(__file__)), "decide.py")
     args = []
     for i, ch in enumerate(CHOICES, 1):
-        args += [f"--button{i}", LABELS[ch], f"--button{i}-action",
+        label = (LABELS_AR if (os.environ.get("ALERT_LANG") or "ar").lower() == "ar" else LABELS)[ch]
+        args += [f"--button{i}", label, f"--button{i}-action",
                  f"{shlex.quote(python)} {shlex.quote(script)} {shlex.quote(sid)} {ch}"]
     return args
 

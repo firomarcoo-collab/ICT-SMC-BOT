@@ -152,6 +152,34 @@ EFFECT = {"h1": ("H1 is not with the trade: smaller risk and the stricter score 
                               "لا جلسة قوية أو لا شمعة تأكيد مغلقة بعد: انتظر إغلاق M5 داخل المنطقة")}
 
 
+SESSION_AR = {"Weekend": "عطلة نهاية الأسبوع", "Asia": "آسيا", "London": "لندن", "London / New York pre-open": "ما قبل افتتاح نيويورك",
+              "New York open": "افتتاح نيويورك", "New York": "نيويورك", "After hours": "بعد الإغلاق"}
+
+
+def _sess(name, lang):
+    return SESSION_AR.get(name, name) if lang == "ar" else name
+
+
+def why_ar(text):
+    """Arabic wording of the usual reasons a confirmed setup was not issued as a signal (unknown text is returned unchanged)."""
+    import re
+    rules = [(r"^spread unknown.*", "السبريد غير معروف (حدّد SPREAD_<الرمز> أو أكمل markets.json)"),
+             (r"^no stop distance", "لا توجد مسافة وقف"),
+             (r"^cost ([\d.e+-]+) is (\d+%) of the stop \(limit (\d+%)\)", r"التكلفة \1 تساوي \2 من الوقف (الحد \3)"),
+             (r"^R:R 1:([\d.]+) to the final target is under 1:([\d.]+)", r"العائد/المخاطرة 1:\1 للهدف الأخير أقل من 1:\2"),
+             (r"^net R:R ([\d.-]+) after costs is under ([\d.]+)", r"صافي العائد/المخاطرة \1 بعد التكاليف أقل من \2"),
+             (r"^score (\d+)/100 is under (\d+)( \(against the H1 trend: stricter\))?",
+              lambda m: f"التقييم {m.group(1)}/100 أقل من {m.group(2)}" + (" (عكس اتجاه H1: شرط أشد)" if m.group(3) else "")),
+             (r"^the confirmation candle closed (\d+) s ago \(limit (\d+) s\): not issued late",
+              r"أُغلقت شمعة التأكيد قبل \1 ثانية (الحد \2 ثانية): لا تُصدر متأخرة"),
+             (r"^analysis only \(no signal gate\)", "تحليل فقط (لا بوابة إشارات)"),
+             (r"^no signal store", "لا يوجد سجل إشارات")]
+    for pat, rep in rules:
+        if re.match(pat, text):
+            return re.sub(pat, rep, text, count=1)
+    return text
+
+
 def four_view(c, confirmed):
     """The four conditions of the method: [(key, english, arabic, met)]. Condition 4 needs the closed confirmation candle."""
     met = {"h1": c["h1"], "sweep": c["sweep"], "body_break": c["body_break"], "session_confirm": bool(c["session"] and confirmed)}
@@ -186,6 +214,7 @@ def render(kind, market, side, tf, h1, session, reason, invalidation, targets, c
            suggested=None, score=None, parts=None):
     """The three alert layouts. kind: SETUP | CONFIRMED | FLIP. Text only, no decisions."""
     ar = lang == "ar"
+    session = _sess(session, lang)
     head_side = side.upper()
     tgt = " / ".join(targets) if targets else ("لا سيولة واضحة" if ar else "no clear liquidity")
     if kind == "FINAL":
@@ -205,7 +234,8 @@ def render(kind, market, side, tf, h1, session, reason, invalidation, targets, c
         return "\n".join(l for l in lines if l)
     if kind == "FLIP":
         old = (old_side or ("buy" if side == "sell" else "sell")).upper()
-        title = (f"🔄 [STATE FLIP: {old} ❌ ➔ {head_side} REVERSAL ⚠️] — {market}")
+        title = (f"🔄 [STATE FLIP: {old} ❌ ➔ {head_side} REVERSAL ⚠️] — {market}" if not ar else
+                 f"🔄 [انقلاب الحالة: {'بيع' if old == 'SELL' else 'شراء'} ❌ ➔ انعكاس {'بيع' if head_side == 'SELL' else 'شراء'} ⚠️] — {market}")
         lines = [title,
                  (f"⏱️ الفريم: {tf} (اتجاه H1: {_trend_word(h1, lang)}) | الجلسة: {session}" if ar
                   else f"⏱️ TF: {tf} (H1 trend: {_trend_word(h1, lang)}) | Session: {session}"),
@@ -348,13 +378,17 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
             rec["phase"] = "retest"
             if state.fire(sid, "IFVG_RETEST", now):
                 tg = [f"{_f(t['price'], digits)} ({t['name']})" for t in _targets(m15, side, mid, calendar)]
-                inv = f"{'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)} (full M15 close)"
+                inv = (f"{'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)} (full M15 close)" if lang != "ar"
+                       else f"إغلاق M15 كامل {'أعلى' if side == 'sell' else 'أسفل'} {_f(rec['extreme'], digits)}")
                 reason = (f"price returned into the IFVG {_f(z['low'], digits)}-{_f(z['high'], digits)} (50% = {_f(mid, digits)}); "
                           "waiting for a closed M5 confirmation candle inside it" if lang != "ar" else
                           f"عاد السعر إلى IFVG {_f(z['low'], digits)}-{_f(z['high'], digits)} (المنتصف {_f(mid, digits)})؛ بانتظار إغلاق شمعة M5 تأكيد داخل المنطقة")
                 _pending(state, sid, market, side, now, lang, entry=None, invalid=inv,
                          wait=(f"a closed M5 candle must close inside {_f(z['low'], digits)}-{_f(z['high'], digits)} in the {side.upper()} direction; "
-                               f"skip it if an M15 candle closes fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"))
+                               f"skip it if an M15 candle closes fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"
+                               if lang != "ar" else
+                               f"يجب أن تُغلق شمعة M5 داخل {_f(z['low'], digits)}-{_f(z['high'], digits)} في اتجاه {side.upper()}؛ "
+                               f"تجاهل الإعداد إذا أغلقت شمعة M15 كاملة {'أعلى' if side == 'sell' else 'أسفل'} {_f(rec['extreme'], digits)}"))
                 out.append(("IFVG_RETEST", sid, render("SETUP", market, side, "M5/M15", h1_trend, phase, reason, inv, tg,
                                                        _confluence(m15, side, h1_trend, phase, rec["flip_idx"]), lang)
                             + "\n" + decisions.options_text(sid, lang)))
@@ -379,23 +413,38 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                 conf = _confluence(m15, side, h1_trend, phase, rec["flip_idx"])
                 score, parts = ifvg_score(conf, h1_trend, room)
                 aligned = conf["h1"] or h1_trend not in ("up", "down")
-                inv = f"{'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)} (full M15 close)"
+                ar = lang == "ar"
+                inv = (f"{'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)} (full M15 close)" if not ar
+                       else f"إغلاق M15 كامل {'أعلى' if side == 'sell' else 'أسفل'} {_f(rec['extreme'], digits)}")
                 tps = [_f(t["price"], digits) for t in tg]
                 tgt_txt = [f"{_f(t['price'], digits)} ({t['name']})" for t in tg]
-                be = " (move the stop to break-even there)"
-                sug = (("Optimal Entry " + _f(entry, digits) + (" (market: the closed M5 candle is already in the 50-75% band)" if is_market
-                                                                else " (LIMIT at 62.5% depth of the IFVG)"))
-                       + f"\n🛑 Hard SL {_f(sl, digits)} (behind the {'sweep/swing high' if side == 'sell' else 'sweep/swing low'} "
-                         f"{_f(sw_ext, digits)} + {os.environ.get('IFVG_SL_ATR') or SL_ATR} ATR; not at the IFVG edge)"
-                       + f"\n🚪 Early Exit: an M15 candle closing fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"
-                       + "".join(f"\n🎯 TP{i + 1} {_f(t['price'], digits)}" + (be if i == 0 else "") for i, t in enumerate(tg))
-                       + f"\n⚖️ R:R about 1:{rr:.1f} (from the structural stop)")
+                be = " (انقل الوقف إلى التعادل عندها)" if ar else " (move the stop to break-even there)"
+                slw = float(os.environ.get('IFVG_SL_ATR') or SL_ATR)
+                above = "أعلى" if side == "sell" else "أسفل"
+                if ar:
+                    sug = ("الدخول الأمثل " + _f(entry, digits) + (" (سعر السوق: إغلاق M5 داخل نطاق 50-75% أصلاً)" if is_market
+                                                                  else " (أمر LIMIT عند عمق 62.5% من IFVG)")
+                           + f"\n🛑 وقف الخسارة الصلب {_f(sl, digits)} (خلف {'قمة' if side == 'sell' else 'قاع'} السحب/التأرجح "
+                             f"{_f(sw_ext, digits)} {'+' if side == 'sell' else '-'} {slw} ATR؛ وليس عند حافة IFVG)"
+                           + f"\n🚪 الخروج المبكر: إغلاق شمعة M15 كاملة {above} {_f(rec['extreme'], digits)}"
+                           + "".join(f"\n🎯 الهدف {i + 1}: {_f(t['price'], digits)}" + (be if i == 0 else "") for i, t in enumerate(tg))
+                           + f"\n⚖️ العائد/المخاطرة حوالي 1:{rr:.1f} (محسوب من الوقف الهيكلي)")
+                else:
+                    sug = (("Optimal Entry " + _f(entry, digits) + (" (market: the closed M5 candle is already in the 50-75% band)" if is_market
+                                                                    else " (LIMIT at 62.5% depth of the IFVG)"))
+                           + f"\n🛑 Hard SL {_f(sl, digits)} (behind the {'sweep/swing high' if side == 'sell' else 'sweep/swing low'} "
+                             f"{_f(sw_ext, digits)} + {slw} ATR; not at the IFVG edge)"
+                           + f"\n🚪 Early Exit: an M15 candle closing fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"
+                           + "".join(f"\n🎯 TP{i + 1} {_f(t['price'], digits)}" + (be if i == 0 else "") for i, t in enumerate(tg))
+                           + f"\n⚖️ R:R about 1:{rr:.1f} (from the structural stop)")
                 reason = ("closed M5 confirmation candle inside the IFVG after the retest, with room to the next liquidity" if lang != "ar"
                           else "إغلاق شمعة تأكيد M5 داخل IFVG بعد إعادة الاختبار مع مساحة كافية للسيولة التالية")
                 plan = {"entry": _f(entry, digits), "sl": _f(sl, digits), "tps": tps, "rr": f"{rr:.1f}", "invalid": inv,
                         "early_exit": inv, "limit": not is_market,
-                        "wait": "this setup is already confirmed: if you did not enter, do not chase it once price is more than 0.5 ATR "
-                                "from the entry; cancel it if an M15 candle closes fully beyond the invalidation"}
+                        "wait": ("this setup is already confirmed: if you did not enter, do not chase it once price is more than 0.5 ATR "
+                                 "from the entry; cancel it if an M15 candle closes fully beyond the invalidation" if not ar else
+                                 "الإعداد مؤكد بالفعل: إن لم تدخل فلا تلاحقه بعد أن يبتعد السعر أكثر من 0.5 ATR عن الدخول؛ "
+                                 "وألغِه إذا أغلقت شمعة M15 كاملة خلف مستوى الإبطال")}
                 age = now - (int(p5["time"].timestamp()) + 300)
                 max_age = int(float(os.environ.get("IFVG_MAX_AGE") or 420))
                 gate_why = ""
@@ -420,15 +469,18 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                 else:
                     gate_why = "analysis only (no signal gate)"
                 _pending(state, sid, market, side, now, lang, **plan)
-                parts_txt = ", ".join(f"{k} {v}" for k, v in parts.items())
+                names_ar = {"htf": "الفريم الأعلى", "sweep": "سحب السيولة", "session": "الجلسة", "displacement": "الزخم",
+                            "retest_confirm": "إعادة الاختبار والتأكيد", "room": "المساحة للهدف"}
+                parts_txt = ", ".join(f"{names_ar.get(k, k) if ar else k} {v}" for k, v in parts.items())
                 if final:
-                    out.append(("IFVG_SIGNAL", sid, render("FINAL", market, side, "M5 confirm / M15", h1_trend, phase, reason, inv, tgt_txt, conf,
+                    out.append(("IFVG_SIGNAL", sid, render("FINAL", market, side, ("تأكيد M5 / M15" if ar else "M5 confirm / M15"), h1_trend, phase, reason, inv, tgt_txt, conf,
                                                           lang, suggested=sug, score=score, parts=parts_txt)
                                 + "\n" + decisions.options_text(sid, lang)))
                 else:
                     out.append(("IFVG_CONFIRMED", sid, render("CONFIRMED", market, side, "M5/M15", h1_trend, phase, reason, inv, tgt_txt, conf,
                                                               lang, suggested=sug)
-                                + f"\n⛔ NOT issued as a signal: {gate_why}" + f" (score {score}/100: {parts_txt})\n" + decisions.options_text(sid, lang)))
+                                + (f"\n⛔ لم تصدر كإشارة: {why_ar(gate_why)}" if ar else f"\n⛔ NOT issued as a signal: {gate_why}")
+                                + (f" (التقييم {score}/100: {parts_txt})\n" if ar else f" (score {score}/100: {parts_txt})\n") + decisions.options_text(sid, lang)))
                     if gate is not None:
                         out.append(("DROP", sid, f"{market} {side.upper()} IFVG not issued as a signal: {gate_why}"))
     state.save()

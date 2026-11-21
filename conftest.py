@@ -6,6 +6,8 @@ def isolated_defaults(monkeypatch, tmp_path):
     """Older tests check the classic alert text (the KENAN layout has its own tests that set SIGNAL_FORMAT=kenan), and no test
     may write its alert / zone memory files into the project folder."""
     monkeypatch.setenv("SIGNAL_FORMAT", "classic")
+    monkeypatch.setenv("ALERT_LANG", "en")                      # the shipped default is Arabic; Arabic tests set it themselves
+    monkeypatch.setenv("ALERT_TEXT_DIR", str(tmp_path / "alert_texts"))
     import alert_classes
     import ict_alerts
     monkeypatch.setattr(alert_classes, "STATE_FILE", str(tmp_path / "alerts_state.json"))

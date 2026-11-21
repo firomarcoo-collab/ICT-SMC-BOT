@@ -45,6 +45,54 @@ EXTRA_CLASSES = {      # IFVG / state-flip alerts (flip_ifvg.py): analysis only,
 }
 
 
+AR = {   # class -> (Arabic title, spoken label, what it means and what to do)
+    "ZONE_APPROACH": ("اقتراب من منطقة", "السعر يقترب من منطقة", "السعر يقترب من منطقة قد تعطي إعداداً. هذا تنبيه مراقبة فقط وليس إشارة دخول. لا تفعل شيئاً الآن."),
+    "ZONE_ENTRY": ("دخول المنطقة", "السعر داخل المنطقة", "السعر دخل المنطقة المراقبة. الإشارة تنتظر إغلاق شمعة تأكيد. لا تدخل قبل التأكيد."),
+    "REVERSAL_STAGE3": ("انعكاس: المرحلة 3", "تأكد الانعكاس المرحلة الثالثة", "حدث سحب سيولة ثم كسر هيكل بزخم. ننتظر عودة السعر لمنطقة طازجة ثم شمعة تأكيد. ليست إشارة دخول بعد."),
+    "RETEST": ("إعادة اختبار", "إعادة اختبار المنطقة", "السعر عاد لإعادة اختبار المنطقة. ننتظر شمعة تأكيد مغلقة قبل أي قرار."),
+    "CONFIRMED": ("تأكيد", "إشارة مؤكدة", "اكتملت شروط الإشارة. راجع الدخول والوقف والأهداف، ثم قرر بنفسك: دخول أو انتظار أو تجاهل."),
+    "INVALIDATED": ("إلغاء الإعداد", "أُلغي الإعداد", "فشل الإعداد وانتهت صلاحيته. تجاهله وانتظر إعداداً جديداً."),
+    "STATE_FLIP": ("انقلاب الحالة", "انقلاب الحالة، فشلت المنطقة",
+                   "المنطقة القديمة فشلت وانقلبت إلى IFVG في الاتجاه المعاكس. هذا تنبيه مراقبة وليس إشارة دخول. انتظر عودة السعر للمنطقة وإغلاق شمعة M5 تأكيد."),
+    "IFVG_RETEST": ("إعادة اختبار IFVG", "إعادة اختبار آي إف في جي", "عاد السعر إلى منطقة IFVG. ننتظر إغلاق شمعة M5 تأكيد داخلها. لا تدخل قبلها."),
+    "IFVG_CONFIRMED": ("تأكيد IFVG (دون إشارة)", "تأكيد آي إف في جي",
+                       "أُغلقت شمعة تأكيد داخل IFVG لكن الإعداد لم يجتز شروط الإصدار (التقييم أو التكلفة أو النسبة). عامله كتحليل فقط."),
+    "IFVG_SIGNAL": ("إشارة IFVG", "إشارة آي إف في جي",
+                    "إشارة مكتملة. فيها دخول مثالي ووقف هيكلي وخروج مبكر وأهداف. أنت تنفّذ بنفسك في MT5. خاطر بـ 1% أو أقل من حسابك. لا نسبة نجاح مضمونة."),
+    "ASIA_SETUP": ("إعداد اختراق آسيا", "إعداد اختراق آسيا", "اخترق السعر النطاق الآسيوي. ننتظر إعادة اختبار الحافة ثم شمعة M15 تأكيد. لا تلاحق الاختراق."),
+    "ASIA_CONFIRMED": ("تأكيد اختراق آسيا (دون إشارة)", "تأكيد اختراق آسيا", "اكتمل التأكيد لكن الإعداد لم يجتز شروط الإصدار. عامله كتحليل فقط."),
+    "ASIA_SIGNAL": ("إشارة اختراق آسيا", "إشارة اختراق آسيا",
+                    "إشارة مكتملة على الذهب: دخول ووقف خلف إعادة الاختبار وخروج مبكر وأهداف. أنت تنفّذ بنفسك. خاطر بـ 1% أو أقل. لا نسبة نجاح مضمونة."),
+}
+
+
+def arabic():
+    """Alerts are Arabic unless ALERT_LANG=en."""
+    return (os.environ.get("ALERT_LANG") or "ar").lower() == "ar"
+
+
+def explanation(cls):
+    return AR[cls][2] if cls in AR else ""
+
+
+def save_full_text(cls, text, sid=None):
+    """Writes the whole alert plus its explanation to a file, so tapping the notification opens the complete Arabic text.
+    Keeps the 40 newest files. Returns the path, or '' when it cannot be written."""
+    d = os.environ.get("ALERT_TEXT_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "alert_texts")
+    try:
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"{int(time.time())}-{cls}.txt")
+        body = text + ("\n\n💡 شرح: " + explanation(cls) if cls in AR and arabic() else "")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(body + "\n")
+        files = sorted(x for x in os.listdir(d) if x.endswith(".txt"))
+        for old in files[:-40]:
+            os.remove(os.path.join(d, old))
+        return path
+    except OSError:
+        return ""
+
+
 DECISION_CLASSES = ("STATE_FLIP", "IFVG_RETEST", "IFVG_CONFIRMED", "IFVG_SIGNAL", "ASIA_SETUP", "ASIA_CONFIRMED", "ASIA_SIGNAL")     # alerts that carry ENTER / WAIT / IGNORE buttons
 
 
@@ -128,7 +176,7 @@ def _text(cls, obs, lang, extra=""):
             "RETEST": f"السعر عاد لإعادة اختبار المنطقة {zone} (إعداد {side_ar}). ننتظر شمعة التأكيد المغلقة.",
             "INVALIDATED": f"أُلغي إعداد {side_ar}: {extra}. تجاهله.",
         }[cls]
-        return f"{CLASSES[cls]['emoji']} {CLASSES[cls]['title']} ({obs['market']}) - ليست إشارة دخول: {body}"
+        return f"{CLASSES[cls]['emoji']} {AR[cls][0]} ({obs['market']}) - ليست إشارة دخول: {body}"
     body = {
         "ZONE_APPROACH": f"price is approaching a {zone} that could give a {side_en} setup. Nothing to do yet.",
         "ZONE_ENTRY": f"price entered the {zone} ({side_en} setup). Waiting for the closed confirmation candle.",
@@ -187,6 +235,7 @@ def deliver(cls, text, sid=None):
     """Phone side of an alert: notification, vibration pattern and spoken label, all started without waiting.
     Returns the list of commands started (empty outside Termux)."""
     spec, started = CLASSES.get(cls) or EXTRA_CLASSES[cls], []
+    ar = arabic() and cls in AR
 
     def run(cmd):
         if shutil.which(cmd[0]):
@@ -195,9 +244,15 @@ def deliver(cls, text, sid=None):
                 started.append(cmd[0])
             except OSError:
                 pass
-    run(["termux-notification", "--title", f"{spec['emoji']} {spec['title']}", "--content", text,
-         "--priority", "high", "--vibrate", spec["vibrate"], "--id", f"kenan-{cls}"]
+    title = AR[cls][0] if ar else spec["title"]
+    shown = (text + "\n\n💡 " + explanation(cls)) if ar else text
+    tap = []
+    path = save_full_text(cls, text, sid)
+    if path:
+        tap = ["--action", f"termux-open {path}"]       # tapping the notification opens the complete text with its explanation
+    run(["termux-notification", "--title", f"{spec['emoji']} {title}", "--content", shown,
+         "--priority", "high", "--vibrate", spec["vibrate"], "--id", f"kenan-{cls}"] + tap
         + (decisions.button_args(sid) if sid and cls in DECISION_CLASSES else []))
     if os.environ.get("ALERT_VOICE", "1") != "0":
-        run(["termux-tts-speak", spec["voice"]])
+        run(["termux-tts-speak", "-l", "ar", AR[cls][1]] if ar else ["termux-tts-speak", spec["voice"]])
     return started

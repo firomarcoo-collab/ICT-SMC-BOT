@@ -105,3 +105,4 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 - US100/US30 back in default SYMBOLS, any hour; NY window gate is opt-in (US_MODE=1).
 - Gold Asia-range breakout strategy added (asia_breakout.py, on by default, signals only; ASIA_BREAKOUT=0 turns off). 364 tests pass. Unmeasured: no backtest yet.
 - Optional Twelve Data fallback for US100/US30 (TWELVEDATA_API_KEY). Unverified: symbol names and free-plan coverage/limits.
+- Alerts are Arabic by default (ALERT_LANG=ar): titles, explanations, trade plan, buttons, tap-to-open full text. Terminal stage/report lines not translated yet.

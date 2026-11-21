@@ -86,6 +86,7 @@ def _plan_text(side, entry, sl, ext, tps, rr, early, digits, lang):
 def render(kind, side, asia, h1, session, conf, lang, digits, plan_text="", note="", reason=""):
     f = lambda v: fl._f(v, digits)                                                                 # noqa: E731
     ar = lang == "ar"
+    session = fl._sess(session, lang)
     mark = {"SETUP": "🟡 [SETUP ONLY — انتظر التأكيد]" if ar else "🟡 [SETUP ONLY - wait for the confirmation]",
             "CONFIRMED": "🟢 [CONFIRMED ENTRY]", "INVALIDATED": "🔴 [SETUP INVALIDATED]"}[kind]
     lines = [f"{mark} — XAUUSD | {side.upper()} | ASIA BREAKOUT",
@@ -172,7 +173,8 @@ def process(state, market, m15, h1, h1_trend, now, lang="en", digits=2, calendar
             rec["done"] = "invalidated"
             if state.fire(sid, "INVALIDATED", now):
                 out.append(("INVALIDATED", sid, render("INVALIDATED", side, asia_r, h1_trend, phase, rec["conf"], lang, digits,
-                            reason="two M15 closes back inside the Asia range: a fake breakout. Next: watch the opposite edge or the next session.")))
+                            reason=("إغلاقان M15 داخل النطاق الآسيوي: اختراق كاذب. التالي: راقب الحافة المقابلة أو الجلسة القادمة." if lang == "ar"
+                                    else "two M15 closes back inside the Asia range: a fake breakout. Next: watch the opposite edge or the next session."))))
             continue
         a = rec["atr"] or atr or 0.0
         tol = BREAK_ATR * a
@@ -237,7 +239,7 @@ def process(state, market, m15, h1, h1_trend, now, lang="en", digits=2, calendar
                         + "\n" + decisions.options_text(sid, lang)))
         else:
             out.append(("ASIA_CONFIRMED", sid, render("CONFIRMED", side, asia_r, h1_trend, phase, conf, lang, digits, plan_text=plan, reason=reason,
-                                                      note=f"⛔ NOT issued as a signal: {gate_why}") + "\n" + decisions.options_text(sid, lang)))
+                                                      note=(f"⛔ لم تصدر كإشارة: {fl.why_ar(gate_why)}" if lang == "ar" else f"⛔ NOT issued as a signal: {gate_why}")) + "\n" + decisions.options_text(sid, lang)))
             if gate is not None:
                 out.append(("DROP", sid, f"XAUUSD {side.upper()} Asia breakout not issued as a signal: {gate_why}"))
     state.save()

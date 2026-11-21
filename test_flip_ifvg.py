@@ -47,7 +47,7 @@ def test_a_body_close_break_that_holds_is_a_state_flip_with_the_template(tmp_pat
     assert rec["side"] == "sell" and (rec["zone"]["low"], rec["zone"]["high"]) == (100.5, 102)
     assert run(st, b) == []                                                                      # once per zone, never repeated
     ar = fl.render("FLIP", "XAUUSD", "sell", "M15", "down", "New York", "r", "i", ["t"], {"h1": True, "sweep": False, "session": True, "body_break": True}, "ar")
-    assert "🔄 [STATE FLIP: BUY ❌ ➔ SELL REVERSAL ⚠️] — XAUUSD" in ar and "اتجاه H1: هابط" in ar and "وليس أمراً تنفيذياً" in ar
+    assert "🔄 [انقلاب الحالة: شراء ❌ ➔ انعكاس بيع ⚠️] — XAUUSD" in ar and "اتجاه H1: هابط" in ar and "وليس أمراً تنفيذياً" in ar
 
 
 def test_a_wick_through_the_edge_or_an_immediate_close_back_inside_is_not_a_flip(tmp_path):
