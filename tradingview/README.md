@@ -6,7 +6,7 @@ Rules (same as the bot): signals only, closed candles only, no profit or win-rat
 
 ## Plan (stages)
 1. **Spec** (this stage): `SPEC_ASIA_BREAKOUT.md`, the exact rules and numbers copied from `asia_breakout.py`. No code yet.
-2. `asia_breakout_indicator.pine`: an `indicator()` with the Asia range, the breakout / retest / confirmation marks and `alertcondition`s.
+2. `asia_breakout_indicator.pine`: an `indicator()` with the Asia range, the breakout / retest / confirmation marks and `alert()` calls (one alert on the indicator, condition "Any alert() function call"). Written but NOT compiled in TradingView yet: send any editor error back to fix it.
 3. `asia_breakout_strategy.pine`: a `strategy()` for historical testing with spread and commission.
 4. Parity check against the Python bot on the same candles. Small differences are expected (tick volume of a CFD, multi-timeframe handling), so Pine results are a second opinion, not a guarantee.
 

@@ -1,0 +1,166 @@
+//@version=6
+// Kenan - Gold Asia-range breakout. SIGNALS ONLY: it draws and alerts, it never trades.
+// Rules = tradingview/SPEC_ASIA_BREAKOUT.md (copied from the Python bot). Use on XAUUSD, M15, closed candles only.
+// Not compiled in TradingView by the author of this file: if the editor shows an error, send the message back to fix it.
+indicator("Kenan - Gold Asia Breakout (signals only)", shorttitle="Asia BO", overlay=true, max_labels_count=200, max_lines_count=300)
+
+// ===== Inputs (defaults = the Python bot) =====
+tz       = input.string("America/New_York", "Time zone", group="Sessions")
+minRng   = input.float(1.0, "Min Asia range (x H1 ATR)", step=0.1, group="Range")
+maxRng   = input.float(3.0, "Max Asia range (x H1 ATR)", step=0.1, group="Range")
+breakAtr = input.float(0.1, "Close beyond the edge by (x ATR)", step=0.05, group="Breakout")
+bodyFrac = input.float(0.5, "Min body / candle range", step=0.05, group="Breakout")
+volMult  = input.float(1.2, "Min volume (x 20-candle average)", step=0.1, group="Breakout")
+useH1    = input.bool(true, "Require the H1 trend (close vs EMA 50)", group="Breakout")
+slAtr    = input.float(0.5, "Hard SL margin behind the retest extreme (x ATR)", step=0.1, group="Plan")
+chaseAtr = input.float(1.0, "Missed if price runs this far (x ATR) without a retest", step=0.1, group="Plan")
+maxBars  = input.int(24, "Setup expires after (M15 candles)", minval=4, group="Plan")
+showLbl  = input.bool(true, "Show labels and levels", group="Display")
+
+// ===== Time =====
+inAsia    = not na(time(timeframe.period, "1900-0300", tz))     // Asia range 19:00-03:00 New York
+inWin     = not na(time(timeframe.period, "0300-0800", tz))     // a breakout candle must open in this window
+beforeCut = not na(time(timeframe.period, "0300-0915", tz))     // nothing after the 09:15 candle (closes 09:30)
+showRng   = not na(time(timeframe.period, "1900-0915", tz))
+asiaStart = inAsia and not inAsia[1]
+asiaEnd   = not inAsia and inAsia[1]
+isM15     = timeframe.in_seconds() == 900
+
+// ===== Indicators (the H1 values come from the previous closed H1 candle: no repainting) =====
+atr15  = ta.atr(14)
+atrH1  = request.security(syminfo.tickerid, "60", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+h1Up   = request.security(syminfo.tickerid, "60", close[1] > ta.ema(close, 50)[1], lookahead = barmerge.lookahead_on)
+h1Dn   = request.security(syminfo.tickerid, "60", close[1] < ta.ema(close, 50)[1], lookahead = barmerge.lookahead_on)
+volAvg = ta.sma(volume, 20)[1]
+
+// ===== State =====
+var float aHigh    = na
+var float aLow     = na
+var bool  rngOk    = false
+var int   state    = 0        // 0 waiting, 1 broke out, 2 retested, 3 finished
+var int   side     = 0        // 1 buy, -1 sell
+var float edge     = na
+var float brkClose = na
+var float brkAtr   = na
+var float rtExt    = na
+var int   brkBar   = na
+var int   insideCnt = 0
+
+if asiaStart
+    aHigh := high
+    aLow := low
+    rngOk := false
+    state := 0
+    side := 0
+    insideCnt := 0
+    rtExt := na
+else if inAsia
+    aHigh := math.max(aHigh, high)
+    aLow := math.min(aLow, low)
+
+if asiaEnd
+    float w = aHigh - aLow
+    rngOk := not na(atrH1) and w >= minRng * atrH1 and w <= maxRng * atrH1
+
+bool  buySig   = false
+bool  sellSig  = false
+bool  setupNew = false
+bool  invalid  = false
+float entry = na
+float sl    = na
+float tp1   = na
+float tp2   = na
+float tp3   = na
+
+if barstate.isconfirmed and isM15 and not inAsia and not na(aHigh)
+    if state == 0 and inWin and rngOk
+        // the FIRST candle that closes outside the range decides the day
+        int dir = close > aHigh ? 1 : close < aLow ? -1 : 0
+        if dir != 0
+            float beyond = dir == 1 ? close - aHigh : aLow - close
+            float rng = high - low
+            bool bodyOk = rng > 0 and math.abs(close - open) >= bodyFrac * rng
+            bool volOk = na(volAvg) or volAvg <= 0 or volume >= volMult * volAvg
+            bool trendOk = not useH1 or (dir == 1 ? h1Up : h1Dn)
+            if beyond >= breakAtr * atr15 and bodyOk and volOk and trendOk
+                state := 1
+                side := dir
+                edge := dir == 1 ? aHigh : aLow
+                brkClose := close
+                brkAtr := atr15
+                brkBar := bar_index
+                insideCnt := 0
+                rtExt := na
+                setupNew := true
+            else
+                state := 3
+    else if (state == 1 or state == 2) and bar_index > brkBar
+        bool inside = close >= aLow and close <= aHigh
+        insideCnt := inside ? insideCnt + 1 : 0
+        if (bar_index - brkBar) > maxBars or not beforeCut
+            state := 3
+        else if insideCnt >= 2
+            state := 3
+            invalid := true          // two closes back inside the range: fake breakout
+        else
+            float tol = breakAtr * brkAtr
+            bool touch = side == 1 ? low <= edge + tol : high >= edge - tol
+            if touch and state == 1
+                state := 2
+                rtExt := side == 1 ? low : high
+            else if state == 2
+                rtExt := side == 1 ? math.min(rtExt, low) : math.max(rtExt, high)
+            if state == 1
+                float away = side == 1 ? close - brkClose : brkClose - close
+                if away > chaseAtr * brkAtr
+                    state := 3       // missed: do not chase
+            if state == 2
+                bool dirOk = side == 1 ? close > open : close < open
+                bool beyondEdge = side == 1 ? close > edge : close < edge
+                if dirOk and beyondEdge
+                    entry := close
+                    sl := side == 1 ? rtExt - slAtr * brkAtr : rtExt + slAtr * brkAtr
+                    float risk = math.abs(entry - sl)
+                    tp1 := entry + side * risk
+                    tp2 := entry + side * 2 * risk
+                    tp3 := entry + side * 3 * risk
+                    buySig := side == 1
+                    sellSig := side == -1
+                    state := 3
+
+// ===== Drawing =====
+plot(showRng ? aHigh : na, "Asia high", color = color.orange, style = plot.style_linebr)
+plot(showRng ? aLow : na, "Asia low", color = color.orange, style = plot.style_linebr)
+bgcolor(inWin ? color.new(color.blue, 93) : na)
+
+string fmt(float v) => str.tostring(v, format.mintick)
+
+if showLbl and (buySig or sellSig)
+    string t = (buySig ? "BUY" : "SELL") + " (signal only)" +
+         "\nEntry " + fmt(entry) + "\nHard SL " + fmt(sl) +
+         "\nTP1 " + fmt(tp1) + " (stop to break-even)\nTP2 " + fmt(tp2) + "\nTP3 " + fmt(tp3) +
+         "\nEarly exit: M15 close back inside the range (" + fmt(edge) + ")"
+    label.new(bar_index, buySig ? low : high, t, style = buySig ? label.style_label_up : label.style_label_down,
+         color = buySig ? color.green : color.red, textcolor = color.white)
+    line.new(bar_index, sl, bar_index + 12, sl, color = color.red)
+    line.new(bar_index, tp1, bar_index + 12, tp1, color = color.green)
+    line.new(bar_index, tp2, bar_index + 12, tp2, color = color.green)
+    line.new(bar_index, entry, bar_index + 12, entry, color = color.gray)
+
+if showLbl and setupNew
+    label.new(bar_index, side == 1 ? high : low, "Asia breakout " + (side == 1 ? "UP" : "DOWN") + ": wait for the retest + a confirmation candle",
+         style = side == 1 ? label.style_label_down : label.style_label_up, color = color.new(color.orange, 20), textcolor = color.black)
+
+// ===== Alerts: create ONE alert on this indicator with the condition "Any alert() function call" =====
+if buySig or sellSig
+    alert("XAUUSD " + (buySig ? "BUY" : "SELL") + " Asia breakout (signal only). Entry " + fmt(entry) + ", Hard SL " + fmt(sl) +
+         ", TP1 " + fmt(tp1) + ", TP2 " + fmt(tp2) + ", TP3 " + fmt(tp3) + ". Early exit: M15 close back inside the range.", alert.freq_once_per_bar_close)
+if setupNew
+    alert("XAUUSD Asia breakout " + (side == 1 ? "UP" : "DOWN") + ": SETUP ONLY, wait for the retest and a confirmation candle.", alert.freq_once_per_bar_close)
+if invalid
+    alert("XAUUSD Asia breakout INVALIDATED: two M15 closes back inside the range.", alert.freq_once_per_bar_close)
+
+var table info = table.new(position.top_right, 1, 1)
+if barstate.islast
+    table.cell(info, 0, 0, isM15 ? "Asia BO: M15 OK" : "Asia BO: switch the chart to M15",
+         text_color = isM15 ? color.green : color.red, bgcolor = color.new(color.black, 70))
