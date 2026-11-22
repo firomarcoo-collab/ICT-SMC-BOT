@@ -7,11 +7,11 @@ import flip_ifvg as fl
 import test_flip_ifvg as tf
 
 
-def test_arabic_is_the_default_when_alert_lang_is_unset(monkeypatch):
+def test_english_is_the_default_and_arabic_is_opt_in(monkeypatch):
     monkeypatch.delenv("ALERT_LANG", raising=False)
-    assert ac.arabic() is True
-    monkeypatch.setenv("ALERT_LANG", "en")
     assert ac.arabic() is False
+    monkeypatch.setenv("ALERT_LANG", "ar")
+    assert ac.arabic() is True
 
 
 def test_every_alert_class_has_an_arabic_title_voice_and_explanation():

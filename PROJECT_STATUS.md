@@ -108,3 +108,4 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 - Alerts are Arabic by default (ALERT_LANG=ar): titles, explanations, trade plan, buttons, tap-to-open full text. Terminal stage/report lines not translated yet.
 - Periodic Arabic trades report (open / closed / per day, R and optional RISK_USD money). 379 tests pass.
 - Termux screen Arabic fix: termfix.py shaping (needs pip install arabic-reshaper python-bidi), stage lines English. 383 tests pass. Shaping untested on a real phone.
+- Default alert language is English again (Arabic opt-in with ALERT_LANG=ar); trades report has an English version. 384 tests pass.

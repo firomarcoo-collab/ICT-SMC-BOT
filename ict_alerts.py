@@ -1250,7 +1250,7 @@ def run():
     if engine not in ("selective", "legacy", "both"):
         raise SystemExit("ENGINE must be selective, legacy or both")
     use_selective = engine in ("selective", "both")
-    alert_lang = os.environ.get("ALERT_LANG", "ar").lower()  # ar (default: Arabic only) or en
+    alert_lang = os.environ.get("ALERT_LANG", "en").lower()  # en (default) or ar (Arabic alerts)
     opts["news_block"] = os.environ.get("NEWS_BLOCK", "1" if use_selective else "0") == "1"
     opts["legacy_ict"] = engine in ("legacy", "both")
     if engine == "selective":  # the old classic / RCT alerts are only for ENGINE=legacy or both

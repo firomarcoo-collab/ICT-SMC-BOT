@@ -67,8 +67,8 @@ AR = {   # class -> (Arabic title, spoken label, what it means and what to do)
 
 
 def arabic():
-    """Alerts are Arabic unless ALERT_LANG=en."""
-    return (os.environ.get("ALERT_LANG") or "ar").lower() == "ar"
+    """Alerts are English unless ALERT_LANG=ar."""
+    return (os.environ.get("ALERT_LANG") or "en").lower() == "ar"
 
 
 def explanation(cls):

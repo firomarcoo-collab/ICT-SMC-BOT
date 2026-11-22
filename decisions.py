@@ -60,7 +60,7 @@ def button_args(sid, python=None, script=None):
     script = script or os.path.join(os.path.dirname(os.path.abspath(__file__)), "decide.py")
     args = []
     for i, ch in enumerate(CHOICES, 1):
-        label = (LABELS_AR if (os.environ.get("ALERT_LANG") or "ar").lower() == "ar" else LABELS)[ch]
+        label = (LABELS_AR if (os.environ.get("ALERT_LANG") or "en").lower() == "ar" else LABELS)[ch]
         args += [f"--button{i}", label, f"--button{i}-action",
                  f"{shlex.quote(python)} {shlex.quote(script)} {shlex.quote(sid)} {ch}"]
     return args
