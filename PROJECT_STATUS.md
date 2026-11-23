@@ -109,3 +109,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 - Periodic Arabic trades report (open / closed / per day, R and optional RISK_USD money). 379 tests pass.
 - Termux screen Arabic fix: termfix.py shaping (needs pip install arabic-reshaper python-bidi), stage lines English. 383 tests pass. Shaping untested on a real phone.
 - Default alert language is English again (Arabic opt-in with ALERT_LANG=ar); trades report has an English version. 384 tests pass.
+
+## Entry-zones report + quality grade
+Added `zones_report.py` (hook in `track_setups`, periodic report in the main loop, `ZONES_REPORT_MINUTES`), tests in `test_zones_report.py`. Full suite 387 passed. Not yet seen on a real phone.

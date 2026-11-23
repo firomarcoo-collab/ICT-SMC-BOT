@@ -556,6 +556,11 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
         if sid in state.setups and not state.setups[sid].get("done"):
             state.setups[sid]["done"] = "ignored"
     observations = [o for o in observations if o["sid"] not in skip]
+    try:
+        import zones_report
+        zones_report.record(market, observations, last_close, now_ts, h1_trend(data, now_ts))
+    except Exception:                                             # the zones report must never stop the scan
+        pass
     active = {sg["side"] for sg in store.active_list(market)} if store is not None else set()
     kept, notes = reversal_machine.arbitrate(state, market, observations, now_ts, h1_trend(data, now_ts), active)
     extra = ""
@@ -1293,6 +1298,8 @@ def run():
     trades_report_minutes = float(os.environ.get("TRADES_REPORT_MINUTES") or 30)   # open / closed trades and P/L per day; 0 = off
     last_trades_report = 0
     last_report = 0
+    zones_report_minutes = float(os.environ.get("ZONES_REPORT_MINUTES") or 30)   # entry zones near price + quality; 0 = off
+    last_zones_report = 0
     us_names = [n for n in names if markets.canonical(n) in US_INDEX_MARKETS and str(INSTRUMENTS[n]["id"]).startswith("^")]
     us_open = None
     while True:
@@ -1324,6 +1331,15 @@ def run():
                 daily_report.notify(text)
             except Exception as e:                                      # a report must never stop the bot
                 log.warning("trades report failed: %s", e)
+        if zones_report_minutes and use_selective and now_ts - last_zones_report >= zones_report_minutes * 60:
+            last_zones_report = now_ts
+            try:
+                import zones_report
+                ztext = zones_report.build(now_ts)
+                print(ztext, flush=True)
+                zones_report.notify(ztext)
+            except Exception as e:                                      # a report must never stop the bot
+                log.warning("zones report failed: %s", e)
         if now_ts - last_beat >= 3600:
             if last_beat and use_selective:
                 print(wait_summary(wait_stats, hour_signals), flush=True)

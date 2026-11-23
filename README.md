@@ -501,3 +501,6 @@ Every `TRADES_REPORT_MINUTES` (default 30, 0 = off) the bot prints an Arabic rep
 
 ## Arabic on the Termux screen
 Termux draws Arabic reversed and unjoined (a terminal limit; notifications are fine). `termfix.py` shapes Arabic text for the SCREEN only when `arabic-reshaper` and `python-bidi` are installed (`pip install arabic-reshaper python-bidi`); `ALERT_TERMINAL_BIDI=0` turns it off. The stage lines (STAGE ...) are screen-only and are always English. Notifications and the tap-to-open text are never shaped.
+
+## Entry-zones report and setup quality (information only)
+`zones_report.py` keeps the latest live setups (sweep -> MSS -> FVG/OB zone) per market and every `ZONES_REPORT_MINUTES` (default 30; 0 = off) prints and phones ONE replaced silent notification listing the zones near price. Each is graded STRONG / MEDIUM / WEAK from 5 checks (sweep, MSS with displacement, fresh zone, price in/near the zone, H1 agrees) with what is missing. The grade counts conditions; it is not a win probability and never a signal. No external AI is called (it would need a paid API).
