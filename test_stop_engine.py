@@ -129,3 +129,31 @@ def test_plan_lot_too_small_rejected():
 def test_plan_sell_and_jpy():
     p = se.plan("GBPJPY", "sell", 190.00, 0.30, 0.02, 190.10, 190.40, 190.80, None, 187.50, True, True)
     assert p.hard_sl == pytest.approx(190.80 + 0.7 * 0.30 + 0.02) and p.status == "OK" and p.lot is None
+
+
+def test_selective_stop_is_structural_and_wider_than_the_old_one():
+    import selective as sl
+    import test_selective as t
+    old = sl.evaluate("XAUUSD", t.scenario(), t.NOW, sl.SelectiveConfig(ready_score=0, structural_stop=False), spread=.2)
+    new = sl.evaluate("XAUUSD", t.scenario(), t.NOW, sl.SelectiveConfig(ready_score=0, structural_stop=True), spread=.2)
+    assert old["action"] == "BUY" and new["action"] == "BUY"
+    assert new["setup"]["sl"] <= old["setup"]["sl"]                  # never tighter
+    assert new["setup"]["early_exit"] == new["setup"]["early_exit"] and new["setup"]["risk_scale"] in (0.5, 1.0)
+
+
+def test_fib_golden_zone_includes_the_50_percent_test():
+    import selective as sl
+    cfg = sl.make_config("forex")
+    assert cfg.require_fib and (cfg.golden_lo, cfg.golden_hi) == (0.50, 0.79)
+    assert sl.make_config("golden").require_fib
+    assert not sl.make_config("swing").require_fib
+
+
+def test_fib_check_band_50_to_79(monkeypatch):
+    import selective as sl
+    monkeypatch.setattr(sl.st, "premium_discount", lambda bars, k: {"direction": "up", "high": 109.0, "low": 100.0})
+    # a buy retraces from the high: 50% of the 100-109 leg = 104.5, 79% = 101.89
+    assert sl.fib_check([], "buy", 104.5, 0.50, 0.79)[0] is True
+    assert sl.fib_check([], "buy", 102.0, 0.50, 0.79)[0] is True
+    assert sl.fib_check([], "buy", 106.5, 0.50, 0.79)[0] is False      # ~28%: before the golden zone
+    assert sl.fib_check([], "buy", 104.5)[0] is False                  # the old 62-79% band excludes 50%

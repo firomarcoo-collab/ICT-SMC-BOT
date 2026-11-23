@@ -11,7 +11,7 @@ import structure as st
 UTC = timezone.utc
 END = datetime(2026, 1, 7, 15, 0, tzinfo=UTC)          # the last candle of every series closes here
 NOW = int(END.timestamp()) + 20                          # 20 s after the M5 confirmation closed
-CFG = sl.SelectiveConfig(ready_score=0)   # these tests check the other rules; scoring has its own tests
+CFG = sl.SelectiveConfig(ready_score=0, structural_stop=False)   # these tests check the other rules; scoring has its own tests
 
 
 def bar(o, h, low, c):

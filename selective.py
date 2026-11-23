@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 import ict_engine
 import indicators
+import stop_engine
 import structure as st
 
 LIVE_SOURCES = ("binance", "yahoo")
@@ -50,7 +51,10 @@ class SelectiveConfig:
     profile: str = "strict"         # "strict" (default), "active" or "loose" (see make_config)
     forex: bool = False             # forex profile: M15 closed candle is the primary confirmation, own 0-100 score
     single_active: bool = False     # at most one open signal per symbol, whatever MAX_ACTIVE says
-    require_fib: bool = False       # the entry must sit in the 62-79% golden zone of the M15 leg
+    require_fib: bool = False       # the entry must sit in the golden zone of the M15 leg (golden_lo..golden_hi)
+    golden_lo: float = 0.50         # golden zone = 50% (the last test of the midpoint) to 79% of the M15 leg
+    golden_hi: float = 0.79
+    structural_stop: bool = True    # Hard SL = farthest structural anchor + ATR/spread buffer (stop_engine.py)
     require_sweep: bool = False     # an entry needs a valid liquidity sweep (scalp profile)
     ltf_bias: bool = False          # scalp: direction from M5 + M1 structure instead of H4 + H1 alignment
     strong_body_frac: float = None  # also count a closed M5 candle with body >= this share of its range as strong
@@ -127,7 +131,7 @@ def make_config(profile="strict", **overrides):
         # FX pairs (EURUSD, GBPJPY, GBPUSD, USDJPY, JPYGBP): H4/H1 bias, the closed M15 candle is the PRIMARY confirmation
         # (the signal direction comes from it), M5 only adds precision points and never triggers alone.
         # Score 0-100 with its own weights; 70+ moderate, 80+ strong, 90+ very strong. TP1 1:1.5, TP2 1:3.
-        base = dict(profile="forex", forex=True, single_active=True, rr=3.0, min_net_rr=1.5, max_risk_atr=2.5,
+        base = dict(profile="forex", forex=True, single_active=True, require_fib=True, rr=3.0, min_net_rr=1.5, max_risk_atr=2.5,
                     ready_score=70, watch_score=60, min_confluence=5, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, max_signal_age=420, strong_body_frac=0.6)
     elif profile == "swing":
@@ -420,7 +424,7 @@ def htf_alignment(h4, h1, m15, side, cfg, m5=None, m1=None, d1_trend=None):
     return False, f"higher-timeframe conflict: H4 {t4}, H1 {t1}"
 
 
-def fib_check(m15, side, entry):
+def fib_check(m15, side, entry, lo=None, hi=None):
     """(inside, text): is `entry` in the 62-79% golden zone of the latest M15 leg in the trade's
     direction (an up leg for a buy, a down leg for a sell)? inside is None when there is no leg."""
     pd = st.premium_discount(m15, 3)
@@ -431,7 +435,7 @@ def fib_check(m15, side, entry):
         return False, f"Fib: the latest M15 leg is {pd['direction']}, a {side} needs a {want} leg"
     rng = pd["high"] - pd["low"]
     ret = (pd["high"] - entry) / rng if want == "up" else (entry - pd["low"]) / rng
-    lo, hi = st.OTE
+    lo, hi = (lo, hi) if lo is not None else st.OTE
     inside = lo - 0.02 <= ret <= hi + 0.02
     return inside, (f"Fib: entry at {ret * 100:.0f}% of the M15 leg {pd['low']:.5g}-{pd['high']:.5g}, "
                     f"{'INSIDE' if inside else 'outside'} the {int(lo * 100)}-{int(hi * 100)}% golden zone")
@@ -871,7 +875,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         res["reasons"].append("no valid liquidity sweep: this profile only enters after a sweep")
         return res
 
-    fib_ok, fib_text = fib_check(m15, side, last["close"])
+    fib_ok, fib_text = (fib_check(m15, side, last["close"], cfg.golden_lo, cfg.golden_hi) if cfg.require_fib
+                        else fib_check(m15, side, last["close"]))
     if cfg.require_fib and not fib_ok:
         res["reasons"].append("not in the Fibonacci golden zone: " + fib_text.replace("Fib: ", ""))
         return res
@@ -885,14 +890,28 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         sl = min(primary["low"], min(c["low"] for c in w)) - buf
     else:
         sl = max(primary["high"], max(c["high"] for c in w)) + buf
+    risk_q = abs(entry - sl)                          # the tight geometry: quality / cost gates are judged on it, so a wider
+                                                      # protective stop never makes a setup look better than before
+    if cfg.structural_stop and (atr15 or atr5):
+        # wider, structural: behind the farthest of the zone, the retest low/high and (reversal) the sweep extreme,
+        # plus the asset-class ATR buffer and the spread. Never at the zone edge.
+        anchors = [primary["low" if side == "buy" else "high"], min(c["low"] for c in w) if side == "buy" else max(c["high"] for c in w)]
+        if mode == "reversal" and rev.get("sweep"):
+            anchors.append(rev["sweep"]["extreme"])
+        anchor = min(anchors) if side == "buy" else max(anchors)
+        wide = stop_engine.buffer(stop_engine.classify(market), atr15 or atr5, spread or 0.0)
+        sl_new = anchor - wide if side == "buy" else anchor + wide
+        sl = min(sl, sl_new) if side == "buy" else max(sl, sl_new)       # never tighter than before
     invalidation = rev["sweep"]["extreme"] if mode == "reversal" else (
         primary["low"] if side == "buy" else primary["high"])
     risk = abs(entry - sl)
-    if atr15 and risk > cfg.max_risk_atr * atr15:
+    max_atr = max(cfg.max_risk_atr, stop_engine.PARAMS[stop_engine.classify(market)].max_stop_atr) if cfg.structural_stop \
+        else cfg.max_risk_atr                      # the structural stop is wider by design: its own ceiling per asset class
+    if atr15 and risk > max_atr * atr15:
         res["reasons"].append(f"stop too wide ({risk / atr15:.1f} M15 ATR)")
         checks["cost"] = False
         return res
-    ok_cost, cost, note = cost_check(risk, spread, commission_price, cfg)
+    ok_cost, cost, note = cost_check(risk_q, spread, commission_price, cfg)
     checks["cost"] = ok_cost
     if not ok_cost:
         res["reasons"].append(note)
@@ -982,7 +1001,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         if not vd["valid"]:
             res["reasons"].append("displacement not confirmed: " + "; ".join(vd["reasons"]))
             return res
-    net_rr = (cfg.rr * risk - cost) / (risk + cost)
+    net_rr = (cfg.rr * risk_q - cost) / (risk_q + cost)
     if cfg.forex:
         parts, score100 = forex_score(
             checks["htf"], mode, scope,
@@ -1029,6 +1048,8 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
                     "cost_note": note, "strong_confirmation": strong, "uses": uses,
                     "zones": [z["name"] for z in tested], "htf": rep["htf"],
                     "invalidation": invalidation, "profile": cfg.profile,
+                    "early_exit": primary["low" if side == "buy" else "high"],
+                    "risk_scale": stop_engine.risk_multiplier(bool(checks.get("liquidity")), ok_h),
                     "counter_trend": mode == "reversal" and not ok_h, "fib": fib_text,
                     "tp1": tp1, "tp3": entry + 1.5 * cfg.rr * risk if side == "buy" else entry - 1.5 * cfg.rr * risk,
                     "tp4": entry + 2.0 * cfg.rr * risk if side == "buy" else entry - 2.0 * cfg.rr * risk,

@@ -118,3 +118,6 @@ Default symbols, forex profile, news currencies, FX day start, markets.json spec
 
 ## Stop Loss Engine module
 `stop_engine.py` + `test_stop_engine.py` (20 tests). Not wired into live alerts yet (flip_ifvg.py keeps its own 0.5 ATR rule).
+
+## Fib golden zone mandatory (forex/golden) + structural wide stop in selective
+Suite 411 passed. Not measured on live results; expect fewer signals. Verify with `python journal.py profile` after ~2 weeks.

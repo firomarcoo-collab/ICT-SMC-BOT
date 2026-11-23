@@ -795,7 +795,7 @@ def test_forex_score_weights_bands_and_gates():
 
 def test_forex_m15_is_primary_and_m5_cannot_trigger_alone():
     import test_selective as t
-    cfg = sl.make_config("forex", ready_score=0)
+    cfg = sl.make_config("forex", ready_score=0, require_fib=False)
     res = sl.evaluate("EURUSD", t.scenario(), t.NOW, cfg, spread=.2)
     assert res["action"] == "BUY" and res["setup"]["tp1"] and res["setup"]["pip"] == 0.0001
     s = res["setup"]
@@ -810,7 +810,7 @@ def test_forex_m15_is_primary_and_m5_cannot_trigger_alone():
 def test_forex_one_active_signal_per_symbol():
     import signal_store
     import test_selective as t
-    cfg = sl.make_config("forex", ready_score=0)
+    cfg = sl.make_config("forex", ready_score=0, require_fib=False)
     store = signal_store.SignalStore(None, max_active=3, allow_opposite=True)
     first = sl.process("EURUSD", t.scenario(), t.NOW, store, cfg, spread=.2)
     assert first["action"] == "BUY"
