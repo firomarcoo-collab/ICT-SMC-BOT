@@ -504,3 +504,6 @@ Termux draws Arabic reversed and unjoined (a terminal limit; notifications are f
 
 ## Entry-zones report and setup quality (information only)
 `zones_report.py` keeps the latest live setups (sweep -> MSS -> FVG/OB zone) per market and every `ZONES_REPORT_MINUTES` (default 30; 0 = off) prints and phones ONE replaced silent notification listing the zones near price. Each is graded STRONG / MEDIUM / WEAK from 5 checks (sweep, MSS with displacement, fresh zone, price in/near the zone, H1 agrees) with what is missing. The grade counts conditions; it is not a win probability and never a signal. No external AI is called (it would need a paid API).
+
+## GBPUSD and USDJPY
+Added to the default symbols (Yahoo `GBPUSD=X`, `USDJPY=X`), forex profile (H4/H1 bias, M15 confirmation), swing and scalp strategies, news currencies and the 17:00 New York FX day. GBPUSD also gets the dollar-context line. Specs in `markets.json` are unverified until you fill them from MT5. Remember: correlated pairs (EURUSD / GBPUSD) are one risk, not two. Remove them with `SYMBOLS=BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY`.

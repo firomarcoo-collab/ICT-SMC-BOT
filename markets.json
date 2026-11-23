@@ -108,5 +108,35 @@
     "risk_percent": 0.25,
     "min_rr": 2.0,
     "notes": "Not verified: the broker may call it GER40, DE40, DE30 or DAX40 with a suffix (.m / .ecn). Copy the exact name and the specification (tick size, tick value, contract size, volume, typical spread) from MT5 > Market Watch > Specification and enter them with set_spec.py. Feed: Yahoo ^GDAXI cash index, live only 09:00-17:30 Frankfurt."
+  },
+  "GBPUSD": {
+    "broker_symbol": null,
+    "product_type": null,
+    "contract_size": null,
+    "tick_size": null,
+    "tick_value": null,
+    "volume_min": null,
+    "volume_step": null,
+    "volume_max": null,
+    "spread": null,
+    "commission_per_lot": null,
+    "risk_percent": 0.25,
+    "min_rr": 2.0,
+    "notes": "Not verified: copy the broker symbol (watch for a suffix such as .m or .ecn) and the specification from MT5 > Market Watch > Specification. spread is in price units (1 pip = 0.0001, or 0.01 for JPY pairs)."
+  },
+  "USDJPY": {
+    "broker_symbol": null,
+    "product_type": null,
+    "contract_size": null,
+    "tick_size": null,
+    "tick_value": null,
+    "volume_min": null,
+    "volume_step": null,
+    "volume_max": null,
+    "spread": null,
+    "commission_per_lot": null,
+    "risk_percent": 0.25,
+    "min_rr": 2.0,
+    "notes": "Not verified: copy the broker symbol (watch for a suffix such as .m or .ecn) and the specification from MT5 > Market Watch > Specification. spread is in price units (1 pip = 0.0001, or 0.01 for JPY pairs)."
   }
 }

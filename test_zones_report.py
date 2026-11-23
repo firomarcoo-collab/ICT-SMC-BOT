@@ -29,3 +29,12 @@ def test_build_en_and_ar_and_empty():
     assert "قوية" in zr.build(1000, lang="ar")
     assert "No ready zones" in zr.build(1000 + 99999, lang="en")      # stale data is hidden
     zr.LATEST.clear()
+
+
+def test_gbpusd_usdjpy_are_wired():
+    import ict_alerts
+    import markets
+    assert markets.pip_size("GBPUSD") == 0.0001 and markets.pip_size("USDJPY") == 0.01
+    assert ict_alerts.INSTRUMENTS["GBPUSD"]["id"] == "GBPUSD=X" and ict_alerts.INSTRUMENTS["USDJPY"]["digits"] == 3
+    assert "forex" in ict_alerts.strategies_for("GBPUSD") and "forex" in ict_alerts.strategies_for("USDJPY")
+    assert markets.canonical("usdjpy") == "USDJPY"

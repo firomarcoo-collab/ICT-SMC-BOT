@@ -124,7 +124,7 @@ def make_config(profile="strict", **overrides):
         base = dict(profile="golden", min_confluence=4, retest_window=5, max_zone_age=192,
                     fvg_max_fill=0.7, ready_score=75, require_fib=True)
     elif profile == "forex":
-        # FX pairs (EURUSD, GBPJPY, JPYGBP): H4/H1 bias, the closed M15 candle is the PRIMARY confirmation
+        # FX pairs (EURUSD, GBPJPY, GBPUSD, USDJPY, JPYGBP): H4/H1 bias, the closed M15 candle is the PRIMARY confirmation
         # (the signal direction comes from it), M5 only adds precision points and never triggers alone.
         # Score 0-100 with its own weights; 70+ moderate, 80+ strong, 90+ very strong. TP1 1:1.5, TP2 1:3.
         base = dict(profile="forex", forex=True, single_active=True, rr=3.0, min_net_rr=1.5, max_risk_atr=2.5,

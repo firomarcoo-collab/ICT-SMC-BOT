@@ -112,3 +112,6 @@ A scan waits ("waiting for the latest M5 candle to be listed") while the newest 
 
 ## Entry-zones report + quality grade
 Added `zones_report.py` (hook in `track_setups`, periodic report in the main loop, `ZONES_REPORT_MINUTES`), tests in `test_zones_report.py`. Full suite 387 passed. Not yet seen on a real phone.
+
+## GBPUSD + USDJPY added
+Default symbols, forex profile, news currencies, FX day start, markets.json specs (unverified). Tests updated. Not yet observed live.

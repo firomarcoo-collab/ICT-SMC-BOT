@@ -22,7 +22,7 @@ SESSION_ANCHOR = {
     "US30": ("America/New_York", 9, 30),          # US cash open
     "DAX40": ("Europe/Berlin", 9, 0),             # Xetra open
     "XAUUSD": ("America/New_York", 17, 0), "EURUSD": ("America/New_York", 17, 0),
-    "GBPJPY": ("America/New_York", 17, 0), "JPYGBP": ("America/New_York", 17, 0),   # FX day starts 17:00 New York
+    "GBPJPY": ("America/New_York", 17, 0), "GBPUSD": ("America/New_York", 17, 0), "USDJPY": ("America/New_York", 17, 0), "JPYGBP": ("America/New_York", 17, 0),   # FX day starts 17:00 New York
 }
 _WINTER = {"UTC": 0, "America/New_York": -5, "Europe/Berlin": 1}
 

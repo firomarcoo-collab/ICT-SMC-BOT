@@ -116,7 +116,7 @@ def market_report(names, now_ts, wait_stats=None, offsets=None, signals=0):
 # DXY (the US dollar index) from the free Yahoo feed. Gold, EURUSD and (loosely) Bitcoin usually move against
 # the dollar. This is context for the reader, it never blocks or creates a signal by itself.
 DOLLAR = {"source": "yahoo", "id": "DX-Y.NYB", "digits": 3}
-USD_INVERSE = ("XAUUSD", "EURUSD", "BTCUSD")
+USD_INVERSE = ("XAUUSD", "EURUSD", "BTCUSD", "GBPUSD")
 
 
 def dollar_state(now_ts):

@@ -4,7 +4,7 @@ Runs on Termux with the Python standard library only (no pip install needed).
 Prices come from free public sources, so they can differ from your broker's prices.
 
 Environment variables (all optional):
-    SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY (JPYGBP is opt-in)
+    SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY,GBPUSD,USDJPY (JPYGBP is opt-in)
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
     FUTURES           1 = futures for gold/indices instead of spot; or a list: FUTURES=US100,US30
@@ -95,6 +95,8 @@ INSTRUMENTS = {
     "US30": {"source": "yahoo", "id": "^DJI", "digits": 1},
     "EURUSD": {"source": "yahoo", "id": "EURUSD=X", "digits": 5},
     "GBPJPY": {"source": "yahoo", "id": "GBPJPY=X", "digits": 3},
+    "GBPUSD": {"source": "yahoo", "id": "GBPUSD=X", "digits": 5},
+    "USDJPY": {"source": "yahoo", "id": "USDJPY=X", "digits": 3},
     "DAX40": {"source": "yahoo", "id": "^GDAXI", "digits": 1},      # opt-in: SYMBOLS=...,DAX40 (cash index, Xetra hours)
     "JPYGBP": {"source": "yahoo", "id": "JPYGBP=X", "digits": 6},   # opt-in: SYMBOLS=...,JPYGBP
 }
@@ -1045,6 +1047,7 @@ PAIR_STRATEGIES = {
     "NAS100": ("scalp", "swing", "active", "strict"), "US100": ("scalp", "swing", "active", "strict"),
     "US30": ("scalp", "swing", "active", "strict"), "DAX40": ("scalp", "swing", "active", "strict"),
     "EURUSD": ("forex", "swing", "scalp"), "GBPJPY": ("forex", "swing", "scalp"), "JPYGBP": ("forex", "swing", "scalp"),
+    "GBPUSD": ("forex", "swing", "scalp"), "USDJPY": ("forex", "swing", "scalp"),
 }
 
 
@@ -1210,7 +1213,7 @@ def describe_config(scfg, engine):
 
 def run():
     names = [markets.feed_name(n) for n in os.environ.get(
-        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY").split(",") if n.strip()]
+        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY,GBPUSD,USDJPY").split(",") if n.strip()]
     unknown = [n for n in names if n not in INSTRUMENTS]
     if unknown:
         raise SystemExit(f"Unknown symbols: {unknown}. Choose from {list(INSTRUMENTS)}")
