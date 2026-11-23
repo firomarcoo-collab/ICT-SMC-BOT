@@ -56,6 +56,7 @@ import reversal_machine
 import reversal_tracker
 import decisions
 import asia_breakout
+import displacement_alerts
 import flip_ifvg
 import market_state
 import ny_session
@@ -616,6 +617,16 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
                 alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("Asia breakout failed for %s: %s", market, e)
+    if displacement_alerts.enabled(market):                          # sweep / displacement state machine (alert only, never fails a scan)
+        try:
+            m15d = selective.closed_only(data.get("m15") or [], 900, now_ts)
+            h1d = selective.closed_only(data.get("h1") or [], 3600, now_ts)
+            for cls, sid, text in displacement_alerts.process(market, m15d, h1d, digits):
+                extra += "\n" + text
+                if cls != "DISP_MISSED" and sid not in skip:
+                    alert_classes.deliver(cls, text, sid)
+        except Exception as e:                                       # noqa: BLE001
+            log.warning("displacement engine failed for %s: %s", market, e)
     for o in kept:
         idx = reversal_machine.target_stage(o)
         rejections.log(market, o["side"], reversal_machine.stage_name(idx, o["side"]), reasons or ["waiting for the next stage"], now_ts)

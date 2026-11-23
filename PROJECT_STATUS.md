@@ -124,3 +124,6 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 
 ## Displacement engine (standalone)
 `displacement_engine.py` + `test_displacement_engine.py` (13 tests). Not wired into ict_alerts.py; no Pine version (Python chosen).
+
+## Displacement engine wired into the alerts
+`displacement_alerts.py`, classes DISP_*, hook in `track_setups`. Alert-only, English. Not measured; not seen on a real phone.

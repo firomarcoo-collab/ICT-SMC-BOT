@@ -42,6 +42,10 @@ EXTRA_CLASSES = {      # IFVG / state-flip alerts (flip_ifvg.py): analysis only,
     "ASIA_SETUP": {"emoji": "🌏", "title": "ASIA BREAKOUT SETUP", "vibrate": "120,60,120", "voice": "Asia breakout setup"},
     "ASIA_CONFIRMED": {"emoji": "🟩", "title": "ASIA BREAKOUT CONFIRMED", "vibrate": "500,100,500,100,500", "voice": "Asia breakout confirmation"},
     "ASIA_SIGNAL": {"emoji": "🟢", "title": "ASIA BREAKOUT SIGNAL", "vibrate": "700,120,700,120,700", "voice": "Asia breakout signal"},
+    "DISP_SETUP": {"emoji": "🟡", "title": "DISPLACEMENT SETUP", "vibrate": "120,60,120", "voice": "Displacement setup"},
+    "DISP_RETEST": {"emoji": "🟤", "title": "DISPLACEMENT RETEST", "vibrate": "120,60,120", "voice": "Displacement retest"},
+    "DISP_SIGNAL": {"emoji": "🟢", "title": "DISPLACEMENT SIGNAL", "vibrate": "700,120,700,120,700", "voice": "Displacement signal"},
+    "DISP_INVALIDATED": {"emoji": "🔴", "title": "DISPLACEMENT INVALIDATED", "vibrate": "300,100,300", "voice": "Displacement setup invalidated"},
 }
 
 
@@ -61,6 +65,10 @@ AR = {   # class -> (Arabic title, spoken label, what it means and what to do)
                     "إشارة مكتملة. فيها دخول مثالي ووقف هيكلي وخروج مبكر وأهداف. أنت تنفّذ بنفسك في MT5. خاطر بـ 1% أو أقل من حسابك. لا نسبة نجاح مضمونة."),
     "ASIA_SETUP": ("إعداد اختراق آسيا", "إعداد اختراق آسيا", "اخترق السعر النطاق الآسيوي. ننتظر إعادة اختبار الحافة ثم شمعة M15 تأكيد. لا تلاحق الاختراق."),
     "ASIA_CONFIRMED": ("تأكيد اختراق آسيا (دون إشارة)", "تأكيد اختراق آسيا", "اكتمل التأكيد لكن الإعداد لم يجتز شروط الإصدار. عامله كتحليل فقط."),
+    "DISP_SETUP": ("إعداد اندفاع بعد سحب سيولة", "إعداد اندفاع", "حدث اندفاع قوي مع سحب سيولة أو اختراق. ننتظر عودة السعر لاختبار المنطقة ثم شمعة تأكيد. لا تلاحق السعر."),
+    "DISP_RETEST": ("إعادة اختبار الاندفاع", "إعادة اختبار", "عاد السعر إلى المنطقة. ننتظر شمعة M15 مغلقة بالاتجاه. لا دخول الآن."),
+    "DISP_SIGNAL": ("إشارة اندفاع", "إشارة اندفاع", "إشارة مكتملة: دخول ووقف هيكلي وأهداف 1R و2R و3R. أنت تنفّذ بنفسك في MT5. لا نسبة نجاح مضمونة."),
+    "DISP_INVALIDATED": ("إلغاء إعداد الاندفاع", "إلغاء الإعداد", "أُغلق السعر خلف مستوى الإبطال. الفكرة فشلت، لا تدخل أو اخرج مبكراً."),
     "ASIA_SIGNAL": ("إشارة اختراق آسيا", "إشارة اختراق آسيا",
                     "إشارة مكتملة على الذهب: دخول ووقف خلف إعادة الاختبار وخروج مبكر وأهداف. أنت تنفّذ بنفسك. خاطر بـ 1% أو أقل. لا نسبة نجاح مضمونة."),
 }
