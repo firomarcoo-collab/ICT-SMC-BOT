@@ -115,3 +115,6 @@ Added `zones_report.py` (hook in `track_setups`, periodic report in the main loo
 
 ## GBPUSD + USDJPY added
 Default symbols, forex profile, news currencies, FX day start, markets.json specs (unverified). Tests updated. Not yet observed live.
+
+## Stop Loss Engine module
+`stop_engine.py` + `test_stop_engine.py` (20 tests). Not wired into live alerts yet (flip_ifvg.py keeps its own 0.5 ATR rule).
