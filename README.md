@@ -521,3 +521,8 @@ A 4-state machine (IDLE -> IMPULSE -> RETEST -> COOLDOWN) for liquidity sweeps a
 
 ### Displacement engine is now live in the alerts
 `displacement_alerts.py` runs one engine per market inside `track_setups` (`DISPLACEMENT=0` turns it off). Alerts: DISP_SETUP, DISP_RETEST, DISP_SIGNAL (CONFIRMED ENTRY with the plan), DISP_INVALIDATED; MISSED only prints on screen. On start it silently replays the last 120 M15 bars and announces only the newest bar. Feeds without volume (Yahoo FX) skip the volume filter and the alert says so. These signals are alert-only: they are not opened in the signal store, so the trades report and the tracker do not count them.
+
+## Skills as bot commands (information only, no external AI)
+- `python doctor.py`: why is something missing? Checks the code version, a `SYMBOLS` / `ALERT_LANG` override in the shortcut / `.bashrc` / `.profile`, Termux:API, the Twelve Data key (never printed), `BALANCE`.
+- `python review.py [profile|symbol|session|side]`: performance review from the journal: trades, R, average R, win rate and a verdict per group; under 30 trades = "too early". Displacement alerts are alert-only and not in the journal.
+- Lot size in the displacement SIGNAL: set `BALANCE` (and optionally `RISK_PCT`, max 2%); the specs of the symbol must be filled in `markets.json` (`python set_spec.py`). 50% risk against the H1 bias. Without them the alert says exactly what is missing.

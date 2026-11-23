@@ -127,3 +127,6 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 
 ## Displacement engine wired into the alerts
 `displacement_alerts.py`, classes DISP_*, hook in `track_setups`. Alert-only, English. Not measured; not seen on a real phone.
+
+## Skills as bot commands
+`doctor.py`, `review.py`, lot line in displacement signals; tests in `test_skills_in_bot.py`. Not run on the real phone yet.

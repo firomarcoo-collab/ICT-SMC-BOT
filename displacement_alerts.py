@@ -37,6 +37,27 @@ def _f(v, digits):
     return f"{v:.{digits}f}"
 
 
+def lot_line(market, ev):
+    """Lot for the confirmed plan from BALANCE and the verified specs in markets.json (the Hard SL alone sizes it; 50% risk when
+    against the bias). Says exactly what is missing instead of guessing."""
+    try:
+        bal = float(os.environ.get("BALANCE") or 0)
+    except ValueError:
+        bal = 0.0
+    if bal <= 0:
+        return "- Lot: set BALANCE (your account in $) to see the lot size."
+    try:
+        import markets
+        spec = markets.load_markets().get(markets.canonical(market))
+        if spec is None:
+            return "- Lot: this symbol has no spec in markets.json."
+        pct = min(float(os.environ.get("RISK_PCT") or spec.risk_percent), 2.0) * ev["risk_scale"]
+        lot, money, why = markets.lot_for_risk(spec, bal, pct, ev["entry"], ev["sl"])
+    except Exception as e:                                                          # noqa: BLE001
+        return f"- Lot: could not be calculated ({e})."
+    return (f"- Lot: {lot:g} (risk {pct:g}% = ${money:.2f} at the Hard SL)" if lot > 0 else f"- Lot: not sized ({why}). Fill the specs with set_spec.py.")
+
+
 def render(ev, digits=2, no_volume=False):
     f = lambda v: _f(v, digits)                                                            # noqa: E731
     d = ev.get("direction", "").upper()
@@ -62,7 +83,8 @@ def render(ev, digits=2, no_volume=False):
                  f"- Early invalidation: an M15 close beyond {f(ev['early_invalidation'])}",
                  f"- TP1 {f(ev['tp1'])} (1R: move the stop to break-even)", f"- TP2 {f(ev['tp2'])} (2R: close 50%)",
                  f"- TP3 {f(ev['tp3'])} (3R or the opposing HTF pool)",
-                 f"- Risk size: {int(ev['risk_scale'] * 100)}% of your normal risk" + (" (reversal against the H1 bias)" if ev["counter_trend"] else "")]
+                 f"- Risk size: {int(ev['risk_scale'] * 100)}% of your normal risk" + (" (reversal against the H1 bias)" if ev["counter_trend"] else ""),
+                 lot_line(ev["symbol"], ev)]
     elif kind == "INVALIDATED":
         lines = [f"🔴 [SETUP INVALIDATED] — {head}", f"Reason: {ev['reason']}"]
     else:
