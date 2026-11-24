@@ -121,3 +121,47 @@ def load_results():
 
 def line(r):
     return f"RESULT: {r['result']} {float(r['R']):+.1f}R | {r['market']} {r['name']} {r['side'].upper()} (entry {r['entry']:g}, SL {r['sl']:g}, TP1 {r['tp1']:g})"
+
+
+LABELS = {"SMC Prime": "SMC Prime", "ICT Session Scalper": "ICT Session Scalper", "Order Flow Pulse": "Order Flow Pulse"}
+
+
+def _day_of(t):
+    from datetime import timezone
+    d = datetime.fromisoformat(str(t))
+    return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).date()
+
+
+def report_lines(now_ts, lang="en"):
+    """Trades-report block for the three alert-only detectors: signals today, how many were entered / still waiting / closed,
+    and the closed result in R (approximate, measured on closed M5 bars). Information only."""
+    from datetime import timezone
+    today = datetime.fromtimestamp(now_ts, timezone.utc).date()
+    ar = lang == "ar"
+    opens, closed = _load(), load_results()
+    names = sorted({r["name"] for r in opens} | {r["name"] for r in closed})
+    head = "🧪 استراتيجيات التنبيه (SMC Prime / Scalper / Pulse) — قياس تقريبي" if ar else \
+        "🧪 ALERT STRATEGIES (SMC Prime / Scalper / Pulse) - approximate, closed M5 bars"
+    out = [head]
+    if not names:
+        out.append("• لا إشارات بعد" if ar else "• no signals yet")
+        return out
+    for n in names:
+        o = [r for r in opens if r["name"] == n]
+        c = [r for r in closed if r["name"] == n]
+        entered = sum(1 for r in o if r.get("filled"))
+        waiting = len(o) - entered
+        c_today = [r for r in c if _day_of(r["time"]) == today]
+        sig_today = len([r for r in o if _day_of(r["time"]) == today]) + len(c_today)
+        w = sum(1 for r in c_today if r["result"] == "WIN")
+        net = sum(float(r["R"]) for r in c_today)
+        if ar:
+            out.append(f"• {n}: إشارات اليوم {sig_today} | مفتوحة داخل الصفقة {entered} | بانتظار الدخول {waiting} | "
+                       f"مغلقة اليوم {len(c_today)} ({w} ربح / {len(c_today) - w} خسارة) {net:+.2f}R")
+        else:
+            out.append(f"• {n}: signals today {sig_today} | in trade {entered} | waiting for entry {waiting} | "
+                       f"closed today {len(c_today)} ({w} win / {len(c_today) - w} loss) {net:+.2f}R")
+    for r in sorted(opens, key=lambda x: x["time"]):
+        st = ("داخل الصفقة" if r.get("filled") else "بانتظار الدخول") if ar else ("in trade" if r.get("filled") else "waiting for entry")
+        out.append(f"  - {r['market']} {r['name']} {r['side'].upper()} | entry {r['entry']:g} | SL {r['sl']:g} | TP1 {r['tp1']:g} | {st}")
+    return out

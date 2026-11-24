@@ -213,3 +213,22 @@ def test_review_includes_the_session_detectors():
     t = review.session_section(rows, "en")
     assert "SMC Prime: 3 trades" in t and "too early" in t
     assert review.session_section([], "en") == ""
+
+
+def test_trades_report_includes_the_three_detectors(tmp_path, monkeypatch):
+    import session_tracker as st, daily_report, signal_store, time
+    from datetime import datetime, timezone
+    monkeypatch.setenv("SESSION_DIR", str(tmp_path))
+    now = int(time.time())
+    iso = datetime.fromtimestamp(now, timezone.utc).replace(tzinfo=None).isoformat()
+    ev = lambda name, d: {"name": name, "direction": d, "entry": 100.0, "sl": 99.0, "tp1": 102.0, "bar_time": iso}
+    st.open_signal("XAUUSD", ev("SMC Prime", "long"))
+    st.open_signal("US30", ev("Order Flow Pulse", "short"))          # Pulse = market entry: already in the trade
+    lines = st.report_lines(now, "en")
+    txt = "\n".join(lines)
+    assert "SMC Prime: signals today 1 | in trade 0 | waiting for entry 1" in txt
+    assert "Order Flow Pulse: signals today 1 | in trade 1" in txt
+    assert "ICT Session Scalper" not in txt
+    full = daily_report.build(signal_store.SignalStore(str(tmp_path / "s.json")) if hasattr(signal_store, "SignalStore") else None, now, {}, {}, None, lang="en")
+    assert "ALERT STRATEGIES" in full
+    assert "إشارات اليوم 1" in "\n".join(st.report_lines(now, "ar"))
