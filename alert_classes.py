@@ -273,4 +273,10 @@ def deliver(cls, text, sid=None):
         + (decisions.button_args(sid) if sid and cls in DECISION_CLASSES else []))
     if os.environ.get("ALERT_VOICE", "1") != "0":
         run(["termux-tts-speak", "-l", "ar", AR[cls][1]] if ar else ["termux-tts-speak", spec["voice"]])
+    try:
+        import telegram_alerts                                  # the same alert in Telegram (preparatory ones are labelled)
+        if telegram_alerts.send_class(cls, text):
+            started.append("telegram")
+    except Exception:                                           # noqa: BLE001
+        pass
     return started

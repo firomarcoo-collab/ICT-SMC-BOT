@@ -541,3 +541,14 @@ Pending scalper / pulse checks are lost on restart. Not measured on real data; t
 
 ### Zones report sound
 The entry-zones notification is sent only when there are zones, and silently (`--alert-once`); `ZONES_SOUND=1` allows the sound. "No ready zones" is printed on the screen only.
+
+
+## Kenan Trader AI v2 (branch `kenan-v2`) — signals only, never executes trades
+- Six markets, each independent: XAUUSD, NAS100 (US100), US30, BTCUSD, USDJPY, GBPUSD. H4/H1 = context, **M15 = the only entry timeframe**.
+- Mandatory chain: HTF context → liquidity → sweep → CHoCH/MSS → displacement → FVG/OB → retest → closed M15 confirmation → room + R:R ≥ 1:2 → spread/news/session filters. Quality Score ≥ 80/100 (a missing mandatory condition is never compensated; it is not a win probability).
+- Levels: SL behind the structural invalidation + ATR/spread buffer; TP1 = 1R (move to break-even by hand), TP2 = 2R. `session_engine.py` holds the per-market session table (DST aware).
+- One active signal per market (`signal_store` + `signal_manager.py`; claims survive restarts; `bot.lock` stops a second copy of the bot).
+- Telegram: full "KENAN TRADER AI" message for signals (`telegram_alerts.py`); preparatory alerts are sent silently and labelled "NOT an entry signal". `TELEGRAM_FORMAT=classic` keeps the old text.
+- Specs/spread are entered by hand (`markets.json`, `set_spec.py`, `SPREAD_<SYMBOL>=...`): MT5 data is not available on Android. Data: Yahoo/Binance/Twelve Data.
+- `python review.py [symbol|session|side|score]`: win rate, TP1/TP2 hit, SL rate, avg R, expectancy, PF, max drawdown, losing streak. Fewer than 30 trades = too early; forward testing only; no profit is guaranteed.
+- `KENAN_V2=0` restores the old behaviour.

@@ -58,6 +58,8 @@ import decisions
 import asia_breakout
 import displacement_alerts
 import session_engine
+import signal_manager
+import telegram_alerts
 import session_alerts
 import flip_ifvg
 import market_state
@@ -549,6 +551,18 @@ def h1_trend(data, now_ts):
         return None
 
 
+def claim_ok(market, cls, text, now_ts, store=None):
+    """Alert-only detectors: a SIGNAL class is delivered only when the market has no other active idea (signal_manager);
+    watch / info classes always pass. Markets are independent."""
+    if not telegram_alerts.is_signal_class(cls):
+        return True
+    side = "buy" if "BUY" in text.upper() and "SELL" not in text.upper() else "sell" if "SELL" in text.upper() else "-"
+    ok, why = signal_manager.allow(market, side, None, now_ts, cls, store=store)
+    if not ok:
+        log.info("%s %s suppressed: %s", market, cls, why)
+    return ok
+
+
 def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2, gate=None, signals=None, asia_gate=None):
     """Runs the setup tracker for one market: the six alert classes, the reversal state machine (one setup per direction,
     one direction at a time) and the rejection log. Returns the text lines to print (and phones the alerts).
@@ -628,7 +642,7 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             h1d = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in displacement_alerts.process(market, m15d, h1d, digits):
                 extra += "\n" + text
-                if cls != "DISP_MISSED" and sid not in skip and sess_ok:
+                if cls != "DISP_MISSED" and sid not in skip and sess_ok and claim_ok(market, cls, text, now_ts, store):
                     alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("displacement engine failed for %s: %s", market, e)
@@ -639,7 +653,7 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             h1s = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in session_alerts.process(market, m5s, m15s, h1s, h1_trend(data, now_ts), digits):
                 extra += "\n" + text
-                if cls != "SESSION_INFO" and sid not in skip and sess_ok:
+                if cls != "SESSION_INFO" and sid not in skip and sess_ok and claim_ok(market, cls, text, now_ts, store):
                     alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("session alerts failed for %s: %s", market, e)
@@ -865,6 +879,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
     if os.environ.get("ALERT_CLASSES", "1") != "0":
         setup["stage_trail"] = reversal_machine.mark_final(alert_state(), market, setup["side"], now_ts)
         alert_state().mark_confirmed(market, setup["side"], now_ts)     # CONFIRMED: the watch setups of this side are finished
+    news_text = ""
     if os.environ.get("SIGNAL_FORMAT", "kenan") == "classic":
         fmt = selective.format_signal_ar if lang == "ar" else selective.format_signal
         text = fmt(name, dict(res, setup=setup), d)
@@ -914,8 +929,16 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
                 text += "\n" + usd_text
     except Exception as e:
         log.warning("dollar monitor failed: %s", e)
+    tg = None
+    if os.environ.get("TELEGRAM_FORMAT", "kenan") == "kenan":     # the KENAN TRADER AI layout for Telegram
+        try:
+            sp = (spreads or {}).get(name)
+            tg = telegram_alerts.format_signal(market, setup, res, extras.session_text(now_ts), news_text, d,
+                                               f"{sp:g}" if sp else "")
+        except Exception as e:                                    # noqa: BLE001
+            log.warning("Telegram layout failed: %s", e)
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market, "decision_id": sid_reg,
-                                                  "id": res.get("id"), "bar_time": setup["bar_time"]}, False
+                                                  "id": res.get("id"), "bar_time": setup["bar_time"], "telegram": tg}, False
 
 
 # ===== Notifications =====
@@ -988,7 +1011,7 @@ def save_for_review(text, path=None):
     return pack
 
 
-def notify(text, entry=False, side=None, alert=False, decision_id=None):
+def notify(text, entry=False, side=None, alert=False, decision_id=None, tg_text=None):
     """Shows the message. Only entry=True (a trade ready to enter) makes a sound; everything
     else (sessions, news, results, heads-up events) is only printed on the Termux screen
     (INFO_NOTIFY=1 also shows it as a silent phone notification).
@@ -1035,7 +1058,7 @@ def notify(text, entry=False, side=None, alert=False, decision_id=None):
     chat = os.environ.get("TELEGRAM_CHAT_ID")
     if token and chat:
         try:
-            fields = {"chat_id": chat, "text": text}
+            fields = {"chat_id": chat, "text": tg_text or text}
             if not (entry or alert):
                 fields["disable_notification"] = "true"  # no sound on the Telegram side either
             body = urllib.parse.urlencode(fields).encode()
@@ -1226,6 +1249,7 @@ def kenan_v2_overrides(base_cfg, over, env):
     session table replaces the fixed UTC killzones, a signal needs 80+/100, and the plan is TP1 = 1R / TP2 = 2R (tp = 2R).
     The net R:R floor after costs stays 1.6 because the gross reward to TP2 is exactly 2R. KENAN_V2=0 restores the old behaviour."""
     out = {"m15_only": True, "require_m15_confirm": False, "rr": 2.0, "min_net_rr": 1.6,
+           "require_sweep": True, "require_mss_fvg": True,          # the SELECTIVE chain: no sweep or no MSS + FVG/OB = no signal, whatever the score
            "ready_score": max(int(over.get("ready_score", base_cfg.ready_score)), 80)}
     if session_engine.gate_enabled():
         out.update(session_gate=True, killzones=(), blackout=())
@@ -1262,6 +1286,9 @@ def describe_config(scfg, engine):
 
 
 def run():
+    lock = signal_manager.single_instance(os.environ.get("BOT_LOCK", "bot.lock"))
+    if lock is None:
+        raise SystemExit("Another copy of the bot is already running (bot.lock). Stop it first: two copies would double every alert.")
     names = [markets.feed_name(n) for n in os.environ.get(
         "SYMBOLS", DEFAULT_SYMBOLS).split(",") if n.strip()]
     unknown = [n for n in names if n not in INSTRUMENTS]
@@ -1458,7 +1485,8 @@ def run():
                         wait_stats.setdefault(name, {})[key] = wait_stats.setdefault(name, {}).get(key, 0) + 1
                     if alert:
                         hour_signals += 1
-                        notify(alert["text"], entry=True, side=alert["setup"]["side"], decision_id=alert.get("decision_id"))
+                        notify(alert["text"], entry=True, side=alert["setup"]["side"], decision_id=alert.get("decision_id"),
+                           tg_text=alert.get("telegram"))
                         save_for_review(alert["text"])
                         if track:
                             track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],

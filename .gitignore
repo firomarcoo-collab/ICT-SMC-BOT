@@ -24,3 +24,5 @@ alert_texts/
 session_state.json
 session_open.json
 session_results.csv
+bot.lock
+signal_manager.json

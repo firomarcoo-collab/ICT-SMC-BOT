@@ -15,6 +15,7 @@ def test_v2_overrides_every_profile(monkeypatch):
         c = cfg(monkeypatch, PROFILE=prof)
         assert c.m15_only and c.session_gate and c.killzones == () and c.blackout == ()
         assert c.ready_score >= 80 and c.rr == 2.0 and c.min_net_rr == 1.6, prof
+        assert c.require_sweep and c.require_mss_fvg, prof
 
 
 def test_v2_off_restores_the_old_defaults(monkeypatch):
