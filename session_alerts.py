@@ -57,7 +57,9 @@ def enabled(market):
 
 
 def on(name):
-    return os.environ.get(name, "1") != "0"
+    """SCALPER and PULSE run on M5 candles: with the v2 rule (M15 is the only entry timeframe) they are off unless switched on."""
+    default = "0" if name in ("SCALPER", "PULSE") and os.environ.get("KENAN_V2", "1") != "0" else "1"
+    return os.environ.get(name, default) != "0"
 
 
 def hour(t, tz):

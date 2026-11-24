@@ -290,7 +290,7 @@ def _inside(z, price):
     return z["low"] <= price <= z["high"]
 
 
-def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar="utc", gate=None):
+def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar="utc", gate=None, entry_sec=300):
     """Creates flip setups and walks them through retest / confirmation. m15, m5: closed candles, oldest first.
     Returns [(class, sid, text)] (phone alerts); reasons for drops come back as ('DROP', sid, text).
     gate(plan) -> (ok, reason) is the caller's last word before a FINAL signal (cost check, one open signal per market); without
@@ -437,15 +437,16 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                            + f"\n🚪 Early Exit: an M15 candle closing fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"
                            + "".join(f"\n🎯 TP{i + 1} {_f(t['price'], digits)}" + (be if i == 0 else "") for i, t in enumerate(tg))
                            + f"\n⚖️ R:R about 1:{rr:.1f} (from the structural stop)")
-                reason = ("closed M5 confirmation candle inside the IFVG after the retest, with room to the next liquidity" if lang != "ar"
-                          else "إغلاق شمعة تأكيد M5 داخل IFVG بعد إعادة الاختبار مع مساحة كافية للسيولة التالية")
+                tfn = "M15" if entry_sec == 900 else "M5"
+                reason = (f"closed {tfn} confirmation candle inside the IFVG after the retest, with room to the next liquidity" if lang != "ar"
+                          else f"إغلاق شمعة تأكيد {tfn} داخل IFVG بعد إعادة الاختبار مع مساحة كافية للسيولة التالية")
                 plan = {"entry": _f(entry, digits), "sl": _f(sl, digits), "tps": tps, "rr": f"{rr:.1f}", "invalid": inv,
                         "early_exit": inv, "limit": not is_market,
                         "wait": ("this setup is already confirmed: if you did not enter, do not chase it once price is more than 0.5 ATR "
                                  "from the entry; cancel it if an M15 candle closes fully beyond the invalidation" if not ar else
                                  "الإعداد مؤكد بالفعل: إن لم تدخل فلا تلاحقه بعد أن يبتعد السعر أكثر من 0.5 ATR عن الدخول؛ "
                                  "وألغِه إذا أغلقت شمعة M15 كاملة خلف مستوى الإبطال")}
-                age = now - (int(p5["time"].timestamp()) + 300)
+                age = now - (int(p5["time"].timestamp()) + entry_sec)
                 max_age = int(float(os.environ.get("IFVG_MAX_AGE") or 420))
                 gate_why = ""
                 final = False

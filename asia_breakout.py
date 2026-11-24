@@ -28,7 +28,7 @@ CHASE_ATR = 1.0
 
 
 def enabled(market):
-    return market == "XAUUSD" and os.environ.get("ASIA_BREAKOUT", "1") != "0"
+    return market in ("XAUUSD", "BTCUSD") and os.environ.get("ASIA_BREAKOUT", "1") != "0"      # gold and bitcoin only
 
 
 def sl_atr():
@@ -83,13 +83,17 @@ def _plan_text(side, entry, sl, ext, tps, rr, early, digits, lang):
     return "\n".join(lines)
 
 
-def render(kind, side, asia, h1, session, conf, lang, digits, plan_text="", note="", reason=""):
+_MARKET = "XAUUSD"                 # set by process(): the symbol shown in the alert text
+
+
+def render(kind, side, asia, h1, session, conf, lang, digits, plan_text="", note="", reason="", market=None):
+    market = market or _MARKET
     f = lambda v: fl._f(v, digits)                                                                 # noqa: E731
     ar = lang == "ar"
     session = fl._sess(session, lang)
     mark = {"SETUP": "🟡 [SETUP ONLY — انتظر التأكيد]" if ar else "🟡 [SETUP ONLY - wait for the confirmation]",
             "CONFIRMED": "🟢 [CONFIRMED ENTRY]", "INVALIDATED": "🔴 [SETUP INVALIDATED]"}[kind]
-    lines = [f"{mark} — XAUUSD | {side.upper()} | ASIA BREAKOUT",
+    lines = [f"{mark} — {market} | {side.upper()} | ASIA BREAKOUT",
              (f"⏱️ الفريم: M15 (اتجاه H1: {fl._trend_word(h1, lang)}) | الجلسة: {session}" if ar
               else f"⏱️ TF: M15 (H1 trend: {fl._trend_word(h1, lang)}) | Session: {session}"),
              (f"🌏 النطاق الآسيوي: {f(asia['low'])} - {f(asia['high'])}" if ar else f"🌏 Asia range: {f(asia['low'])} - {f(asia['high'])}")]
@@ -107,6 +111,8 @@ def render(kind, side, asia, h1, session, conf, lang, digits, plan_text="", note
 
 def process(state, market, m15, h1, h1_trend, now, lang="en", digits=2, calendar="utc", gate=None):
     """[(class, sid, text)]: ASIA_SETUP / ASIA_CONFIRMED / ASIA_SIGNAL / INVALIDATED / DROP (reasons)."""
+    global _MARKET
+    _MARKET = market
     out = []
     if not enabled(market) or len(m15) < 60:
         return out
@@ -137,9 +143,9 @@ def process(state, market, m15, h1, h1_trend, now, lang="en", digits=2, calendar
             if ok and h1_trend != ("up" if side == "buy" else "down"):
                 ok, why = False, f"the H1 trend ({h1_trend or 'neutral'}) does not agree with a {side.upper()}"
             if not ok:
-                out.append(("DROP", sid, f"XAUUSD {side.upper()} Asia breakout rejected: {why}"))
+                out.append(("DROP", sid, f"{market} {side.upper()} Asia breakout rejected: {why}"))
             elif now - int(m15[i]["time"].timestamp()) > 900 * 12:
-                out.append(("DROP", sid, f"XAUUSD {side.upper()} Asia breakout is older than 12 candles: not announced"))
+                out.append(("DROP", sid, f"{market} {side.upper()} Asia breakout is older than 12 candles: not announced"))
             else:
                 edge = asia["high"] if side == "buy" else asia["low"]
                 conf = {"h1": True, "sweep": True, "body_break": True, "session": phase in fl.STRONG_SESSIONS}
@@ -167,7 +173,7 @@ def process(state, market, m15, h1, h1_trend, now, lang="en", digits=2, calendar
         after = [b for b in m15 if int(b["time"].timestamp()) > rec["break_ts"]]
         if (now - int(rec["created"])) / 900 > MAX_BARS or et.time() >= NO_NEW and et.date() == today.date():
             rec["done"] = "expired"
-            out.append(("DROP", sid, f"XAUUSD {side.upper()} Asia breakout expired (no confirmation before 09:30 ET / {MAX_BARS} candles)"))
+            out.append(("DROP", sid, f"{market} {side.upper()} Asia breakout expired (no confirmation before 09:30 ET / {MAX_BARS} candles)"))
             continue
         if len(after) >= 2 and all(lo <= b["close"] <= hi for b in after[-2:]):
             rec["done"] = "invalidated"
@@ -184,7 +190,7 @@ def process(state, market, m15, h1, h1_trend, now, lang="en", digits=2, calendar
             away = (last["close"] - bc) if side == "buy" else (bc - last["close"])
             if after and a and away > CHASE_ATR * a:
                 rec["done"] = "missed"
-                out.append(("DROP", sid, f"XAUUSD {side.upper()} Asia breakout missed: price ran {away / a:.1f} ATR away without a retest, do not chase"))
+                out.append(("DROP", sid, f"{market} {side.upper()} Asia breakout missed: price ran {away / a:.1f} ATR away without a retest, do not chase"))
             continue
         seg = after[idx:]
         ext = min(b["low"] for b in seg) if side == "buy" else max(b["high"] for b in seg)
@@ -241,6 +247,6 @@ def process(state, market, m15, h1, h1_trend, now, lang="en", digits=2, calendar
             out.append(("ASIA_CONFIRMED", sid, render("CONFIRMED", side, asia_r, h1_trend, phase, conf, lang, digits, plan_text=plan, reason=reason,
                                                       note=(f"⛔ لم تصدر كإشارة: {fl.why_ar(gate_why)}" if lang == "ar" else f"⛔ NOT issued as a signal: {gate_why}")) + "\n" + decisions.options_text(sid, lang)))
             if gate is not None:
-                out.append(("DROP", sid, f"XAUUSD {side.upper()} Asia breakout not issued as a signal: {gate_why}"))
+                out.append(("DROP", sid, f"{market} {side.upper()} Asia breakout not issued as a signal: {gate_why}"))
     state.save()
     return out

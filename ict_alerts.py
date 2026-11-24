@@ -4,7 +4,7 @@ Runs on Termux with the Python standard library only (no pip install needed).
 Prices come from free public sources, so they can differ from your broker's prices.
 
 Environment variables (all optional):
-    SYMBOLS           comma list, default BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY,GBPUSD,USDJPY (JPYGBP is opt-in)
+    SYMBOLS           comma list, default XAUUSD,US100,US30,BTCUSD,USDJPY,GBPUSD (EURUSD, GBPJPY, DAX40, JPYGBP are opt-in)
     OFFSET_<SYMBOL>   e.g. OFFSET_XAUUSD=-12.5, added to feed prices (broker price - feed price)
     MIN_SCORE         0-4: ICT alerts need at least this many classical confirmations (default 0)
     FUTURES           1 = futures for gold/indices instead of spot; or a list: FUTURES=US100,US30
@@ -57,6 +57,7 @@ import reversal_tracker
 import decisions
 import asia_breakout
 import displacement_alerts
+import session_engine
 import session_alerts
 import flip_ifvg
 import market_state
@@ -548,10 +549,11 @@ def h1_trend(data, now_ts):
         return None
 
 
-def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2, gate=None, signals=None):
+def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2, gate=None, signals=None, asia_gate=None):
     """Runs the setup tracker for one market: the six alert classes, the reversal state machine (one setup per direction,
     one direction at a time) and the rejection log. Returns the text lines to print (and phones the alerts).
     Nothing returned here is ever a trade signal, except what the normal signal path sends."""
+    sess_ok = (not getattr(cfg, "session_gate", False)) or session_engine.status(market, now_ts)["allowed"]   # the session table (v2)
     observations, last_close = selective.watch_observations(market, data, now_ts, cfg, calendar, lang,
                                                             alert_classes.APPROACH_ATR)
     state = alert_state()
@@ -582,8 +584,10 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
         try:
             m15 = selective.closed_only(data.get("m15") or [], 900, now_ts)
             m5 = selective.closed_only(data.get("m5") or [], 300, now_ts)
-            for cls, sid, text in flip_ifvg.process(state, market, m15, m5, h1_trend(data, now_ts), now_ts, lang, digits, calendar,
-                                                    gate if os.environ.get("IFVG_SIGNALS", "1") != "0" else None):
+            m15_entry = bool(getattr(cfg, "m15_only", False))               # v2: the entry candle is a closed M15, M5 is never a trigger
+            for cls, sid, text in flip_ifvg.process(state, market, m15, m15 if m15_entry else m5, h1_trend(data, now_ts), now_ts, lang,
+                                                    digits, calendar, gate if os.environ.get("IFVG_SIGNALS", "1") != "0" else None,
+                                                    900 if m15_entry else 300):
                 if cls == "DROP":
                     rejections.log(market, state.setups[sid]["side"] if sid in state.setups else None, "IFVG", [text], now_ts)
                     continue
@@ -603,7 +607,7 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             m15 = selective.closed_only(data.get("m15") or [], 900, now_ts)
             h1 = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in asia_breakout.process(state, market, m15, h1, h1_trend(data, now_ts), now_ts, lang, digits, calendar,
-                                                        gate if os.environ.get("IFVG_SIGNALS", "1") != "0" else None):
+                                                        (asia_gate or gate) if os.environ.get("IFVG_SIGNALS", "1") != "0" else None):
                 if cls == "DROP":
                     rejections.log(market, state.setups[sid]["side"] if sid in state.setups else None, "ASIA", [text], now_ts)
                     continue
@@ -624,7 +628,7 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             h1d = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in displacement_alerts.process(market, m15d, h1d, digits):
                 extra += "\n" + text
-                if cls != "DISP_MISSED" and sid not in skip:
+                if cls != "DISP_MISSED" and sid not in skip and sess_ok:
                     alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("displacement engine failed for %s: %s", market, e)
@@ -635,7 +639,7 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             h1s = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in session_alerts.process(market, m5s, m15s, h1s, h1_trend(data, now_ts), digits):
                 extra += "\n" + text
-                if cls != "SESSION_INFO" and sid not in skip:
+                if cls != "SESSION_INFO" and sid not in skip and sess_ok:
                     alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("session alerts failed for %s: %s", market, e)
@@ -822,7 +826,16 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         if os.environ.get("ALERT_CLASSES", "1") != "0":
             cfg0 = candidates[0][0]
 
+            def asia_gate(plan, _cfg=cfg0):
+                if getattr(_cfg, "session_gate", False) and not session_engine.status(market, now_ts)["breakout"]:
+                    return False, "session gate: the Asia breakout is not allowed in this session"
+                return gate(plan, _cfg)
+
             def gate(plan, _cfg=cfg0):
+                if getattr(_cfg, "session_gate", False):
+                    why_s = session_engine.block_reason(market, now_ts)
+                    if why_s:
+                        return False, why_s
                 ok, why = flip_ifvg.cost_check(plan["risk"], plan["reward"], spread, commission_price, _cfg)
                 if not ok:
                     return False, why
@@ -832,7 +845,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
 
             ifvg_sigs = []
             line += track_setups(market, name, data, now_ts, cfg0, structure.calendar_for(inst["source"]), lang,
-                                 store, res.get("reasons"), inst["digits"], gate, ifvg_sigs)
+                                 store, res.get("reasons"), inst["digits"], gate, ifvg_sigs, asia_gate)
             if ifvg_sigs:                                                       # an IFVG setup passed every gate: it is the signal
                 a = ifvg_sigs[0]
                 a["setup"] = {k: (round(v, d) if isinstance(v, float) else v) for k, v in a["setup"].items()}
@@ -1203,9 +1216,23 @@ def build_selective_config(env):
     # no verified spread for a market: still give the signal, labelled "COST UNVERIFIED" (ALLOW_UNKNOWN_COST=0
     # makes the cost check block instead). Fill markets.json / SPREAD_<SYMBOL> to replace the unknown.
     over["allow_unknown_cost"] = env.get("ALLOW_UNKNOWN_COST", "1") != "0"
+    if env.get("KENAN_V2", os.environ.get("KENAN_V2", "1")) != "0":
+        over.update(kenan_v2_overrides(base_cfg, over, env))
     return selective.make_config(profile, **over)
 
 
+def kenan_v2_overrides(base_cfg, over, env):
+    """Kenan Trader AI v2 rules on top of every profile: the entry candle is a closed M15 (M5 is context only), the per-market
+    session table replaces the fixed UTC killzones, a signal needs 80+/100, and the plan is TP1 = 1R / TP2 = 2R (tp = 2R).
+    The net R:R floor after costs stays 1.6 because the gross reward to TP2 is exactly 2R. KENAN_V2=0 restores the old behaviour."""
+    out = {"m15_only": True, "require_m15_confirm": False, "rr": 2.0, "min_net_rr": 1.6,
+           "ready_score": max(int(over.get("ready_score", base_cfg.ready_score)), 80)}
+    if session_engine.gate_enabled():
+        out.update(session_gate=True, killzones=(), blackout=())
+    return out
+
+
+DEFAULT_SYMBOLS = "XAUUSD,US100,US30,BTCUSD,USDJPY,GBPUSD"      # the six Kenan Trader AI markets (EURUSD, GBPJPY, DAX40 stay opt-in via SYMBOLS)
 ALL_PROFILES = ("strict", "swing", "golden", "active", "scalp", "forex")   # PROFILE=all: most selective first
 
 
@@ -1236,7 +1263,7 @@ def describe_config(scfg, engine):
 
 def run():
     names = [markets.feed_name(n) for n in os.environ.get(
-        "SYMBOLS", "BTCUSD,XAUUSD,US100,US30,EURUSD,GBPJPY,GBPUSD,USDJPY").split(",") if n.strip()]
+        "SYMBOLS", DEFAULT_SYMBOLS).split(",") if n.strip()]
     unknown = [n for n in names if n not in INSTRUMENTS]
     if unknown:
         raise SystemExit(f"Unknown symbols: {unknown}. Choose from {list(INSTRUMENTS)}")

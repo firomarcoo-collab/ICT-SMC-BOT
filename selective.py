@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 import ict_engine
 import indicators
+import session_engine
 import stop_engine
 import structure as st
 
@@ -54,6 +55,8 @@ class SelectiveConfig:
     require_fib: bool = False       # the entry must sit in the golden zone of the M15 leg (golden_lo..golden_hi)
     golden_lo: float = 0.50         # golden zone = 50% (the last test of the midpoint) to 79% of the M15 leg
     golden_hi: float = 0.79
+    m15_only: bool = False          # the ONLY entry timeframe is a closed M15 candle (M5 is context, never a trigger)
+    session_gate: bool = False      # the per-market session table (session_engine.py) decides when a signal is allowed
     structural_stop: bool = True    # Hard SL = farthest structural anchor + ATR/spread buffer (stop_engine.py)
     require_sweep: bool = False     # an entry needs a valid liquidity sweep (scalp profile)
     ltf_bias: bool = False          # scalp: direction from M5 + M1 structure instead of H4 + H1 alignment
@@ -705,18 +708,24 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     m5, c15, h1, h4 = bars["m5"], bars["m15"], bars["h1"], bars["h4"]
     m15 = bars[cfg.struct_tf]                        # structure / zones timeframe (M15; H1 for swing)
     last = m5[-1]
-    m15_conf = cfg.forex or cfg.confirm_tf == "m15"  # the trigger candle is a closed M15 (forex, swing)
+    m15_entry = cfg.forex or cfg.m15_only           # labels / M5-agreement rule: the entry timeframe is M15
+    m15_conf = cfg.forex or cfg.m15_only or cfg.confirm_tf == "m15"  # the trigger candle is a closed M15 (forex, swing, v2)
     primary = c15[-1] if m15_conf else last          # the candle that must have just closed
     close_time = int(primary["time"].timestamp()) + TF_SECONDS["m15" if m15_conf else "m5"]
     if now_ts - close_time > cfg.max_signal_age:
-        res["reasons"].append(f"the confirmation candle is too old" + (" (M15)" if cfg.forex else ""))
+        res["reasons"].append(f"the confirmation candle is too old" + (" (M15)" if m15_entry else ""))
         return res
     if cfg.forex:
         quiet = low_liquidity(now_ts) or abnormal_volatility(m15)
         if quiet:
             res["reasons"].append(f"no signal: {quiet}")
             return res
-    if not in_killzone(now_ts, cfg.killzones):
+    if cfg.session_gate:
+        why_s = session_engine.block_reason(market, now_ts)
+        if why_s:
+            res["reasons"].append(why_s)
+            return res
+    elif not in_killzone(now_ts, cfg.killzones):
         res["reasons"].append("outside the London / New York killzones (UTC): no new signal")
         return res
     if cfg.blackout and not is_crypto(market) and in_killzone(now_ts, cfg.blackout):
@@ -724,9 +733,9 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         return res
     side = "buy" if primary["close"] > primary["open"] else "sell" if primary["close"] < primary["open"] else None
     if side is None:
-        res["reasons"].append(f"last closed {'M15' if cfg.forex else 'M5'} candle is a doji")
+        res["reasons"].append(f"last closed {'M15' if m15_entry else 'M5'} candle is a doji")
         return res
-    rep["confirm"] = (f"closed {'M15' if cfg.forex else 'M5'} {_ohlc(primary)} "
+    rep["confirm"] = (f"closed {'M15' if m15_entry else 'M5'} {_ohlc(primary)} "
                       f"({'bullish' if side == 'buy' else 'bearish'})")
     rep["m1"] = m1_timing(m1, side)
 
@@ -734,7 +743,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
     checks = res["checks"]
     checks["confirm"] = ok_c
     if not ok_c:
-        res["reasons"].append(why.replace("M5", "M15") if cfg.forex else why)
+        res["reasons"].append(why.replace("M5", "M15") if m15_entry else why)
         return res
     if strong:
         rep["confirm"] += ", strong (closed beyond the previous candle or a large body)"
@@ -744,7 +753,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         if not ok15:
             res["reasons"].append(f"M15 candle does not confirm yet: {why15}")
             return res
-    if m15_conf and not cfg.forex and not m5_ok:
+    if m15_conf and not m15_entry and not m5_ok:
         res["reasons"].append("M5 does not confirm the M15 candle yet")
         return res
     if cfg.m1_confirm:
@@ -752,7 +761,7 @@ def evaluate(market, data, now_ts, cfg=None, spread=None, commission_price=None,
         if not ok_m1:
             res["reasons"].append(why_m1)
             return res
-    if cfg.forex:
+    if m15_entry:
         rep["m5_precision"] = (f"M5 {'agrees' if m5_ok else 'does not agree yet'}"
                                f"{' (strong)' if m5_strong else ''}: precision only, never a trigger")
 

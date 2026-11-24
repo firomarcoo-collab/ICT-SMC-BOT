@@ -9,6 +9,7 @@ def isolated_defaults(monkeypatch, tmp_path):
     monkeypatch.setenv("ALERT_LANG", "en")                      # the shipped default is Arabic; Arabic tests set it themselves
     monkeypatch.setenv("ALERT_TEXT_DIR", str(tmp_path / "alert_texts"))
     monkeypatch.setenv("SESSION_DIR", str(tmp_path))
+    monkeypatch.setenv("KENAN_V2", "0")             # the older tests pin the pre-v2 defaults; the v2 tests set KENAN_V2=1 themselves
     import session_alerts
     monkeypatch.setattr(session_alerts, "_LOADED", False)
     import alert_classes

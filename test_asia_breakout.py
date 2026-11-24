@@ -126,7 +126,7 @@ def test_no_chasing_without_a_retest(tmp_path):
 
 def test_other_markets_and_the_off_switch_do_nothing(tmp_path, monkeypatch):
     b = bars(BASE + [BREAK], vols=HIGH_VOL)
-    assert ab.process(new_state(tmp_path), "BTCUSD", b, h1_bars(), "up", now_of(b), "en", 2, "utc") == []
+    assert ab.process(new_state(tmp_path), "US30", b, h1_bars(), "up", now_of(b), "en", 2, "utc") == []
     monkeypatch.setenv("ASIA_BREAKOUT", "0")
     assert ab.process(new_state(tmp_path, "z.json"), "XAUUSD", b, h1_bars(), "up", now_of(b), "en", 2, "utc") == []
 
