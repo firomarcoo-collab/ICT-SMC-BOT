@@ -17,6 +17,11 @@ def main():
     print("Sent: entry notification (tone + high priority).")
     started = alert_classes.deliver("IFVG_SIGNAL", "TEST ONLY - signal-class alert (sound + vibration + voice). NOT a signal.", "test")
     print("Sent: signal-class alert ->", started or "nothing started (not on Termux)")
+    for cls in ("SMC_SIGNAL", "SCALP_SIGNAL", "PULSE_SIGNAL"):
+        got = alert_classes.deliver(cls, f"TEST ONLY - {cls} tone check. NOT a signal.", "test-" + cls)
+        print(f"Sent: {cls} ->", got or "nothing started (not on Termux)")
+    import session_alerts
+    print("Detectors on:", {n: session_alerts.on(n) for n in ("SMC_PRIME", "SCALPER", "PULSE")})
     print("Zone reports stay silent on purpose (ZONES_SOUND=1 turns their sound on).")
 
 
