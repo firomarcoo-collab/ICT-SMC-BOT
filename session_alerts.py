@@ -428,6 +428,12 @@ def process(market, m5, m15, h1, h1_trend, digits=2, cfg=CFG):
     out = []
     if m5:                                                                          # measure the earlier signals first
         for r in session_tracker.update(market, m5):
+            try:                                                                    # the idea ended: the market may signal again
+                import signal_manager
+                signal_manager.release(market, {"SMC Prime": "SMC_SIGNAL", "ICT Session Scalper": "SCALP_SIGNAL",
+                                                "Order Flow Pulse": "PULSE_SIGNAL"}.get(r["name"]))
+            except Exception:                                                       # noqa: BLE001
+                pass
             if r["result"] != "NOFILL":
                 out.append(("SESSION_INFO", f"{market}-RESULT-{r['time']}", session_tracker.line(r)))
     jobs = []

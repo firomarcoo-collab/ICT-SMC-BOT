@@ -551,16 +551,14 @@ def h1_trend(data, now_ts):
         return None
 
 
-def claim_ok(market, cls, text, now_ts, store=None):
+def claim_block(market, cls, text, now_ts, store=None):
     """Alert-only detectors: a SIGNAL class is delivered only when the market has no other active idea (signal_manager);
     watch / info classes always pass. Markets are independent."""
     if not telegram_alerts.is_signal_class(cls):
-        return True
+        return ""
     side = "buy" if "BUY" in text.upper() and "SELL" not in text.upper() else "sell" if "SELL" in text.upper() else "-"
     ok, why = signal_manager.allow(market, side, None, now_ts, cls, store=store)
-    if not ok:
-        log.info("%s %s suppressed: %s", market, cls, why)
-    return ok
+    return "" if ok else why
 
 
 def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2, gate=None, signals=None, asia_gate=None):
@@ -642,8 +640,10 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             h1d = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in displacement_alerts.process(market, m15d, h1d, digits):
                 extra += "\n" + text
-                if cls != "DISP_MISSED" and sid not in skip and sess_ok and claim_ok(market, cls, text, now_ts, store):
+                if cls != "DISP_MISSED" and sid not in skip and sess_ok and not (why := claim_block(market, cls, text, now_ts, store)):
                     alert_classes.deliver(cls, text, sid)
+                elif cls != "DISP_MISSED" and sid not in skip and sess_ok:
+                    extra += f"\n⚠️ no phone alert for this one: {why}"
         except Exception as e:                                       # noqa: BLE001
             log.warning("displacement engine failed for %s: %s", market, e)
     if session_alerts.enabled(market):                               # ICT Session Scalper / SMC Prime / Order Flow Pulse (alert only)
@@ -653,8 +653,12 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             h1s = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in session_alerts.process(market, m5s, m15s, h1s, h1_trend(data, now_ts), digits):
                 extra += "\n" + text
-                if cls != "SESSION_INFO" and sid not in skip and sess_ok and claim_ok(market, cls, text, now_ts, store):
+                if cls != "SESSION_INFO" and sid not in skip and sess_ok and not (why := claim_block(market, cls, text, now_ts, store)):
                     alert_classes.deliver(cls, text, sid)
+                elif cls != "SESSION_INFO" and sid not in skip and sess_ok:
+                    extra += f"\n⚠️ no phone alert for this one: {why}"
+                elif cls != "SESSION_INFO" and sid not in skip and not sess_ok:
+                    extra += "\n⚠️ no phone alert: " + session_engine.block_reason(market, now_ts)
         except Exception as e:                                       # noqa: BLE001
             log.warning("session alerts failed for %s: %s", market, e)
     for o in kept:

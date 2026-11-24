@@ -72,3 +72,12 @@ def test_signal_class_notification_has_sound_and_prep_does_not(monkeypatch):
     alert_classes.deliver("IFVG_SIGNAL", "x", "s1")
     alert_classes.deliver("ZONE_APPROACH", "y", "s2")
     assert "--sound" in calls[0] and "--sound" not in calls[1]
+
+
+def test_claim_block_gives_a_visible_reason(tmp_path, monkeypatch):
+    import ict_alerts
+    monkeypatch.setenv("SIGNAL_MANAGER_FILE", str(tmp_path / "sm.json"))
+    assert ict_alerts.claim_block("BTCUSD", "SMC_SIGNAL", "SHORT", 1000) == ""
+    why = ict_alerts.claim_block("BTCUSD", "PULSE_SIGNAL", "SHORT", 1100)
+    assert "BTCUSD already has" in why and "SMC_SIGNAL" in why
+    assert ict_alerts.claim_block("BTCUSD", "SMC_INVALIDATED", "x", 1100) == ""     # non-signal classes always pass
