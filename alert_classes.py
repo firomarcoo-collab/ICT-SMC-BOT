@@ -270,6 +270,7 @@ def deliver(cls, text, sid=None):
         tap = ["--action", f"termux-open {path}"]       # tapping the notification opens the complete text with its explanation
     run(["termux-notification", "--title", f"{spec['emoji']} {title}", "--content", shown,
          "--priority", "high", "--vibrate", spec["vibrate"], "--id", f"kenan-{cls}"] + tap
+        + (["--sound"] if cls.endswith(("SIGNAL", "CONFIRMED")) and os.environ.get("SIGNAL_SOUND", "1") != "0" else [])
         + (decisions.button_args(sid) if sid and cls in DECISION_CLASSES else []))
     if os.environ.get("ALERT_VOICE", "1") != "0":
         run(["termux-tts-speak", "-l", "ar", AR[cls][1]] if ar else ["termux-tts-speak", spec["voice"]])

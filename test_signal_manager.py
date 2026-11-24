@@ -61,3 +61,14 @@ def test_review_extended_metrics():
     assert abs(e["expectancy"] - 0.25) < 1e-9
     out = review.build(rows, by=("symbol", "score"), lang="en")
     assert "too early" in out and "unknown" in out and "expectancy" in out
+
+
+def test_signal_class_notification_has_sound_and_prep_does_not(monkeypatch):
+    import alert_classes
+    calls = []
+    monkeypatch.setattr(alert_classes.shutil, "which", lambda c: c)
+    monkeypatch.setattr(alert_classes.subprocess, "Popen", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setenv("ALERT_VOICE", "0")
+    alert_classes.deliver("IFVG_SIGNAL", "x", "s1")
+    alert_classes.deliver("ZONE_APPROACH", "y", "s2")
+    assert "--sound" in calls[0] and "--sound" not in calls[1]
