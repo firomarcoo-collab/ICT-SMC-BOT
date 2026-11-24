@@ -538,3 +538,6 @@ Pending scalper / pulse checks are lost on restart. Not measured on real data; t
 - **Restart-safe:** pending scalper setups, sent keys and pulse cooldowns are saved in `session_state.json` (folder `SESSION_DIR`, default the project folder).
 - **Measured:** `session_tracker.py` follows every SIGNAL of the three detectors on closed M5 bars (entry touch for limit entries, then stop = -1R or TP1 = +R:R; both in one bar = the stop first; unfilled after 4 h = not counted). Results go to `session_results.csv` and a `RESULT: ...` line appears on the screen. `python review.py` prints them per detector with the 30-trade rule. It is an approximation from M5 candles (no ticks, no spread).
 - **No volume (Yahoo FX):** Order Flow Pulse falls back to a candle-range spike (>= 1.8x the 20-bar average) and says "range proxy" in the alert. `pulse_range_proxy=False` turns the fallback off.
+
+### Zones report sound
+The entry-zones notification is sent only when there are zones, and silently (`--alert-once`); `ZONES_SOUND=1` allows the sound. "No ready zones" is printed on the screen only.

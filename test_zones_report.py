@@ -38,3 +38,16 @@ def test_gbpusd_usdjpy_are_wired():
     assert ict_alerts.INSTRUMENTS["GBPUSD"]["id"] == "GBPUSD=X" and ict_alerts.INSTRUMENTS["USDJPY"]["digits"] == 3
     assert "forex" in ict_alerts.strategies_for("GBPUSD") and "forex" in ict_alerts.strategies_for("USDJPY")
     assert markets.canonical("usdjpy") == "USDJPY"
+
+
+def test_empty_report_never_notifies(monkeypatch):
+    calls = []
+    monkeypatch.setattr("shutil.which", lambda c: "/bin/" + c)
+    monkeypatch.setattr("subprocess.Popen", lambda cmd, **k: calls.append(cmd))
+    zr.notify("📍 Entry zones near price (information only, not a signal)\nNo ready zones right now.")
+    assert calls == []
+    zr.LATEST.clear()
+    zr.record("XAUUSD", [obs()], 100.5, 1000, "up")
+    zr.notify(zr.build(1000, lang="en"))
+    assert calls and "--alert-once" in calls[0] and calls[0][0] == "termux-notification"
+    zr.LATEST.clear()

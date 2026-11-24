@@ -67,10 +67,16 @@ def build(now_ts=None, max_age=1800, lang=None, digits=2):
     return "\n".join(lines)
 
 
+def has_zones(text):
+    return "No ready zones" not in text and "لا توجد مناطق جاهزة" not in text
+
+
 def notify(text):
+    """Phone notification only when there is something to show (an empty report never makes a sound). It is silent and updates
+    one notification (--alert-once); ZONES_SOUND=1 allows the sound."""
     import shutil
     import subprocess
-    if not shutil.which("termux-notification"):
+    if not shutil.which("termux-notification") or not has_zones(text):
         return
     try:
         import alert_classes
@@ -78,6 +84,8 @@ def notify(text):
         ar = (os.environ.get("ALERT_LANG") or "en").lower() == "ar"
         cmd = ["termux-notification", "--title", "📍 مناطق الدخول" if ar else "📍 Entry zones", "--content", text,
                "--priority", "low", "--id", "kenan-zones"]
+        if os.environ.get("ZONES_SOUND", "0") != "1":
+            cmd += ["--alert-once"]
         if path:
             cmd += ["--action", f"termux-open {path}"]
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
