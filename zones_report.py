@@ -4,6 +4,7 @@ market, grades each setup and prints / phones ONE list of the zones near price.
 Grade = how many of 5 checks are true (sweep, MSS with displacement, a fresh zone, price in / near the zone, H1 agrees).
 It counts conditions; it is NOT a probability of winning. On demand it is printed every ZONES_REPORT_MINUTES (default 30; 0 = off)."""
 import os
+import time
 
 LATEST = {}          # market -> {"ts", "last", "obs": [...], "h1": 'up' / 'down' / None}
 
@@ -31,6 +32,19 @@ def grade(obs, h1=None):
     return g, score, missing
 
 
+def v2_line(market, now_ts, ar=False):
+    """Kenan v2 entry rules for this market right now (session table). Empty when KENAN_V2=0."""
+    if os.environ.get("KENAN_V2", "1") == "0":
+        return ""
+    import session_engine
+    st = session_engine.status(market, now_ts or time.time())
+    ok = st["allowed"]
+    if ar:
+        return (f"  Kenan v2 ({st['session']}): " + ("الدخول مسموح بعد إغلاق شمعة M15 + درجة ≥80 + R:R ≥1:2" if ok else f"لا إشارة الآن ({st['reason']})"))
+    return (f"  Kenan v2 ({st['session']}): " + ("entry allowed after a closed M15 confirmation + score >= 80 + R:R >= 1:2" if ok
+                                               else f"no signal now ({st['reason']})"))
+
+
 def build(now_ts=None, max_age=1800, lang=None, digits=2):
     lang = (lang or os.environ.get("ALERT_LANG") or "en").lower()
     ar = lang == "ar"
@@ -49,6 +63,7 @@ def build(now_ts=None, max_age=1800, lang=None, digits=2):
     if not rows:
         return head + ("\nلا توجد مناطق جاهزة الآن." if ar else "\nNo ready zones right now.")
     lines = [head]
+    seen_v2 = set()
     for market, o, g, score, missing, last in rows:
         z, f = o["zone"], f"{{:.{digits}f}}"
         side = SIDE_AR[o["side"]] if ar else o["side"].upper()
@@ -62,6 +77,10 @@ def build(now_ts=None, max_age=1800, lang=None, digits=2):
             lines.append(f"- {market} {side}: {z['kind']} {f.format(z['low'])} - {f.format(z['high'])}{lastp}\n"
                          f"  Quality: {g} ({score}/5) | {rel}\n"
                          f"  Missing: {', '.join(missing) if missing else 'nothing'}")
+    for market in sorted({r[0] for r in rows}):
+        v = v2_line(market, now_ts, ar)
+        if v:
+            lines.append(f"{market}:\n{v}")
     lines.append("الجودة = عدد الشروط المتحققة، وليست نسبة نجاح. لا دخول قبل شمعة التأكيد." if ar else
                  "Quality = number of conditions met, not a win probability. No entry before the confirmation candle.")
     return "\n".join(lines)

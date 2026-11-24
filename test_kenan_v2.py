@@ -66,3 +66,15 @@ def test_m15_entry_uses_the_closed_m15_candle():
     assert old["action"] == "BUY" and "closed M5" in old["report"]["confirm"]
     assert new["action"] == "BUY" and "closed M15" in new["report"]["confirm"] and "closed M5" not in new["report"]["confirm"]
     assert "precision only, never a trigger" in new["report"]["m5_precision"]
+
+
+def test_reports_show_kenan_v2(monkeypatch):
+    import time, zones_report, daily_report
+    monkeypatch.setenv("KENAN_V2", "1")
+    now = 1_700_000_000
+    zones_report.LATEST.clear()
+    zones_report.record("XAUUSD", [{"side": "buy", "zone": {"kind": "FVG", "low": 1.0, "high": 2.0}, "rel": "near"}], 1.5, now, [])
+    txt = zones_report.build(now)
+    assert "Kenan v2" in txt and "XAUUSD" in txt
+    monkeypatch.setenv("KENAN_V2", "0")
+    assert "Kenan v2" not in zones_report.build(now)

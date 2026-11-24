@@ -110,6 +110,8 @@ def build(store, now_ts=None, prices=None, states=None, tally=None, risk_usd=Non
     lines += ["", "ℹ️ هذه صفقات البوت المتتبَّعة وليست حسابك الحقيقي في MT5 (البوت لا ينفذ صفقات). R = وحدة المخاطرة؛ "
                   "الربح = العائد/المخاطرة للهدف، والخسارة = -1R. النتائج لا تضمن المستقبل."
               + ("" if risk_usd else " لعرض المبالغ بالدولار اضبط RISK_USD (المبلغ الذي تخاطر به في الصفقة).")]
+    if os.environ.get("KENAN_V2", "1") != "0":
+        lines.append("Kenan v2: M15 entry only, score >= 80, R:R >= 1:2, TP1 = 1R, TP2 = 2R, one signal per market. Signals only.")
     return "\n".join(lines)
 
 
@@ -171,6 +173,8 @@ def build_en(store, now_ts=None, prices=None, states=None, tally=None, risk_usd=
     lines += ["", "ℹ️ These are the bot's followed signals, not your real MT5 account (the bot never trades). R = one unit of risk: a win is the "
                   "target's reward/risk, a loss is -1R. Past results do not guarantee the future."
               + ("" if risk_usd else " Set RISK_USD (the money you risk per trade) to see approximate dollar amounts.")]
+    if os.environ.get("KENAN_V2", "1") != "0":
+        lines.append("Kenan v2: M15 entry only, score >= 80, R:R >= 1:2, TP1 = 1R, TP2 = 2R, one signal per market. Signals only.")
     return "\n".join(lines)
 
 
