@@ -50,14 +50,13 @@ def test_asia_breakout_is_for_gold_and_bitcoin_only():
     assert not any(asia_breakout.enabled(m) for m in ("US100", "US30", "USDJPY", "GBPUSD"))
 
 
-def test_m5_detectors_are_off_by_default_in_v2(monkeypatch):
+def test_three_session_detectors_are_on_and_can_be_switched_off(monkeypatch):
     monkeypatch.setenv("KENAN_V2", "1")
-    assert not session_alerts.on("SCALPER") and not session_alerts.on("PULSE") and session_alerts.on("SMC_PRIME")
-    monkeypatch.setenv("SCALPER", "1")
-    assert session_alerts.on("SCALPER")
-    monkeypatch.setenv("KENAN_V2", "0")
-    monkeypatch.delenv("PULSE", raising=False)
-    assert session_alerts.on("PULSE")
+    for n in ("SCALPER", "PULSE", "SMC_PRIME"):
+        monkeypatch.delenv(n, raising=False)
+        assert session_alerts.on(n)
+        monkeypatch.setenv(n, "0")
+        assert not session_alerts.on(n)
 
 
 def test_m15_entry_uses_the_closed_m15_candle():

@@ -552,3 +552,5 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - Specs/spread are entered by hand (`markets.json`, `set_spec.py`, `SPREAD_<SYMBOL>=...`): MT5 data is not available on Android. Data: Yahoo/Binance/Twelve Data.
 - `python review.py [symbol|session|side|score]`: win rate, TP1/TP2 hit, SL rate, avg R, expectancy, PF, max drawdown, losing streak. Fewer than 30 trades = too early; forward testing only; no profit is guaranteed.
 - `KENAN_V2=0` restores the old behaviour.
+
+- SMC Prime, ICT Session Scalper and Order Flow Pulse alerts are ON by default (alert-only, session table + one signal per market apply). Signal classes play the tone; switch off with SMC_PRIME=0 / SCALPER=0 / PULSE=0. Pulse is a volume estimate, not real order flow.

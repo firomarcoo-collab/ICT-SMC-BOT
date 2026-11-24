@@ -57,9 +57,9 @@ def enabled(market):
 
 
 def on(name):
-    """SCALPER and PULSE run on M5 candles: with the v2 rule (M15 is the only entry timeframe) they are off unless switched on."""
-    default = "0" if name in ("SCALPER", "PULSE") and os.environ.get("KENAN_V2", "1") != "0" else "1"
-    return os.environ.get(name, default) != "0"
+    """SMC Prime, ICT Session Scalper and Order Flow Pulse are all on by default (the user asked for their alerts and tones).
+    They stay alert-only, obey the session table and the one-signal-per-market rule, and each can be switched off: SCALPER=0, PULSE=0, SMC_PRIME=0."""
+    return os.environ.get(name, "1") != "0"
 
 
 def hour(t, tz):
