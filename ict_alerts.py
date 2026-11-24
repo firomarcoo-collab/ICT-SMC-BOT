@@ -1260,7 +1260,7 @@ def kenan_v2_overrides(base_cfg, over, env):
     return out
 
 
-DEFAULT_SYMBOLS = "XAUUSD,US100,US30,BTCUSD,USDJPY,GBPUSD"      # the six Kenan Trader AI markets (EURUSD, GBPJPY, DAX40 stay opt-in via SYMBOLS)
+DEFAULT_SYMBOLS = "XAUUSD,US100,US30,BTCUSD,USDJPY,GBPUSD,EURUSD,GBPJPY,DAX40"   # six Kenan markets for the main strategy + three more scanned for the SMC Prime / Scalper / Pulse alerts
 ALL_PROFILES = ("strict", "swing", "golden", "active", "scalp", "forex")   # PROFILE=all: most selective first
 
 

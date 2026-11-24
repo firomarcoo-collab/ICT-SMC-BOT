@@ -30,7 +30,8 @@ def test_session_gate_off_keeps_utc_killzones(monkeypatch):
 
 
 def test_the_six_markets_are_the_default():
-    assert ia.DEFAULT_SYMBOLS.split(",") == ["XAUUSD", "US100", "US30", "BTCUSD", "USDJPY", "GBPUSD"]
+    assert ia.DEFAULT_SYMBOLS.split(",")[:6] == ["XAUUSD", "US100", "US30", "BTCUSD", "USDJPY", "GBPUSD"]
+    assert set(ia.DEFAULT_SYMBOLS.split(",")[6:]) == {"EURUSD", "GBPJPY", "DAX40"}
     assert all(n in ia.INSTRUMENTS for n in ia.DEFAULT_SYMBOLS.split(","))
 
 

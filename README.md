@@ -560,3 +560,5 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - SMC Prime / Scalper / Pulse alerts are no longer blocked by the main strategy's active signal or by each other (they de-duplicate per zone and are tracked separately); the displacement alerts still obey one-signal-per-market.
 
 - SMC Prime / Scalper / Pulse alerts work on every scanned market (also EURUSD, GBPJPY, DAX40 when added to SYMBOLS) and are not limited by the main strategy session table.
+
+- Default scan list: the six Kenan markets (main strategy) plus EURUSD, GBPJPY, DAX40 (only the SMC Prime / Scalper / Pulse alerts apply there). Use SYMBOLS=... to change it.
