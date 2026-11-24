@@ -39,6 +39,23 @@ def build(rows, by=("profile", "symbol"), lang=None):
     return "\n".join(out)
 
 
+def session_section(rows, lang="en"):
+    """The alert-only detectors, measured on closed M5 bars by session_tracker.py (stop first when both hit in one bar)."""
+    if not rows:
+        return ""
+    head = "🧪 تنبيهات الجلسة (قياس تقريبي من شموع M5)" if lang == "ar" else "🧪 Session detectors (approximate, measured on closed M5 bars)"
+    out = [head]
+    for val in sorted({r["name"] for r in rows}):
+        sub = [r for r in rows if r["name"] == val]
+        m = journal.metrics(sub)
+        out.append(f"  {val}: {m['trades']} trades | {m['total_r']:+.1f}R | avg {m['avg_r']:+.2f}R | win {m['win_rate']:.0f}% -> {verdict(sub, lang)}")
+    return "\n".join(out)
+
+
 if __name__ == "__main__":
+    import session_tracker
     keys = tuple(a for a in sys.argv[1:] if a in ("symbol", "session", "profile", "mode", "side")) or ("profile", "symbol")
     print(build(journal.load(journal.path_for(journal.DEFAULT_CSV)), keys))
+    extra = session_section(session_tracker.load_results(), (os.environ.get("ALERT_LANG") or "en").lower())
+    if extra:
+        print(extra)

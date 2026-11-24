@@ -21,3 +21,6 @@ rejections.log
 rejections.log.1
 decisions.csv
 alert_texts/
+session_state.json
+session_open.json
+session_results.csv

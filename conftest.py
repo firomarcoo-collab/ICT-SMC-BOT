@@ -8,6 +8,9 @@ def isolated_defaults(monkeypatch, tmp_path):
     monkeypatch.setenv("SIGNAL_FORMAT", "classic")
     monkeypatch.setenv("ALERT_LANG", "en")                      # the shipped default is Arabic; Arabic tests set it themselves
     monkeypatch.setenv("ALERT_TEXT_DIR", str(tmp_path / "alert_texts"))
+    monkeypatch.setenv("SESSION_DIR", str(tmp_path))
+    import session_alerts
+    monkeypatch.setattr(session_alerts, "_LOADED", False)
     import alert_classes
     import ict_alerts
     monkeypatch.setattr(alert_classes, "STATE_FILE", str(tmp_path / "alerts_state.json"))

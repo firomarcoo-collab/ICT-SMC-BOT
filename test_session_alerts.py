@@ -125,7 +125,12 @@ def test_pulse_needs_volume_and_body():
     sa._STATE.clear()
     assert sa.pulse("EURUSD", pulse_bars(vol=150)) == []                       # below 1.8x
     assert sa.pulse("EURUSD", pulse_bars(body=False)) == []                    # weak body
-    assert sa.pulse("EURUSD", [dict(b, volume=0) for b in pulse_bars()]) == []  # no volume data: no estimate
+    nov = [dict(b, volume=0) for b in pulse_bars()]
+    assert sa.pulse("EURUSD", nov, sa.Config(pulse_range_proxy=False)) == []   # no volume and no proxy: nothing
+    sa._STATE.clear()
+    ev = sa.pulse("EURUSD", nov)                                               # a range spike stands in, and says so
+    assert len(ev) == 1 and ev[0]["proxy"] is True and "range proxy" in ev[0]["reason"]
+    assert "No volume on this feed" in sa.render(ev[0], 2)
 
 
 def test_pulse_invalidated_by_the_next_candle_and_cooldown():
@@ -164,3 +169,47 @@ def test_classes_exist():
     import alert_classes
     for c in ("SCALP_SIGNAL", "SCALP_INVALIDATED", "SMC_SIGNAL", "PULSE_SIGNAL", "PULSE_INVALIDATED"):
         assert c in alert_classes.EXTRA_CLASSES and c in alert_classes.AR
+
+
+def test_state_survives_a_restart(tmp_path):
+    sa.scalper("EURUSD", scalper_bars())
+    sa.process("EURUSD", scalper_bars(), [], [], None, 5)
+    assert (tmp_path / "session_state.json").exists()
+    sa._STATE.clear()
+    sa._LOADED = False                                                         # a new process
+    sa.load_state()
+    assert sa._STATE["EURUSD"]["scalp_sent"]                                   # no second signal after the restart
+    assert sa.scalper("EURUSD", scalper_bars()) == []
+
+
+def test_tracker_win_loss_nofill_and_same_bar(tmp_path):
+    import session_tracker as tr
+    t0 = DAY
+    ev = {"name": "ICT Session Scalper", "direction": "long", "entry": 100.0, "sl": 99.0, "tp1": 102.0, "bar_time": t0.isoformat()}
+    tr.open_signal("EURUSD", ev)
+    tr.open_signal("EURUSD", ev)                                               # same signal twice: one row
+    nxt = lambda i, o, h, l, c: bar(t0 + timedelta(minutes=5 * i), o, h, l, c)       # noqa: E731
+    assert tr.update("EURUSD", [nxt(1, 101, 101.5, 100.5, 101)]) == []        # entry not touched yet
+    done = tr.update("EURUSD", [nxt(1, 101, 101.5, 100.5, 101), nxt(2, 100.5, 100.6, 99.9, 100.2), nxt(3, 100.2, 102.5, 100.1, 102.4)])
+    assert [d["result"] for d in done] == ["WIN"] and done[0]["R"] == 2.0
+    assert "WIN +2.0R" in tr.line(done[0])
+    tr.open_signal("EURUSD", dict(ev, bar_time=(t0 + timedelta(hours=1)).isoformat()))
+    t1 = t0 + timedelta(hours=1)
+    both = [bar(t1 + timedelta(minutes=5), 100.0, 103.0, 98.0, 100.0)]          # touches the entry, the stop and the target in one bar
+    d2 = tr.update("EURUSD", both)
+    assert [d["result"] for d in d2] == ["LOSS"] and d2[0]["R"] == -1.0
+    rows = tr.load_results()
+    assert [r["result"] for r in rows] == ["WIN", "LOSS"]
+    tr.open_signal("EURUSD", dict(ev, bar_time=(t0 + timedelta(hours=2)).isoformat(), entry=90.0, sl=89.0, tp1=92.0))
+    t2 = t0 + timedelta(hours=2)
+    flat_bars = [bar(t2 + timedelta(minutes=5 * i), 100, 100.1, 99.9, 100) for i in range(1, 60)]
+    d3 = tr.update("EURUSD", flat_bars)
+    assert [d["result"] for d in d3] == ["NOFILL"] and len(tr.load_results()) == 2   # not counted
+
+
+def test_review_includes_the_session_detectors():
+    import review
+    rows = [{"name": "SMC Prime", "R": "2.0", "result": "WIN"}] * 3
+    t = review.session_section(rows, "en")
+    assert "SMC Prime: 3 trades" in t and "too early" in t
+    assert review.session_section([], "en") == ""

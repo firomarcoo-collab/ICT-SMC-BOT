@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import json
+
 import displacement_engine as de
+import session_tracker
 import stop_engine
 
 
@@ -39,6 +42,7 @@ class Config:
     pulse_cooldown_bars: int = 6
     pulse_confirm_bars: int = 3                # a pulse this recent confirms the other two alerts
     vol_sma: int = 20
+    pulse_range_proxy: bool = True             # feeds without volume: a candle-range spike stands in (labelled 'range proxy')
     swing_k: int = 2
     pool_bars: int = 80
     atr_period: int = 14
@@ -92,12 +96,31 @@ def vol_ratio(bars, n):
     return (bars[-1].get("volume") or 0) / avg if avg > 0 else None
 
 
+def range_ratio(bars, n):
+    prev = bars[-1 - n:-1]
+    if len(prev) < n:
+        return None
+    avg = sum(b["high"] - b["low"] for b in prev) / n
+    return (bars[-1]["high"] - bars[-1]["low"]) / avg if avg > 0 else None
+
+
+def pulse_strength(bars, cfg=CFG):
+    """(ratio, proxy): the volume ratio, or the range ratio on a feed without volume (proxy=True). None when neither exists."""
+    r = vol_ratio(bars, cfg.vol_sma)
+    if r is not None:
+        return r, False
+    if cfg.pulse_range_proxy and not any((b.get("volume") or 0) for b in bars[-cfg.vol_sma - 1:]):
+        r = range_ratio(bars, cfg.vol_sma)
+        return (r, True) if r is not None else None
+    return None
+
+
 def pulse_ok(bars, cfg=CFG):
     """The last bar is an Order Flow Pulse (ESTIMATE): returns 'long' / 'short' / None."""
     c = bars[-1]
     rng = c["high"] - c["low"]
-    ratio = vol_ratio(bars, cfg.vol_sma)
-    if rng <= 0 or ratio is None or ratio < cfg.pulse_vol_mult or abs(c["close"] - c["open"]) / rng < cfg.pulse_body:
+    st = pulse_strength(bars, cfg)
+    if rng <= 0 or st is None or st[0] < cfg.pulse_vol_mult or abs(c["close"] - c["open"]) / rng < cfg.pulse_body:
         return None
     return "long" if c["close"] > c["open"] else "short" if c["close"] < c["open"] else None
 
@@ -300,11 +323,12 @@ def pulse(symbol, m5, cfg=CFG, st=None):
         return out
     n = st.setdefault("pulse_n", 0)
     last = st.get("pulse_last", {}).get(d)
-    if last is not None and len(m5) - last < cfg.pulse_cooldown_bars:
+    if last is not None and (c["time"] - datetime.fromisoformat(last)).total_seconds() < cfg.pulse_cooldown_bars * 300:
         return out
     atr = de.atr_at(m5, cfg.atr_period)
     if not atr:
         return out
+    strength = pulse_strength(m5, cfg)
     long = d == "long"
     entry = c["close"]
     sl = (c["low"] if cfg.pulse_sl_mode == "low" else (c["high"] + c["low"]) / 2) if long else \
@@ -315,11 +339,13 @@ def pulse(symbol, m5, cfg=CFG, st=None):
     tp1, tp2 = (entry + r1, entry + r2) if long else (entry - r1, entry - r2)
     if risk <= 0 or abs(tp1 - entry) / risk < cfg.pulse_min_rr:
         return out
-    st.setdefault("pulse_last", {})[d] = len(m5)
+    st.setdefault("pulse_last", {})[d] = iso
     st["pulse_pending"] = {"direction": d, "open": c["open"], "prev_edge": prev["high"] if long else prev["low"]}
     st["pulse_n"] = n + 1
     ev = _plan("Order Flow Pulse (estimate)", symbol, d, entry, sl, tp1, tp2, iso,
-               f"volume {vol_ratio(m5, cfg.vol_sma):.1f}x the 20-bar average, body {abs(c['close'] - c['open']) / (c['high'] - c['low']):.0%} of the range")
+               (f"range {strength[0]:.1f}x the 20-bar average (no volume on this feed: a range proxy)" if strength[1]
+                else f"volume {strength[0]:.1f}x the 20-bar average") + f", body {abs(c['close'] - c['open']) / (c['high'] - c['low']):.0%} of the range",
+               proxy=strength[1])
     out.append(ev)
     return out
 
@@ -345,6 +371,8 @@ def render(ev, digits=2):
             lines.append("✅ Order Flow Pulse (estimate) confirms the direction.")
         if est:
             lines.append(est.strip())
+        if ev.get("proxy"):
+            lines.append("ℹ️ No volume on this feed: a candle-range spike was used as the proxy.")
         lines.append(foot)
         return "\n".join(lines)
     icon = {"INVALIDATED": "🔴", "MISSED": "⚪", "REJECTED": "⚪"}.get(kind, "⚪")
@@ -356,10 +384,50 @@ CLASS = {("ICT Session Scalper", "SIGNAL"): "SCALP_SIGNAL", ("ICT Session Scalpe
          ("Order Flow Pulse (estimate)", "INVALIDATED"): "PULSE_INVALIDATED"}
 
 
+STATE_KEYS = ("scalp_pending", "scalp_sent", "smc_sent", "pulse_last", "pulse_pending")
+_LOADED = False
+
+
+def state_file():
+    return os.path.join(os.environ.get("SESSION_DIR", "."), "session_state.json")
+
+
+def load_state():
+    """Pending setups, sent keys and cooldowns survive a restart (session_state.json)."""
+    global _LOADED
+    if _LOADED:
+        return
+    _LOADED = True
+    try:
+        with open(state_file()) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return
+    for market, d in data.items():
+        st = _STATE.setdefault(market, {})
+        for k in STATE_KEYS:
+            if k in d:
+                st[k] = set(d[k]) if k in ("scalp_sent", "smc_sent") else d[k]
+
+
+def save_state():
+    data = {m: {k: (sorted(v) if isinstance(v, set) else v) for k, v in st.items() if k in STATE_KEYS} for m, st in _STATE.items()}
+    try:
+        with open(state_file(), "w") as f:
+            json.dump(data, f)
+    except OSError:
+        pass
+
+
 def process(market, m5, m15, h1, h1_trend, digits=2, cfg=CFG):
     """[(class, sid, text)] for the newest closed bars. Classes not in CLASS (MISSED / REJECTED) are shown on screen only."""
+    load_state()
     st = _STATE.setdefault(market, {})
     out = []
+    if m5:                                                                          # measure the earlier signals first
+        for r in session_tracker.update(market, m5):
+            if r["result"] != "NOFILL":
+                out.append(("SESSION_INFO", f"{market}-RESULT-{r['time']}", session_tracker.line(r)))
     jobs = []
     if on("SCALPER") and m5:
         jobs.append(("scalper", m5, lambda: scalper(market, m5, cfg, st)))
@@ -374,5 +442,8 @@ def process(market, m5, m15, h1, h1_trend, digits=2, cfg=CFG):
         st["seen_" + key] = t
         for ev in fn():
             cls = CLASS.get((ev["name"], ev["event"]), "SESSION_INFO")
+            if ev["event"] == "SIGNAL":
+                session_tracker.open_signal(market, ev)
             out.append((cls, f"{market}-{cls}-{ev['bar_time']}", render(ev, digits)))
+    save_state()
     return out

@@ -133,3 +133,6 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 
 ## ICT Session Scalper, SMC Prime, Order Flow Pulse
 `session_alerts.py` + `test_session_alerts.py` (12 tests), classes SCALP_* / SMC_SIGNAL / PULSE_*, hook in `track_setups`. Alert-only, English; not measured; not seen on a real phone.
+
+## Session detectors: persistence + tracker + range proxy
+`session_tracker.py`, `session_state.json`, range proxy for feeds without volume, `review.py` section. Tests in `test_session_alerts.py` (15). Still not measured on real data / not seen on a real phone.
