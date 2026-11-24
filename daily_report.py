@@ -62,7 +62,12 @@ def build(store, now_ts=None, prices=None, states=None, tally=None, risk_usd=Non
             risk_usd = None
     lines = [f"📊 تقرير الصفقات — {_day_label(now_ts)} {time.strftime('%H:%M', time.localtime(now_ts))}", ""]
     active = list(store.active_signals.values())
-    lines.append(f"🟢 المفتوحة الآن ({len(active)})")
+    try:
+        import session_tracker
+        extra_open = len(session_tracker._load())
+    except Exception:                                              # noqa: BLE001
+        extra_open = 0
+    lines.append(f"🟢 المفتوحة الآن ({len(active)})" + (f" + {extra_open} من SMC Prime / Scalper / Pulse (تحت)" if extra_open else ""))
     total_float, n_float = 0.0, 0
     for s in sorted(active, key=lambda x: x["created"]):
         st = states.get(s["id"])
@@ -133,7 +138,12 @@ def build_en(store, now_ts=None, prices=None, states=None, tally=None, risk_usd=
     label = lambda ts: f"{EN['week'][time.localtime(ts).tm_wday]} {time.localtime(ts).tm_mday:02d}/{time.localtime(ts).tm_mon:02d}"   # noqa: E731
     lines = [f"📊 TRADES REPORT - {label(now_ts)} {time.strftime('%H:%M', time.localtime(now_ts))}", ""]
     active = list(store.active_signals.values())
-    lines.append(f"🟢 OPEN NOW ({len(active)})")
+    try:
+        import session_tracker
+        extra_open = len(session_tracker._load())
+    except Exception:                                              # noqa: BLE001
+        extra_open = 0
+    lines.append(f"🟢 OPEN NOW ({len(active)})" + (f" + {extra_open} from SMC Prime / Scalper / Pulse (see below)" if extra_open else ""))
     total_float, n_float = 0.0, 0
     for s in sorted(active, key=lambda x: x["created"]):
         st = states.get(s["id"])

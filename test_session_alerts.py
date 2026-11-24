@@ -232,3 +232,15 @@ def test_trades_report_includes_the_three_detectors(tmp_path, monkeypatch):
     full = daily_report.build(signal_store.SignalStore(str(tmp_path / "s.json")) if hasattr(signal_store, "SignalStore") else None, now, {}, {}, None, lang="en")
     assert "ALERT STRATEGIES" in full
     assert "إشارات اليوم 1" in "\n".join(st.report_lines(now, "ar"))
+
+
+def test_open_trades_and_report_header_count_the_three_detectors(tmp_path, monkeypatch):
+    import session_tracker as st, open_trades, daily_report, signal_store, time
+    from datetime import datetime, timezone
+    monkeypatch.setenv("SESSION_DIR", str(tmp_path))
+    iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    st.open_signal("XAUUSD", {"name": "ICT Session Scalper", "direction": "long", "entry": 1.0, "sl": 0.5, "tp1": 2.0, "bar_time": iso})
+    out = open_trades.describe(str(tmp_path / "none.json"))
+    assert "ICT Session Scalper" in out and "waiting for entry 1" in out
+    rep = daily_report.build(signal_store.SignalStore(str(tmp_path / "s.json")), int(time.time()), {}, {}, None, lang="en")
+    assert "+ 1 from SMC Prime" in rep

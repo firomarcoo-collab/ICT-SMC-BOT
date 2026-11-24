@@ -10,6 +10,18 @@ import signal_store
 
 
 def describe(path=None):
+    return _describe_bot(path) + _session_block()
+
+
+def _session_block():
+    try:                                                           # SMC Prime / Scalper / Pulse trades followed by the bot
+        import session_tracker
+        return "\n\n" + "\n".join(session_tracker.report_lines(time.time(), os.environ.get("ALERT_LANG", "en").lower()))
+    except Exception:                                              # noqa: BLE001
+        return ""
+
+
+def _describe_bot(path=None):
     path = path or os.environ.get("STATE_FILE", signal_store.DEFAULT_FILE)
     if not os.path.exists(path):
         return "No state file yet: the bot has not issued any signal."
