@@ -655,10 +655,10 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
                 extra += "\n" + text
                 # SMC Prime / Scalper / Pulse have their own de-duplication (one id per zone) and their own tracker: they are not
                 # blocked by the main strategy's active signal or by each other, so every new idea reaches the phone with its tone.
-                if cls != "SESSION_INFO" and sid not in skip and sess_ok:
+                # They also have their own session logic, so they ignore the main strategy's session table and work on every market
+                # the bot scans (gold, indices, forex, bitcoin and any extra symbol in SYMBOLS).
+                if cls != "SESSION_INFO" and sid not in skip:
                     alert_classes.deliver(cls, text, sid)
-                elif cls != "SESSION_INFO" and sid not in skip and not sess_ok:
-                    extra += "\n⚠️ no phone alert: " + session_engine.block_reason(market, now_ts)
         except Exception as e:                                       # noqa: BLE001
             log.warning("session alerts failed for %s: %s", market, e)
     for o in kept:
