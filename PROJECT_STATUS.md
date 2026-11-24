@@ -130,3 +130,6 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 
 ## Skills as bot commands
 `doctor.py`, `review.py`, lot line in displacement signals; tests in `test_skills_in_bot.py`. Not run on the real phone yet.
+
+## ICT Session Scalper, SMC Prime, Order Flow Pulse
+`session_alerts.py` + `test_session_alerts.py` (12 tests), classes SCALP_* / SMC_SIGNAL / PULSE_*, hook in `track_setups`. Alert-only, English; not measured; not seen on a real phone.

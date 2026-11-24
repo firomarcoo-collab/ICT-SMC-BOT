@@ -46,6 +46,11 @@ EXTRA_CLASSES = {      # IFVG / state-flip alerts (flip_ifvg.py): analysis only,
     "DISP_RETEST": {"emoji": "🟤", "title": "DISPLACEMENT RETEST", "vibrate": "120,60,120", "voice": "Displacement retest"},
     "DISP_SIGNAL": {"emoji": "🟢", "title": "DISPLACEMENT SIGNAL", "vibrate": "700,120,700,120,700", "voice": "Displacement signal"},
     "DISP_INVALIDATED": {"emoji": "🔴", "title": "DISPLACEMENT INVALIDATED", "vibrate": "300,100,300", "voice": "Displacement setup invalidated"},
+    "SCALP_SIGNAL": {"emoji": "🎯", "title": "ICT SESSION SCALPER", "vibrate": "600,120,600", "voice": "I C T session scalper signal"},
+    "SCALP_INVALIDATED": {"emoji": "🔴", "title": "SCALPER INVALIDATED", "vibrate": "300,100,300", "voice": "Scalper setup invalidated"},
+    "SMC_SIGNAL": {"emoji": "🧠", "title": "SMC PRIME", "vibrate": "600,120,600", "voice": "S M C prime signal"},
+    "PULSE_SIGNAL": {"emoji": "⚡", "title": "ORDER FLOW PULSE (ESTIMATE)", "vibrate": "400,100,400", "voice": "Order flow pulse, estimate"},
+    "PULSE_INVALIDATED": {"emoji": "🔴", "title": "PULSE INVALIDATED", "vibrate": "300,100,300", "voice": "Pulse invalidated"},
 }
 
 
@@ -65,6 +70,11 @@ AR = {   # class -> (Arabic title, spoken label, what it means and what to do)
                     "إشارة مكتملة. فيها دخول مثالي ووقف هيكلي وخروج مبكر وأهداف. أنت تنفّذ بنفسك في MT5. خاطر بـ 1% أو أقل من حسابك. لا نسبة نجاح مضمونة."),
     "ASIA_SETUP": ("إعداد اختراق آسيا", "إعداد اختراق آسيا", "اخترق السعر النطاق الآسيوي. ننتظر إعادة اختبار الحافة ثم شمعة M15 تأكيد. لا تلاحق الاختراق."),
     "ASIA_CONFIRMED": ("تأكيد اختراق آسيا (دون إشارة)", "تأكيد اختراق آسيا", "اكتمل التأكيد لكن الإعداد لم يجتز شروط الإصدار. عامله كتحليل فقط."),
+    "SCALP_SIGNAL": ("سكالبر جلسة ICT", "سكالبر الجلسة", "سحب سيولة ثم كسر هيكل ثم FVG داخل نافذة نيويورك على M5. دخول عند منتصف الفجوة بأمر معلّق. أنت تنفّذ بنفسك. لا ضمان للنجاح."),
+    "SCALP_INVALIDATED": ("إلغاء سكالبر الجلسة", "إلغاء السكالبر", "أُغلقت الفجوة بالكامل أو انتهت النافذة دون لمس. لا تدخل."),
+    "SMC_SIGNAL": ("إشارة SMC Prime", "إس إم سي برايم", "تلاقي عاملين على الأقل مع اتجاه H1. الدخول من بداية منطقة OB. أنت تنفّذ بنفسك. لا ضمان للنجاح."),
+    "PULSE_SIGNAL": ("نبضة حجم (تقديرية)", "نبضة حجم تقديرية", "نبضة حجم مع جسم قوي. هذا تقدير من حجم الشموع وليس تدفق أوامر حقيقياً. سكالبينج سريع."),
+    "PULSE_INVALIDATED": ("إلغاء نبضة الحجم", "إلغاء النبضة", "ابتلعت الشمعة التالية النبضة أو عادت داخل النطاق السابق. الاندفاع انتهى."),
     "DISP_SETUP": ("إعداد اندفاع بعد سحب سيولة", "إعداد اندفاع", "حدث اندفاع قوي مع سحب سيولة أو اختراق. ننتظر عودة السعر لاختبار المنطقة ثم شمعة تأكيد. لا تلاحق السعر."),
     "DISP_RETEST": ("إعادة اختبار الاندفاع", "إعادة اختبار", "عاد السعر إلى المنطقة. ننتظر شمعة M15 مغلقة بالاتجاه. لا دخول الآن."),
     "DISP_SIGNAL": ("إشارة اندفاع", "إشارة اندفاع", "إشارة مكتملة: دخول ووقف هيكلي وأهداف 1R و2R و3R. أنت تنفّذ بنفسك في MT5. لا نسبة نجاح مضمونة."),
