@@ -653,10 +653,10 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
             h1s = selective.closed_only(data.get("h1") or [], 3600, now_ts)
             for cls, sid, text in session_alerts.process(market, m5s, m15s, h1s, h1_trend(data, now_ts), digits):
                 extra += "\n" + text
-                if cls != "SESSION_INFO" and sid not in skip and sess_ok and not (why := claim_block(market, cls, text, now_ts, store)):
+                # SMC Prime / Scalper / Pulse have their own de-duplication (one id per zone) and their own tracker: they are not
+                # blocked by the main strategy's active signal or by each other, so every new idea reaches the phone with its tone.
+                if cls != "SESSION_INFO" and sid not in skip and sess_ok:
                     alert_classes.deliver(cls, text, sid)
-                elif cls != "SESSION_INFO" and sid not in skip and sess_ok:
-                    extra += f"\n⚠️ no phone alert for this one: {why}"
                 elif cls != "SESSION_INFO" and sid not in skip and not sess_ok:
                     extra += "\n⚠️ no phone alert: " + session_engine.block_reason(market, now_ts)
         except Exception as e:                                       # noqa: BLE001

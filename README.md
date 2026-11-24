@@ -556,3 +556,5 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - SMC Prime, ICT Session Scalper and Order Flow Pulse alerts are ON by default (alert-only, session table + one signal per market apply). Signal classes play the tone; switch off with SMC_PRIME=0 / SCALPER=0 / PULSE=0. Pulse is a volume estimate, not real order flow.
 
 - The trades report now has a block for SMC Prime / ICT Session Scalper / Order Flow Pulse: signals today, in trade, waiting for entry, closed today (W/L, R). Approximate (closed M5 bars), alert-only, not your real MT5 account.
+
+- SMC Prime / Scalper / Pulse alerts are no longer blocked by the main strategy's active signal or by each other (they de-duplicate per zone and are tracked separately); the displacement alerts still obey one-signal-per-market.
