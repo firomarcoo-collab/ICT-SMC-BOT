@@ -26,3 +26,4 @@ session_open.json
 session_results.csv
 bot.lock
 signal_manager.json
+unified_state.json

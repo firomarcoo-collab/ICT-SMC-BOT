@@ -43,7 +43,7 @@ def test_last_30_minutes_and_gaps():
 def test_priority_window_and_aliases_and_unknown():
     assert se.status("GBPUSD", ts(2026, 11, 17, 14))["priority"] is True    # 09:00 New York
     assert se.status("NAS100", ts(2026, 11, 17, 15))["market"] == "US100"
-    assert se.status("EURUSD", ts(2026, 11, 17, 10))["mode"] == "unavailable"
+    assert se.status("DAX40", ts(2026, 11, 17, 10))["mode"] == "unavailable"
     assert se.block_reason("XAUUSD", ts(2026, 11, 17, 10)) is None
     assert "session gate" in se.block_reason("US30", ts(2026, 11, 17, 10))
 

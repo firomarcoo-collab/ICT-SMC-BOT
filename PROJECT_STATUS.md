@@ -147,3 +147,12 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 - Specs/spread are entered by hand (`markets.json`, `set_spec.py`, `SPREAD_<SYMBOL>=...`): MT5 data is not available on Android. Data: Yahoo/Binance/Twelve Data.
 - `python review.py [symbol|session|side|score]`: win rate, TP1/TP2 hit, SL rate, avg R, expectancy, PF, max drawdown, losing streak. Fewer than 30 trades = too early; forward testing only; no profit is guaranteed.
 - `KENAN_V2=0` restores the old behaviour.
+
+- Conflict check (`conflict_check.py`): an SMC Prime / Scalper / Pulse signal against the H1 trend or with an opposing entry zone on the way to TP1 is still shown but carries a "CONFLICT" warning; Pulse always carries the "estimate" note. Information only.
+
+## Unified Trade Confirmation Engine (`unified_engine.py`, signals only)
+- SMC Prime (35), Order Flow Pulse (30, an ESTIMATE from candle volume) and ICT Session Scalper (35) each vote per market; the main SELECTIVE chain (structure, sweep, displacement, FVG/OB retest, closed M15 confirmation, R:R >= 1:2, filters) is mandatory and supplies the levels.
+- Decision: CONFIRMED BUY / CONFIRMED SELL / WAIT / NO TRADE. One module pointing the other way = NO TRADE (veto). Score = weight x checks passed / 3 per module, minimum 80; it is not a win probability.
+- ONE "KENAN TRADER AI - CONFIRMED ..." alert (tone, notification, Telegram) per main signal, kept across restarts (`unified_state.json`). The separate module alerts are silent information (`UNIFIED_QUIET_MODULES=0` restores their tones).
+- `python unified_board.py` shows each module, the unified decision, the score and the active confirmed signals.
+- Seven markets: XAUUSD, US100, US30, BTCUSD, GBPUSD, USDJPY, EURUSD. No backtest or forward test has been done: no success rate is claimed.

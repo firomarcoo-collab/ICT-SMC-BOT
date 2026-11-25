@@ -455,7 +455,7 @@ def process(market, m5, m15, h1, h1_trend, digits=2, cfg=CFG):
             cls = CLASS.get((ev["name"], ev["event"]), "SESSION_INFO")
             if ev["event"] == "SIGNAL":
                 session_tracker.open_signal(market, ev)
-                EVENTS[f"{market}-{cls}-{ev['bar_time']}"] = ev
+            EVENTS[f"{market}-{cls}-{ev['bar_time']}"] = ev
             out.append((cls, f"{market}-{cls}-{ev['bar_time']}", render(ev, digits)))
     save_state()
     return out

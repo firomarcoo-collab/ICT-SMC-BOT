@@ -27,6 +27,7 @@ TABLE = {
     "US30": {"asia": M, "london": M, "ny": S},
     "USDJPY": {"asia": M, "london": S, "ny": S},
     "GBPUSD": {"asia": M, "london": S, "ny": S},
+    "EURUSD": {"asia": M, "london": S, "ny": S},          # the seventh market
 }
 ALIASES = {"NAS100": "US100"}
 PRIORITY = ("ny", "london", "asia")                           # when sessions overlap, the stronger mode wins by this order

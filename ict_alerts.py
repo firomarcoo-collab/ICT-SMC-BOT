@@ -59,6 +59,7 @@ import asia_breakout
 import displacement_alerts
 import session_engine
 import signal_manager
+import unified_engine
 import telegram_alerts
 import session_alerts
 import flip_ifvg
@@ -657,9 +658,11 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
                 # blocked by the main strategy's active signal or by each other, so every new idea reaches the phone with its tone.
                 # They also have their own session logic, so they ignore the main strategy's session table and work on every market
                 # the bot scans (gold, indices, forex, bitcoin and any extra symbol in SYMBOLS).
+                ev = session_alerts.EVENTS.pop(sid, None)
+                if ev:                                               # the unified engine collects every module's vote / withdrawal
+                    unified_engine.on_event(market, ev, h1_trend(data, now_ts), now_ts)
                 if cls != "SESSION_INFO" and sid not in skip:
-                    ev = session_alerts.EVENTS.pop(sid, None)
-                    if ev:                                           # contradictions with H1 / opposing zones are written into the alert
+                    if ev and ev.get("event") == "SIGNAL":           # contradictions with H1 / opposing zones are written into the alert
                         try:
                             import conflict_check
                             import zones_report
@@ -669,7 +672,7 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
                                 extra += "\n" + warn
                         except Exception as e:                       # noqa: BLE001
                             log.warning("conflict check failed for %s: %s", market, e)
-                    alert_classes.deliver(cls, text, sid)
+                    alert_classes.deliver(cls, text, sid, quiet=unified_engine.quiet_modules())
         except Exception as e:                                       # noqa: BLE001
             log.warning("session alerts failed for %s: %s", market, e)
     for o in kept:
@@ -953,7 +956,8 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
         except Exception as e:                                    # noqa: BLE001
             log.warning("Telegram layout failed: %s", e)
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market, "decision_id": sid_reg,
-                                                  "id": res.get("id"), "bar_time": setup["bar_time"], "telegram": tg}, False
+                                                  "id": res.get("id"), "bar_time": setup["bar_time"], "telegram": tg,
+                                                  "report": res.get("report")}, False
 
 
 # ===== Notifications =====
@@ -1498,6 +1502,12 @@ def run():
                     if not alert and not lagging:
                         key = reason_key(status)
                         wait_stats.setdefault(name, {})[key] = wait_stats.setdefault(name, {}).get(key, 0) + 1
+                    if alert:
+                        unified_engine.record_main(markets.canonical(name), alert["setup"], alert.get("report"), now_ts, alert.get("id"))
+                    uni = unified_engine.run_market(markets.canonical(name), now_ts, INSTRUMENTS[name].get("digits", 2))
+                    if uni:                                          # ONE unified confirmation per main signal (tone, notification, Telegram)
+                        print(f"[{stamp} unified] {uni['market']}: {uni['text'].splitlines()[0]}", flush=True)
+                        notify(uni["text"], entry=True, side=uni["side"], tg_text=uni["text"])
                     if alert:
                         hour_signals += 1
                         notify(alert["text"], entry=True, side=alert["setup"]["side"], decision_id=alert.get("decision_id"),

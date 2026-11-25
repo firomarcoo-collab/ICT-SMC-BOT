@@ -249,7 +249,7 @@ def process(state, market, observations, last_close, now, lang="en"):
     return out
 
 
-def deliver(cls, text, sid=None):
+def deliver(cls, text, sid=None, quiet=False):
     """Phone side of an alert: notification, vibration pattern and spoken label, all started without waiting.
     Returns the list of commands started (empty outside Termux)."""
     spec, started = CLASSES.get(cls) or EXTRA_CLASSES[cls], []
@@ -264,19 +264,24 @@ def deliver(cls, text, sid=None):
                 pass
     title = AR[cls][0] if ar else spec["title"]
     shown = (text + "\n\n💡 " + explanation(cls)) if ar else text
+    if quiet:                                                   # module alert while the unified engine decides: information only
+        title = "ℹ️ " + title + " (info)"
+        shown = "Information from one module, NOT an entry signal. Wait for the unified decision.\n\n" + shown
     tap = []
     path = save_full_text(cls, text, sid)
     if path:
         tap = ["--action", f"termux-open {path}"]       # tapping the notification opens the complete text with its explanation
+    loud = not quiet
     run(["termux-notification", "--title", f"{spec['emoji']} {title}", "--content", shown,
-         "--priority", "high", "--vibrate", spec["vibrate"], "--id", f"kenan-{cls}"] + tap
-        + (["--sound"] if cls.endswith(("SIGNAL", "CONFIRMED")) and os.environ.get("SIGNAL_SOUND", "1") != "0" else [])
-        + (decisions.button_args(sid) if sid and cls in DECISION_CLASSES else []))
-    if os.environ.get("ALERT_VOICE", "1") != "0":
+         "--priority", "high" if loud else "low", "--id", f"kenan-{cls}"] + (["--vibrate", spec["vibrate"]] if loud else []) + tap
+        + (["--sound"] if loud and cls.endswith(("SIGNAL", "CONFIRMED")) and os.environ.get("SIGNAL_SOUND", "1") != "0" else [])
+        + (decisions.button_args(sid) if loud and sid and cls in DECISION_CLASSES else []))
+    if loud and os.environ.get("ALERT_VOICE", "1") != "0":
         run(["termux-tts-speak", "-l", "ar", AR[cls][1]] if ar else ["termux-tts-speak", spec["voice"]])
     try:
         import telegram_alerts                                  # the same alert in Telegram (preparatory ones are labelled)
-        if telegram_alerts.send_class(cls, text):
+        sent = telegram_alerts.send_class("ZONE_INFO" if quiet else cls, text)
+        if sent:
             started.append("telegram")
     except Exception:                                           # noqa: BLE001
         pass
