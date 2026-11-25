@@ -12,6 +12,7 @@ def isolated_defaults(monkeypatch, tmp_path):
     monkeypatch.setenv("SIGNAL_MANAGER_FILE", str(tmp_path / "signal_manager.json"))
     monkeypatch.setenv("UNIFIED_FILE", str(tmp_path / "unified_state.json"))
     monkeypatch.setenv("KENAN_V2", "0")             # the older tests pin the pre-v2 defaults; the v2 tests set KENAN_V2=1 themselves
+    monkeypatch.setenv("FIB_GATE", "0")             # the older detector tests do not build a Fibonacci leg; the Fibonacci tests switch it on
     import session_alerts
     monkeypatch.setattr(session_alerts, "_LOADED", False)
     import alert_classes

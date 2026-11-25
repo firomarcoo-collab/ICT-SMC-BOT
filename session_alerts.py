@@ -356,6 +356,28 @@ def pulse(symbol, m5, cfg=CFG, st=None):
 
 
 # ---------------------------------------------------------------- phone / screen text
+def fib_gate(ev, m15):
+    """Fibonacci is a condition for all three modules: a SIGNAL whose entry is not inside the golden zone (50-79%, FIB_LO / FIB_HI)
+    of the latest M15 leg in the trade's direction becomes REJECTED (the module answers WAIT). FIB_GATE=0 switches it off.
+    No clear leg counts as 'not confirmed' (nothing is invented)."""
+    if ev.get("event") != "SIGNAL" or os.environ.get("FIB_GATE", "1") == "0":
+        return ev
+    import selective
+    try:
+        lo, hi = float(os.environ.get("FIB_LO") or 0.50), float(os.environ.get("FIB_HI") or 0.79)
+    except ValueError:
+        lo, hi = 0.50, 0.79
+    side = "buy" if ev["direction"] == "long" else "sell"
+    try:
+        inside, text = selective.fib_check(m15 or [], side, ev["entry"], lo, hi)
+    except Exception:                                                              # noqa: BLE001
+        inside, text = None, "Fib: could not be computed"
+    if inside:
+        return dict(ev, fib=text)
+    why = text if inside is False else text + " (a Fibonacci confirmation is required)"
+    return dict(ev, event="REJECTED", reason=why)
+
+
 def render(ev, digits=2):
     f = lambda v: f"{v:.{digits}f}"                                                # noqa: E731
     name, kind = ev["name"], ev["event"]
@@ -372,6 +394,8 @@ def render(ev, digits=2):
             lines.append(f"- Invalidation: {ev['invalidation']}")
         if ev.get("actions"):
             lines.append(f"- TP1: {ev['actions']['tp1']}; TP2: {ev['actions']['tp2']}")
+        if ev.get("fib"):
+            lines.append("📐 " + ev["fib"])
         if ev.get("pulse") is True:
             lines.append("✅ Order Flow Pulse (estimate) confirms the direction.")
         if est:
@@ -452,6 +476,7 @@ def process(market, m5, m15, h1, h1_trend, digits=2, cfg=CFG):
             continue
         st["seen_" + key] = t
         for ev in fn():
+            ev = fib_gate(ev, m15)
             cls = CLASS.get((ev["name"], ev["event"]), "SESSION_INFO")
             if ev["event"] == "SIGNAL":
                 session_tracker.open_signal(market, ev)
