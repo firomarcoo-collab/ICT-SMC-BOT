@@ -357,9 +357,9 @@ def pulse(symbol, m5, cfg=CFG, st=None):
 
 # ---------------------------------------------------------------- phone / screen text
 def fib_gate(ev, m15):
-    """Fibonacci is a condition for all three modules: a SIGNAL whose entry is not inside the golden zone (50-79%, FIB_LO / FIB_HI)
-    of the latest M15 leg in the trade's direction becomes REJECTED (the module answers WAIT). FIB_GATE=0 switches it off.
-    No clear leg counts as 'not confirmed' (nothing is invented)."""
+    """Fibonacci check for a module SIGNAL: is the entry inside the golden zone (50-79%, FIB_LO / FIB_HI) of the latest M15 leg in the
+    trade's direction? The result travels with the signal (fib_ok True / False / None = no clear leg, plus the text). It no longer drops
+    the signal: the unified engine requires it, except on a strong confirmation where it may be waived. FIB_GATE=0 switches the check off."""
     if ev.get("event") != "SIGNAL" or os.environ.get("FIB_GATE", "1") == "0":
         return ev
     import selective
@@ -372,10 +372,7 @@ def fib_gate(ev, m15):
         inside, text = selective.fib_check(m15 or [], side, ev["entry"], lo, hi)
     except Exception:                                                              # noqa: BLE001
         inside, text = None, "Fib: could not be computed"
-    if inside:
-        return dict(ev, fib=text)
-    why = text if inside is False else text + " (a Fibonacci confirmation is required)"
-    return dict(ev, event="REJECTED", reason=why)
+    return dict(ev, fib_ok=inside, fib=text)
 
 
 def render(ev, digits=2):
@@ -395,7 +392,8 @@ def render(ev, digits=2):
         if ev.get("actions"):
             lines.append(f"- TP1: {ev['actions']['tp1']}; TP2: {ev['actions']['tp2']}")
         if ev.get("fib"):
-            lines.append("📐 " + ev["fib"])
+            lines.append(("📐 " if ev.get("fib_ok") else "⚠️ ") + ev["fib"]
+                         + ("" if ev.get("fib_ok") else " - not confirmed: only a strong unified confirmation may waive this"))
         if ev.get("pulse") is True:
             lines.append("✅ Order Flow Pulse (estimate) confirms the direction.")
         if est:

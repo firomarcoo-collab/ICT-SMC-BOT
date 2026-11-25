@@ -574,4 +574,4 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - Run: the bot does it by itself (`ICT-Alerts`). Board: `python unified_board.py`. Default risk text 0.5% (`RISK_PERCENT`).
 - Seven markets: XAUUSD, US100, US30, BTCUSD, GBPUSD, USDJPY, EURUSD. No backtest or forward test has been done: no success rate is claimed.
 
-- Fibonacci is a condition for SMC Prime, ICT Session Scalper and Order Flow Pulse: a signal is shown only when its entry is inside the 50-79% golden zone of the latest M15 leg in its direction; otherwise the module answers WAIT (REJECTED, no alert). Switch off: FIB_GATE=0; bounds: FIB_LO / FIB_HI.
+- Fibonacci (50-79% golden zone of the latest M15 leg) is a condition of the unified confirmation: all three modules must have their entry inside it. It may be WAIVED only on a strong confirmation: every module check passed (score 100), H4 and H1 both agree, main chain score 90+ and R:R >= 1:2; the alert then says "Fibonacci: WAIVED ...". A conflict or a missing mandatory condition is never waived. FIB_GATE=0 switches the condition off, FIB_WAIVER=0 switches the waiver off, FIB_LO / FIB_HI change the zone.

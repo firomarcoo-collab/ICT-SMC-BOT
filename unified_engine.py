@@ -29,6 +29,27 @@ MIN_SCORE = 80
 SIDE = {"long": "buy", "short": "sell", "buy": "buy", "sell": "sell"}
 
 
+def fib_required():
+    """The Fibonacci golden-zone condition (FIB_GATE=0 switches it off for the modules)."""
+    return os.environ.get("FIB_GATE", "1") != "0"
+
+
+def strong_waiver(votes, main, score):
+    """The Fibonacci condition may be waived ONLY on a strong confirmation: every module check passed (score 100), H4 and H1 both agree
+    with the direction, the main chain scored 90+ and R:R to TP2 is at least 1:2. Returns the reason text, or '' when not allowed.
+    FIB_WAIVER=0 turns the waiver off."""
+    if os.environ.get("FIB_WAIVER", "1") == "0":
+        return ""
+    side = main["side"]
+    want = "up" if side == "buy" else "down"
+    tr = main.get("trends") or {}
+    risk = abs(main["entry"] - main["sl"])
+    rr = abs(main["tp2"] - main["entry"]) / risk if risk else 0.0
+    if score >= 100 and tr.get("h4") == want and tr.get("h1") == want and (main.get("score100") or 0) >= 90 and rr >= 2.0:
+        return f"strong confirmation (score {score:.0f}/100, H4 and H1 agree, main chain {main.get('score100')}/100, R:R 1:{rr:.1f})"
+    return ""
+
+
 def enabled():
     """UNIFIED=0 restores the old behaviour (the main chain alerts by itself)."""
     return os.environ.get("UNIFIED", "1") != "0"
@@ -103,7 +124,8 @@ def on_event(market, ev, h1_trend, now_ts):
             return False
         mv[key] = {"side": side, "ts": int(now_ts), "entry": ev["entry"], "sl": ev["sl"], "tp1": ev["tp1"], "tp2": ev["tp2"],
                    "rr": ev.get("rr"), "zone": ev.get("zone"), "proxy": bool(ev.get("proxy")), "h1": h1_trend,
-                   "reason": ev.get("reason", ""), "bar_time": ev.get("bar_time")}
+                   "reason": ev.get("reason", ""), "bar_time": ev.get("bar_time"),
+                   "fib_ok": ev.get("fib_ok"), "fib": ev.get("fib")}
     elif kind in ("INVALIDATED", "MISSED", "REJECTED"):
         cur = mv.get(key)
         if cur and cur.get("side") not in (None, side):
@@ -205,6 +227,18 @@ def decide(market, now_ts=None, d=None):
     for k, v in live.items():
         score += WEIGHTS[k] * sum(_checks(k, v, side, now_ts)) / 3
     out["score"] = round(score, 1)
+    out["fib"] = "not required"
+    if fib_required():
+        bad = [LABEL[k] for k, v in live.items() if v.get("fib_ok") is not True]
+        if not bad:
+            out["fib"] = "INSIDE the 50-79% golden zone on all three modules"
+        else:
+            why = strong_waiver(live, main, score)
+            if not why:
+                out["reasons"].append("Fibonacci not confirmed (" + ", ".join(bad) + ": entry outside the 50-79% zone or no clear leg) "
+                                      "and there is no strong-confirmation waiver")
+                return out
+            out["fib"] = "WAIVED: " + why + f"; not inside the zone: {', '.join(bad)}"
     if score < MIN_SCORE:
         out["reasons"].append(f"score {score:.0f}/100 is below the minimum {MIN_SCORE}")
         return out
@@ -256,6 +290,7 @@ def format_alert(res, digits=2, now_ts=None):
         f"Liquidity: {rep.get('liquidity') or '-'}", f"Structure: {rep.get('structure') or '-'}",
         f"Displacement: {rep.get('reversal') or '-'}", f"FVG/OB Retest: {rep.get('retest') or '-'}",
         f"Confirmation: {rep.get('confirm') or '-'}", "",
+        f"Fibonacci: {res.get('fib', '-')}",
         f"Risk/Reward to TP2: 1:{rr:.1f} | Risk per trade: {os.environ.get('RISK_PERCENT') or '0.5'}% of the account",
         f"Valid until: {until} ({valid_minutes():.0f} min). After that do not enter.",
         f"Cancelled if: a full M15 candle closes beyond {_n(ee, digits)}, or a module turns against it.",

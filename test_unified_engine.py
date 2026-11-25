@@ -216,3 +216,58 @@ def test_quiet_module_alert_has_no_sound_or_vibration(monkeypatch):
     calls.clear()
     alert_classes.deliver("PULSE_SIGNAL", "x", "s2")
     assert "--sound" in calls[0] and any(c[0] == "termux-tts-speak" for c in calls)
+
+
+# ---- Fibonacci: required, waived only on a strong confirmation ---------------------------------------------------------------------
+def fib_votes(ok=(True, True, True), at=NOW - 120, h1="up"):
+    for n, f in zip((SMC, SCALP, PULSE), ok):
+        e = dict(ev(n), fib_ok=f, fib="Fib text")
+        ue.on_event("XAUUSD", e, h1, at)
+
+
+def test_fib_inside_on_all_modules_confirms(monkeypatch):
+    monkeypatch.setenv("FIB_GATE", "1")
+    fib_votes(); main()
+    r = ue.decide("XAUUSD", NOW)
+    assert r["decision"] == "CONFIRMED BUY" and "INSIDE" in r["fib"]
+
+
+def test_fib_missing_is_waived_only_on_a_strong_confirmation(monkeypatch):
+    monkeypatch.setenv("FIB_GATE", "1")
+    fib_votes(ok=(True, False, None)); main(setup=dict(SETUP, score100=92))
+    r = ue.decide("XAUUSD", NOW)
+    assert r["decision"] == "CONFIRMED BUY" and r["fib"].startswith("WAIVED: strong confirmation")
+    assert "Fibonacci: WAIVED" in ue.run_market("XAUUSD", NOW)["text"]
+
+
+@pytest.mark.parametrize("what", ["h1_against", "main_score_low", "module_check_failed", "waiver_off"])
+def test_fib_missing_without_a_strong_confirmation_waits(monkeypatch, what):
+    monkeypatch.setenv("FIB_GATE", "1")
+    setup = dict(SETUP, score100=92)
+    if what == "h1_against":
+        setup["trends"] = {"h4": "up", "h1": "down"}
+    if what == "main_score_low":
+        setup["score100"] = 85
+    if what == "waiver_off":
+        monkeypatch.setenv("FIB_WAIVER", "0")
+    fib_votes(ok=(False, True, True))
+    if what == "module_check_failed":
+        fib_votes(ok=(False, True, True), h1="down")                     # SMC h1 check fails -> score < 100
+    main(setup=setup)
+    r = ue.decide("XAUUSD", NOW)
+    assert r["decision"] == "WAIT" and "Fibonacci not confirmed" in r["reasons"][0]
+    assert ue.run_market("XAUUSD", NOW) is None
+
+
+def test_fib_switched_off_ignores_the_condition(monkeypatch):
+    monkeypatch.setenv("FIB_GATE", "0")
+    fib_votes(ok=(False, False, False)); main()
+    assert ue.decide("XAUUSD", NOW)["decision"] == "CONFIRMED BUY"
+
+
+def test_waiver_never_overrides_a_conflict_or_a_missing_mandatory_condition(monkeypatch):
+    monkeypatch.setenv("FIB_GATE", "1")
+    fib_votes(ok=(False, False, False)); main(setup=dict(SETUP, score100=95), checks=dict(CHECKS, retest=False))
+    assert ue.decide("XAUUSD", NOW)["decision"] == "WAIT"
+    ue.on_event("XAUUSD", ev(PULSE, "short"), "up", NOW - 10)
+    assert ue.decide("XAUUSD", NOW)["decision"] == "NO TRADE"
