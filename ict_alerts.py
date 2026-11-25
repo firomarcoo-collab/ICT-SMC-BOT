@@ -658,6 +658,17 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
                 # They also have their own session logic, so they ignore the main strategy's session table and work on every market
                 # the bot scans (gold, indices, forex, bitcoin and any extra symbol in SYMBOLS).
                 if cls != "SESSION_INFO" and sid not in skip:
+                    ev = session_alerts.EVENTS.pop(sid, None)
+                    if ev:                                           # contradictions with H1 / opposing zones are written into the alert
+                        try:
+                            import conflict_check
+                            import zones_report
+                            warn = conflict_check.warning_text(market, ev, h1_trend(data, now_ts), zones_report.LATEST, now_ts)
+                            if warn:
+                                text += "\n" + warn
+                                extra += "\n" + warn
+                        except Exception as e:                       # noqa: BLE001
+                            log.warning("conflict check failed for %s: %s", market, e)
                     alert_classes.deliver(cls, text, sid)
         except Exception as e:                                       # noqa: BLE001
             log.warning("session alerts failed for %s: %s", market, e)

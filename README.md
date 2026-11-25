@@ -562,3 +562,5 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - SMC Prime / Scalper / Pulse alerts work on every scanned market (also EURUSD, GBPJPY, DAX40 when added to SYMBOLS) and are not limited by the main strategy session table.
 
 - Default scan list: the six Kenan markets (main strategy) plus EURUSD, GBPJPY, DAX40 (only the SMC Prime / Scalper / Pulse alerts apply there). Use SYMBOLS=... to change it.
+
+- Conflict check (`conflict_check.py`): an SMC Prime / Scalper / Pulse signal against the H1 trend or with an opposing entry zone on the way to TP1 is still shown but carries a "CONFLICT" warning; Pulse always carries the "estimate" note. Information only.

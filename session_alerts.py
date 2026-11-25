@@ -56,6 +56,9 @@ def enabled(market):
     return os.environ.get("SESSION_ALERTS", "1") != "0"
 
 
+EVENTS = {}          # alert id -> its SIGNAL event (read by conflict_check in the bot loop)
+
+
 def on(name):
     """SMC Prime, ICT Session Scalper and Order Flow Pulse are all on by default (the user asked for their alerts and tones).
     They stay alert-only, obey the session table and the one-signal-per-market rule, and each can be switched off: SCALPER=0, PULSE=0, SMC_PRIME=0."""
@@ -452,6 +455,7 @@ def process(market, m5, m15, h1, h1_trend, digits=2, cfg=CFG):
             cls = CLASS.get((ev["name"], ev["event"]), "SESSION_INFO")
             if ev["event"] == "SIGNAL":
                 session_tracker.open_signal(market, ev)
+                EVENTS[f"{market}-{cls}-{ev['bar_time']}"] = ev
             out.append((cls, f"{market}-{cls}-{ev['bar_time']}", render(ev, digits)))
     save_state()
     return out
