@@ -566,8 +566,10 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - Conflict check (`conflict_check.py`): an SMC Prime / Scalper / Pulse signal against the H1 trend or with an opposing entry zone on the way to TP1 is still shown but carries a "CONFLICT" warning; Pulse always carries the "estimate" note. Information only.
 
 ## Unified Trade Confirmation Engine (`unified_engine.py`, signals only)
-- SMC Prime (35), Order Flow Pulse (30, an ESTIMATE from candle volume) and ICT Session Scalper (35) each vote per market; the main SELECTIVE chain (structure, sweep, displacement, FVG/OB retest, closed M15 confirmation, R:R >= 1:2, filters) is mandatory and supplies the levels.
-- Decision: CONFIRMED BUY / CONFIRMED SELL / WAIT / NO TRADE. One module pointing the other way = NO TRADE (veto). Score = weight x checks passed / 3 per module, minimum 80; it is not a win probability.
-- ONE "KENAN TRADER AI - CONFIRMED ..." alert (tone, notification, Telegram) per main signal, kept across restarts (`unified_state.json`). The separate module alerts are silent information (`UNIFIED_QUIET_MODULES=0` restores their tones).
-- `python unified_board.py` shows each module, the unified decision, the score and the active confirmed signals.
+- The ONLY place that issues CONFIRMED BUY / CONFIRMED SELL. Hierarchy: Level 1 SMC Prime = structure & direction (35), Level 2 ICT Session Scalper = liquidity & entry timing (35), Level 3 Order Flow Pulse = momentum (30, built from candle volume/range, NOT real order flow).
+- Order of decision: any direction conflict = NO TRADE whatever the score; the six mandatory conditions (liquidity sweep, CHoCH/MSS, displacement, FVG/OB, retest, closed M15 confirmation) come from the main SELECTIVE chain and are never replaced by points; then Level 1, 2, 3 must each confirm; then score >= 80 (weight x 3 objective checks per module; counts conditions, not a win probability). Each module may answer WAIT.
+- Only closed candles (a vote on an unfinished candle is refused), fresh votes (SMC 3 h, Scalper 2 h, Pulse 1 h, main 6 h) and a non-lagging data feed count.
+- ONE confirmation per main signal id, kept across restarts (`unified_state.json`). It is valid `UNIFIED_VALID_MIN` minutes (default 90), then EXPIRED; it is CANCELLED when a full M15 candle closes beyond its invalidation level or a module turns against it.
+- The main SELECTIVE chain and the three modules no longer alert with a tone by themselves: the main chain shows as a CANDIDATE (screen only) and the modules as silent information. `UNIFIED=0` restores the old behaviour; `UNIFIED_QUIET_MODULES=0` gives the module tones back.
+- Run: the bot does it by itself (`ICT-Alerts`). Board: `python unified_board.py`. Default risk text 0.5% (`RISK_PERCENT`).
 - Seven markets: XAUUSD, US100, US30, BTCUSD, GBPUSD, USDJPY, EURUSD. No backtest or forward test has been done: no success rate is claimed.

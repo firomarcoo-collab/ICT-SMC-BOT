@@ -957,7 +957,7 @@ def selective_scan(name, now_ts, scfg, store, offsets=None, spreads=None, specs=
             log.warning("Telegram layout failed: %s", e)
     return f"{name}: SELECTIVE {res['action']}", {"text": text, "setup": setup, "market": market, "decision_id": sid_reg,
                                                   "id": res.get("id"), "bar_time": setup["bar_time"], "telegram": tg,
-                                                  "report": res.get("report")}, False
+                                                  "report": res.get("report"), "checks": res.get("checks")}, False
 
 
 # ===== Notifications =====
@@ -1328,7 +1328,7 @@ def run():
 
     cfg = Config(min_score=int(os.environ.get("MIN_SCORE", "0")),
                  classic_enabled=os.environ.get("CLASSIC", "1") != "0",
-                 risk_percent=number("RISK_PERCENT", 0.25))
+                 risk_percent=number("RISK_PERCENT", 0.5))
     opts = {"balance": number("BALANCE", 0.0),
             "contracts": {n: number(f"CONTRACT_{n}", None) for n in names
                           if os.environ.get(f"CONTRACT_{n}")},
@@ -1502,13 +1502,34 @@ def run():
                     if not alert and not lagging:
                         key = reason_key(status)
                         wait_stats.setdefault(name, {})[key] = wait_stats.setdefault(name, {}).get(key, 0) + 1
-                    if alert:
-                        unified_engine.record_main(markets.canonical(name), alert["setup"], alert.get("report"), now_ts, alert.get("id"))
-                    uni = unified_engine.run_market(markets.canonical(name), now_ts, INSTRUMENTS[name].get("digits", 2))
-                    if uni:                                          # ONE unified confirmation per main signal (tone, notification, Telegram)
-                        print(f"[{stamp} unified] {uni['market']}: {uni['text'].splitlines()[0]}", flush=True)
-                        notify(uni["text"], entry=True, side=uni["side"], tg_text=uni["text"])
-                    if alert:
+                    mkt = markets.canonical(name)
+                    uni_mode = unified_engine.enabled()
+                    if alert and uni_mode:
+                        # the main chain is now a CANDIDATE: only the unified engine may issue CONFIRMED BUY / SELL
+                        unified_engine.record_main(mkt, alert["setup"], alert.get("report"), now_ts, alert.get("id"),
+                                                   alert.get("checks"), alert.get("decision_id"))
+                    if uni_mode:
+                        try:                                         # cancel / expire earlier confirmations (closed M15 candle only)
+                            c15 = selective.closed_only(get_candles(INSTRUMENTS[name], "15m"), 900, now_ts)
+                            last15 = dict(c15[-1], close=c15[-1]["close"] + offsets.get(name, 0.0)) if c15 else None
+                            for st_, txt_ in unified_engine.check_active(mkt, last15, now_ts):
+                                notify(txt_, alert=(st_ == "CANCELLED"))
+                        except Exception as e:                       # noqa: BLE001
+                            log.warning("unified cancel check failed for %s: %s", name, e)
+                        uni = unified_engine.run_market(mkt, now_ts, INSTRUMENTS[name].get("digits", 2), fresh=not lagging)
+                        if uni:                                      # ONE unified confirmation per main signal (tone, notification, Telegram)
+                            hour_signals += 1
+                            print(f"[{stamp} unified] {mkt}: {uni['text'].splitlines()[0]}", flush=True)
+                            notify(uni["text"], entry=True, side=uni["side"], decision_id=uni.get("decision_id"), tg_text=uni["text"])
+                            save_for_review(uni["text"])
+                            if track and uni.get("setup"):
+                                track.add(name, "5m", "selective", uni["setup"], uni["bar_time"],
+                                          ref=uni["main_id"], market=uni["setup"].get("market_entry", True))
+                    if alert and uni_mode:
+                        cand = ("🕓 MAIN CHAIN CANDIDATE (not an entry signal): the unified engine decides after SMC Prime, "
+                                "ICT Session Scalper and Order Flow Pulse confirm.\n" + alert["text"])
+                        notify(cand, entry=False, side=alert["setup"]["side"])
+                    elif alert:
                         hour_signals += 1
                         notify(alert["text"], entry=True, side=alert["setup"]["side"], decision_id=alert.get("decision_id"),
                            tg_text=alert.get("telegram"))
