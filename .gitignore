@@ -27,3 +27,4 @@ session_results.csv
 bot.lock
 signal_manager.json
 unified_state.json
+shadow_scores.jsonl

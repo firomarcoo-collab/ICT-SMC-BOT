@@ -169,3 +169,5 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 - The main SELECTIVE signal keeps its own notification and tone again (`MAIN_ALERT=1`, default); the unified CONFIRMED BUY / SELL (three modules + analysis 80/100) comes on top of it. `MAIN_ALERT=0` makes the main signal a silent candidate again.
 
 - Alerts no longer tell you to use a limit order: the entry level is shown as a level only (how you enter in MT5 is up to you). The trackers still simulate a fill when price reaches the level.
+
+- Phase 1 of the MASTER DIRECTIVE (done, tested: 560 passed): shadow score with directive weights running beside the live score (no effect on alerts); `unified_board.py` now lists every market, "not computed" vs a real score, why WAIT, data freshness. Not done yet: gate of H1 trend for module alerts, volatility/spread engine, correlation engine, unified signal lifecycle, weekly/monthly reports, backtest costs and walk-forward. No live results measured yet.

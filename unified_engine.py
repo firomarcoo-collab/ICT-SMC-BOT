@@ -306,6 +306,15 @@ def run_market(market, now_ts, digits=2, fresh=True, gate=None):
         res = decide(market, now_ts, d)
         d.setdefault("decision", {})[market] = {k: res[k] for k in ("decision", "score", "modules", "reasons", "side")} | {"ts": int(now_ts)}
         alert = None
+        try:                                                       # shadow score (directive weights): logged only, never decides
+            import shadow_score, session_engine
+            if shadow_score.enabled():
+                votes, main = _live(d, market, int(now_ts))
+                sh = shadow_score.compute(main, votes, int(now_ts), session_engine.status(market, now_ts).get("allowed"))
+                d["decision"][market]["shadow"] = {"score": sh["score"], "verdict": shadow_score.verdict(sh)}
+                shadow_score.log(market, now_ts, sh, res["decision"], res["score"])
+        except Exception:                                          # noqa: BLE001
+            pass
         if res["decision"].startswith("CONFIRMED") and res["id"] not in d["sent"]:
             if not fresh:
                 d["decision"][market]["decision"] = "WAIT"
@@ -374,21 +383,52 @@ def check_active(market, last_m15, now_ts):
     return out
 
 
-def board(now_ts=None):
-    """Compliance board: every module, the unified decision, the score and the active confirmed signals."""
+def _age(ts, now_ts):
+    m = max(0, int(now_ts - ts) // 60)
+    return f"{m} min ago" if m < 120 else f"{m // 60} h ago"
+
+
+def why_wait(r):
+    """Plain reason a market is not confirmed (the first blocking item)."""
+    if r["decision"].startswith("CONFIRMED"):
+        return "confirmed"
+    return r["reasons"][0] if r["reasons"] else "waiting for a main-chain signal"
+
+
+def board(now_ts=None, markets_all=None):
+    """Compliance board: every market (even those with no data yet), each module, the unified decision, why it is WAIT, the live score
+    (or 'not computed' with the reason), the shadow score, data freshness and the active confirmed signals."""
     now_ts = int(now_ts if now_ts is not None else datetime.now(timezone.utc).timestamp())
     d = _load()
-    markets = sorted(set(d["votes"]) | set(d["main"]) | set(d.get("decision", {})))
-    if not markets:
-        return "UNIFIED BOARD: no module has voted yet."
+    try:
+        import session_engine
+        base = set(session_engine.TABLE)
+    except Exception:                                                  # noqa: BLE001
+        base = set()
+    markets = sorted(set(d["votes"]) | set(d["main"]) | set(d.get("decision", {})) | set(markets_all or ()) | base)
     lines = ["UNIFIED BOARD (information only, signals only)"]
+    last_scan = max([x.get("ts", 0) for x in d.get("decision", {}).values()] or [0])
+    lines.append("Last scan: " + (_age(last_scan, now_ts) if last_scan else "none recorded yet (the bot has not scanned since the state was created)"))
     for m in markets:
         r = decide(m, now_ts, d)
         main = r["main"]["side"].upper() if r["main"] else "WAIT"
-        lines += [f"{m}:", f"  SMC Prime: {r['modules']['smc']}", f"  Order Flow Pulse: {r['modules']['pulse']} (candle-based estimate)",
-                  f"  ICT Session Scalper: {r['modules']['scalper']}", f"  Main SELECTIVE chain: {main}",
-                  f"  Unified Decision: {r['decision']}   Confluence Score: {r['score']:.0f}/100"]
-        for why in r["reasons"]:
+        votes, _ = _live(d, m, now_ts)
+        lines += [f"{m}:", f"  SMC Prime: {r['modules']['smc']}", f"  Order Flow Pulse: {r['modules']['pulse']} (candle-based estimate, not real order flow)",
+                  f"  ICT Session Scalper: {r['modules']['scalper']}", f"  Main SELECTIVE chain: {main}"]
+        computed = bool(r["main"]) and r["score"] > 0
+        score = f"{r['score']:.0f}/100" if computed else "not computed (" + ("a gate before scoring failed" if r["main"] else "no main-chain signal") + ")"
+        lines.append(f"  Unified Decision: {r['decision']}   Confluence Score: {score}")
+        lines.append(f"  Why: {why_wait(r)}")
+        try:
+            import shadow_score, session_engine
+            sh = shadow_score.compute(r["main"], votes, now_ts, session_engine.status(m, now_ts).get("allowed"))
+            lines.append("  Shadow score (directive weights, information only): "
+                         + (f"{sh['score']:.0f}/100 [{shadow_score.verdict(sh)}], order flow {sh['flow']}" if sh["computed"] else "not computed"))
+        except Exception:                                              # noqa: BLE001
+            pass
+        ages = [v["ts"] for v in votes.values()] + ([r["main"]["ts"]] if r["main"] else [])
+        lines.append("  Data: " + ("last signal " + _age(max(ages), now_ts) if ages else "no live signal (votes expire after 1-6 h)"))
+        for why in r["reasons"][1:]:
             lines.append(f"  - {why}")
     act = [(k, a) for k, a in d["active"].items() if a["status"] == "ACTIVE" and now_ts < a["expires"]]
     lines.append(f"Active confirmed signals: {len(act)}")
@@ -396,4 +436,11 @@ def board(now_ts=None):
         conflict = decide(a["market"], now_ts, d)["decision"] == "NO TRADE"
         lines.append(f"  - {a['market']} {a['side'].upper()} valid until {_utc(a['expires'])}"
                      + (" (a module turned against it: it is cancelled on the next scan)" if conflict else ""))
+    try:
+        import shadow_score
+        s = shadow_score.summary()
+        if s["rows"]:
+            lines.append(f"Shadow comparison: {s['scored']} scored, live confirmed {s['live_confirmed']}, shadow pass {s['shadow_pass']}, both {s['both']}")
+    except Exception:                                                  # noqa: BLE001
+        pass
     return "\n".join(lines)

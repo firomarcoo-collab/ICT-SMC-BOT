@@ -593,3 +593,10 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - The main SELECTIVE signal keeps its own notification and tone again (`MAIN_ALERT=1`, default); the unified CONFIRMED BUY / SELL (three modules + analysis 80/100) comes on top of it. `MAIN_ALERT=0` makes the main signal a silent candidate again.
 
 - Alerts no longer tell you to use a limit order: the entry level is shown as a level only (how you enter in MT5 is up to you). The trackers still simulate a fill when price reaches the level.
+
+## Shadow score (MASTER DIRECTIVE weights, information only)
+`shadow_score.py` computes a second score next to the live unified score, with the directive weights: H4/H1 trend 20, liquidity 20,
+BOS/CHoCH 15, FVG/OB 15, M15 confirmation 15, order flow 10 (estimate = max 5, labelled), session + spread 5. Data that is not available is
+left out of the score (never counted as negative); an opposite module or a missing mandatory condition is a VETO. It never changes a live
+decision, alert or tone. Every change is logged to `shadow_scores.jsonl` and `python unified_board.py` shows both scores, why each market is
+WAIT, data freshness and the shadow comparison. Switch off: `SHADOW_SCORE=0`. Not a profit or win-rate claim.

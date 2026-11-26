@@ -187,7 +187,7 @@ def test_board_lists_modules_decision_and_active_count():
     vote_all(); main()
     ue.run_market("XAUUSD", NOW)
     txt = ue.board(NOW)
-    assert "SMC Prime: BUY" in txt and "Order Flow Pulse: BUY (candle-based estimate)" in txt and "Unified Decision: CONFIRMED BUY" in txt
+    assert "SMC Prime: BUY" in txt and "Order Flow Pulse: BUY (candle-based estimate, not real order flow)" in txt and "Unified Decision: CONFIRMED BUY" in txt
     assert "Active confirmed signals: 1" in txt and "valid until" in txt
 
 
