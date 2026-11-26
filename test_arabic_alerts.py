@@ -36,6 +36,9 @@ def test_deliver_uses_arabic_title_explanation_tap_action_and_buttons(monkeypatc
     assert "شرح" in open(path, encoding="utf-8").read()
     labels = [notif[i + 1] for i, x in enumerate(notif) if x in ("--button1", "--button2", "--button3")]
     assert labels == ["دخول", "انتظار", "تجاهل"]
+    assert not any(c[0] == "termux-tts-speak" for c in calls)                    # the spoken voice is for SMC Prime only
+    calls.clear()
+    ac.deliver("SMC_SIGNAL", "x", "sid-2")
     tts = next(c for c in calls if c[0] == "termux-tts-speak")
     assert tts[1:3] == ["-l", "ar"]
 

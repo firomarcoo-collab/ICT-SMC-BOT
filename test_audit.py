@@ -1490,8 +1490,10 @@ def test_deliver_is_non_blocking_and_silent_outside_termux(monkeypatch):
     monkeypatch.setattr(ac.subprocess, "Popen", lambda cmd, **k: calls.append(cmd))
     monkeypatch.setattr(ac.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("blocking call")))
     started = ac.deliver("RETEST", "x")
-    assert started == ["termux-notification", "termux-tts-speak"] and calls[0][calls[0].index("--vibrate") + 1] == "100,100,100,100,100"
+    assert started == ["termux-notification"] and calls[0][calls[0].index("--vibrate") + 1] == "100,100,100,100,100"     # voice: SMC Prime only
+    assert ac.deliver("SMC_SIGNAL", "x") == ["termux-notification", "termux-tts-speak"]
     monkeypatch.setenv("ALERT_VOICE", "0")
+    assert ac.deliver("SMC_SIGNAL", "x") == ["termux-notification"]
     assert ac.deliver("INVALIDATED", "x") == ["termux-notification"]
     monkeypatch.setattr(ac.shutil, "which", lambda c: None)
     assert ac.deliver("INVALIDATED", "x") == []

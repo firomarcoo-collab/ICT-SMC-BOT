@@ -154,12 +154,12 @@ def test_track_setups_runs_it_phones_the_alert_logs_drops_and_can_be_switched_of
     assert sent == []
 
 
-def test_the_new_alert_classes_have_their_own_vibration_and_voice(monkeypatch):
+def test_the_new_alert_classes_have_their_own_vibration_and_no_voice(monkeypatch):
     calls = []
     monkeypatch.setattr(ac.shutil, "which", lambda c: "/bin/" + c)
     monkeypatch.setattr(ac.subprocess, "Popen", lambda cmd, **k: calls.append(cmd))
     for cls in ("STATE_FLIP", "IFVG_RETEST", "IFVG_CONFIRMED"):
-        assert ac.deliver(cls, "x") == ["termux-notification", "termux-tts-speak"]
+        assert ac.deliver(cls, "x") == ["termux-notification"]                  # the spoken voice is for SMC Prime only
     vib = {c[c.index("--vibrate") + 1] for c in calls if "--vibrate" in c}
     assert len(vib) == 3 and not vib & {v["vibrate"] for v in ac.CLASSES.values()}               # distinct from the six old classes
 
