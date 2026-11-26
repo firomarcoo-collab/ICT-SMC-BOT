@@ -59,6 +59,7 @@ import asia_breakout
 import displacement_alerts
 import session_engine
 import signal_manager
+import gold_strict
 import trade_analysis
 import unified_engine
 import telegram_alerts
@@ -576,7 +577,14 @@ def analysis_gate(name, now_ts, offsets):
         plan = {"entry": m["entry"], "sl": m["sl"], "tp1": m.get("tp1"), "tp2": m["tp2"], "early_exit": m.get("early_exit")}
         a = trade_analysis.analyze(res["market"], res["side"], plan, m.get("checks") or {}, res.get("votes") or {},
                                    closed("15m", 900), closed("1h", 3600), closed("4h", 14400), now_ts, None, INSTRUMENTS[name].get("digits", 2))
-        return a["final"], trade_analysis.format_report(a, INSTRUMENTS[name].get("digits", 2)), "; ".join(a["why_not"])
+        ok, text, why = a["final"], trade_analysis.format_report(a, INSTRUMENTS[name].get("digits", 2)), "; ".join(a["why_not"])
+        if ok and gold_strict.enabled(res["market"]):                # opt-in XAUUSD profile: Jordan kill zones, FVG limit levels, RR 1:5, lot at 1%
+            zones = [v.get("zone") for k, v in (res.get("votes") or {}).items() if k in ("smc", "scalper") and v.get("zone")]
+            gp = gold_strict.plan(res["market"], res["side"], zones[0] if zones else None, m["sl"], now_ts,
+                                  float(os.environ.get("BALANCE") or 0))
+            ok, why = gp["ok"], "; ".join(gp["why"])
+            text = text + "\n\n" + gold_strict.format_plan(gp)
+        return ok, text, why
     return gate
 
 

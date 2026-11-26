@@ -161,3 +161,7 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 - Fibonacci (50-79% golden zone of the latest M15 leg) is a condition of the unified confirmation: all three modules must have their entry inside it. It may be WAIVED only on a strong confirmation: every module check passed (score 100), H4 and H1 both agree, main chain score 90+ and R:R >= 1:2; the alert then says "Fibonacci: WAIVED ...". A conflict or a missing mandatory condition is never waived. FIB_GATE=0 switches the condition off, FIB_WAIVER=0 switches the waiver off, FIB_LO / FIB_HI change the zone.
 
 - Order Flow Pulse, ICT Session Scalper and SMC Prime keep their own notification, tone and vibration (voice: SMC Prime only). The alert says the final CONFIRMED BUY / SELL comes only from the unified engine. UNIFIED_QUIET_MODULES=1 makes them silent information.
+
+## GOLD STRICT profile (`gold_strict.py`, opt-in, XAUUSD only, signals only)
+- Off by default. `GOLD_STRICT=1` adds, to the unified confirmation of XAUUSD: Jordan-time kill zones (London 10:00-13:00, New York 16:00-19:00), limit-entry levels at 50% and 61.8% of the setup's FVG, the structural stop (never tightened; wider than `GOLD_MAX_SL_PIPS`=15 pips = no signal), R:R to TP2 of at least 1:`GOLD_MIN_RR` (5), lot = balance x `GOLD_RISK_PCT` (1.0%) / (pips x 10), TP1 1:2 (close half by hand, stop to break-even), TP2 1:5 for the rest.
+- It cannot remove drawdown and promises no win rate. The bot never closes, moves or places an order: partial close and break-even are suggestions you carry out in MT5.
