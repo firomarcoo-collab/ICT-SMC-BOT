@@ -600,3 +600,8 @@ BOS/CHoCH 15, FVG/OB 15, M15 confirmation 15, order flow 10 (estimate = max 5, l
 left out of the score (never counted as negative); an opposite module or a missing mandatory condition is a VETO. It never changes a live
 decision, alert or tone. Every change is logged to `shadow_scores.jsonl` and `python unified_board.py` shows both scores, why each market is
 WAIT, data freshness and the shadow comparison. Switch off: `SHADOW_SCORE=0`. Not a profit or win-rate claim.
+
+## H1 gate for the three modules (Phase 2)
+A module vote (SMC Prime, ICT Session Scalper, Order Flow Pulse) recorded against the H1 trend no longer counts as a confirmation in the
+unified engine: the level stays WAIT and the board says "its SELL is against the H1 trend up". The module's own alert still goes out with
+the existing CONFLICT warning. An unknown H1 trend is not a conflict. This only makes the confirmation stricter. Switch off: `HTF_MODULE_GATE=0`.

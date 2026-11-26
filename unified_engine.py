@@ -189,6 +189,19 @@ LEVELS = (("smc", "Level 1 - Market Structure & Direction (SMC Prime)"),
           ("pulse", "Level 3 - Momentum Confirmation (Order Flow Pulse, candle-based estimate)"))
 
 
+def h1_gate():
+    """A module vote against the H1 trend is not a confirmation (HTF_MODULE_GATE=0 switches the gate off)."""
+    return os.environ.get("HTF_MODULE_GATE", "1") != "0"
+
+
+def h1_against(live, side):
+    """Keys of the live module votes whose own recorded H1 trend is the opposite of the trade side. An unknown trend is not a conflict."""
+    if not h1_gate():
+        return set()
+    bad = "down" if side == "buy" else "up"
+    return {k for k, v in live.items() if v.get("h1") == bad}
+
+
 def decide(market, now_ts=None, d=None):
     """Pure decision from the stored state. Returns decision, score, modules, levels, reasons, main, id."""
     now_ts = int(now_ts if now_ts is not None else datetime.now(timezone.utc).timestamp())
@@ -215,12 +228,16 @@ def decide(market, now_ts=None, d=None):
         out["reasons"].append("mandatory condition missing: " + ", ".join(lost))
         return out
     stop = False
+    against = h1_against(live, side)
     for key, title in LEVELS:
-        ok = key in live
+        ok = key in live and key not in against
         out["levels"][key] = "CONFIRMED" if ok else "WAIT"
         if not ok and not stop:
             why = (votes.get(key) or {}).get("reason")
-            out["reasons"].append(f"{title}: not confirmed" + (f" ({why})" if why else ""))
+            if key in against:
+                out["reasons"].append(f"{title}: not confirmed (its {live[key]['side'].upper()} is against the H1 trend {live[key].get('h1')})")
+            else:
+                out["reasons"].append(f"{title}: not confirmed" + (f" ({why})" if why else ""))
             stop = True
     if stop:
         return out

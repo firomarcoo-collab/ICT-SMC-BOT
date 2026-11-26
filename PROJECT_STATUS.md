@@ -171,3 +171,5 @@ Suite 411 passed. Not measured on live results; expect fewer signals. Verify wit
 - Alerts no longer tell you to use a limit order: the entry level is shown as a level only (how you enter in MT5 is up to you). The trackers still simulate a fill when price reaches the level.
 
 - Phase 1 of the MASTER DIRECTIVE (done, tested: 560 passed): shadow score with directive weights running beside the live score (no effect on alerts); `unified_board.py` now lists every market, "not computed" vs a real score, why WAIT, data freshness. Not done yet: gate of H1 trend for module alerts, volatility/spread engine, correlation engine, unified signal lifecycle, weekly/monthly reports, backtest costs and walk-forward. No live results measured yet.
+
+- Phase 2 of the MASTER DIRECTIVE (done, tested): H1 gate in `unified_engine.decide` for module votes (`HTF_MODULE_GATE`, default on); explains cases like a GBPUSD SHORT against an upward H1. Not live-measured. Next: volatility/spread engine, correlation engine.

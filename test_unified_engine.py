@@ -130,7 +130,8 @@ def test_stale_pulse_loses_a_check_but_can_still_confirm():
     assert r["decision"] == "CONFIRMED BUY" and 85 < r["score"] < 95
 
 
-def test_score_below_80_waits_even_when_directions_agree():
+def test_score_below_80_waits_even_when_directions_agree(monkeypatch):
+    monkeypatch.setenv("HTF_MODULE_GATE", "0")                       # isolate the score rule from the H1 gate
     vote_all(h1="down", proxy=True, zone=None); main()
     r = ue.decide("XAUUSD", NOW)
     assert r["decision"] == "WAIT" and r["score"] < 80 and "below the minimum" in r["reasons"][0]
@@ -255,6 +256,7 @@ def test_fib_missing_without_a_strong_confirmation_waits(monkeypatch, what):
         monkeypatch.setenv("FIB_WAIVER", "0")
     fib_votes(ok=(False, True, True))
     if what == "module_check_failed":
+        monkeypatch.setenv("HTF_MODULE_GATE", "0")
         fib_votes(ok=(False, True, True), h1="down")                     # SMC h1 check fails -> score < 100
     main(setup=setup)
     r = ue.decide("XAUUSD", NOW)
@@ -281,3 +283,28 @@ def test_module_alerts_keep_their_tone_by_default(monkeypatch):
     assert ue.quiet_modules() is False
     monkeypatch.setenv("UNIFIED_QUIET_MODULES", "1")
     assert ue.quiet_modules() is True
+
+
+# ---- Phase 2: a module vote against the H1 trend is not a confirmation -----------------------------------------------------------------
+def test_module_against_h1_blocks_confirmation_and_says_why():
+    vote_all(h1="down"); main()                                      # three BUY votes recorded while H1 was down
+    r = ue.decide("XAUUSD", NOW)
+    assert r["decision"] == "WAIT" and "against the H1 trend" in r["reasons"][0]
+    assert ue.run_market("XAUUSD", NOW) is None
+
+
+def test_unknown_h1_is_not_a_conflict():
+    vote_all(h1=None); main()
+    assert ue.decide("XAUUSD", NOW)["decision"] == "CONFIRMED BUY"
+
+
+def test_h1_gate_can_be_switched_off(monkeypatch):
+    monkeypatch.setenv("HTF_MODULE_GATE", "0")
+    vote_all(h1="down"); main()
+    assert "against the H1 trend" not in " ".join(ue.decide("XAUUSD", NOW)["reasons"])
+
+
+def test_sell_against_h1_up_is_blocked_too():
+    vote_all(h1="up", direction="short"); main(setup=dict(SETUP, side="sell", entry=2000.0, sl=2010.0, tp=1980.0, tp1=1990.0))
+    r = ue.decide("XAUUSD", NOW)
+    assert r["decision"] == "WAIT" and "against the H1 trend" in " ".join(r["reasons"]), r
