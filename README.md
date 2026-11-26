@@ -591,3 +591,5 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - It cannot remove drawdown and promises no win rate. The bot never closes, moves or places an order: partial close and break-even are suggestions you carry out in MT5.
 
 - The main SELECTIVE signal keeps its own notification and tone again (`MAIN_ALERT=1`, default); the unified CONFIRMED BUY / SELL (three modules + analysis 80/100) comes on top of it. `MAIN_ALERT=0` makes the main signal a silent candidate again.
+
+- Alerts no longer tell you to use a limit order: the entry level is shown as a level only (how you enter in MT5 is up to you). The trackers still simulate a fill when price reaches the level.

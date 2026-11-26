@@ -325,12 +325,12 @@ def format_alert(kind, name, setup, price, d, cfg, r, points, offset):
             head = f"RCT ALERT: {side} CONTINUATION {name} (trend + EMA pullback + resume candle)"
         else:
             head = f"RCT ALERT: {side} REVERSAL {name} (RSI stretched + sweep + rejection candle)"
-        extra = "Entry is the signal candle close: place it as a limit order at that price\n"
+        extra = "Entry is the signal candle close\n"
         if mode != "continuation":
             extra += "Counter-trend: higher risk, use a smaller size\n"
     else:
         head = f"CLASSIC ALERT: {side} {name} (trend + fib zone + reversal candle)"
-        extra = "Entry is the reversal candle close: place it as a limit order at that price\n"
+        extra = "Entry is the reversal candle close\n"
     note = "(offset applied)" if offset else "(feed price: compare with MT5 and shift the levels if it differs)"
     return (
         f"{head}\n"

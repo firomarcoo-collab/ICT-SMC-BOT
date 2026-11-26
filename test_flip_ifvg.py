@@ -93,7 +93,7 @@ def test_retest_then_a_closed_m5_confirmation_inside_the_zone_with_room(tmp_path
     got = run(st, b, [conf])
     assert [c for c, _, _ in got] == ["IFVG_CONFIRMED"]
     t = got[0][2]
-    assert "[CONFIRMED]" in t and "Optimal Entry 101.44 (LIMIT at 62.5% depth" in t and "Hard SL" in t and "Early Exit" in t and "TP1 96.00" in t and "break-even" in t and "R:R about" in t and "not an automatic order" in t
+    assert "[CONFIRMED]" in t and "Optimal Entry 101.44 (62.5% depth" in t and "Hard SL" in t and "Early Exit" in t and "TP1 96.00" in t and "break-even" in t and "R:R about" in t and "not an automatic order" in t
     assert run(st, b, [conf]) == []
 
 

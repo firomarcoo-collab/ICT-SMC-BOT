@@ -423,7 +423,7 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                 above = "أعلى" if side == "sell" else "أسفل"
                 if ar:
                     sug = ("الدخول الأمثل " + _f(entry, digits) + (" (سعر السوق: إغلاق M5 داخل نطاق 50-75% أصلاً)" if is_market
-                                                                  else " (أمر LIMIT عند عمق 62.5% من IFVG)")
+                                                                  else " (عمق 62.5% من IFVG)")
                            + f"\n🛑 وقف الخسارة الصلب {_f(sl, digits)} (خلف {'قمة' if side == 'sell' else 'قاع'} السحب/التأرجح "
                              f"{_f(sw_ext, digits)} {'+' if side == 'sell' else '-'} {slw} ATR؛ وليس عند حافة IFVG)"
                            + f"\n🚪 الخروج المبكر: إغلاق شمعة M15 كاملة {above} {_f(rec['extreme'], digits)}"
@@ -431,7 +431,7 @@ def process(state, market, m15, m5, h1_trend, now, lang="en", digits=2, calendar
                            + f"\n⚖️ العائد/المخاطرة حوالي 1:{rr:.1f} (محسوب من الوقف الهيكلي)")
                 else:
                     sug = (("Optimal Entry " + _f(entry, digits) + (" (market: the closed M5 candle is already in the 50-75% band)" if is_market
-                                                                    else " (LIMIT at 62.5% depth of the IFVG)"))
+                                                                    else " (62.5% depth of the IFVG)"))
                            + f"\n🛑 Hard SL {_f(sl, digits)} (behind the {'sweep/swing high' if side == 'sell' else 'sweep/swing low'} "
                              f"{_f(sw_ext, digits)} + {slw} ATR; not at the IFVG edge)"
                            + f"\n🚪 Early Exit: an M15 candle closing fully {'above' if side == 'sell' else 'below'} {_f(rec['extreme'], digits)}"

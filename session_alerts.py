@@ -383,7 +383,7 @@ def render(ev, digits=2):
     if kind == "SIGNAL":
         est = "\n(ESTIMATE from candle volume, not real order flow.)" if "Pulse" in name else ""
         lines = [f"🟢 [{name.upper()}] — {head}", f"Why: {ev['reason']}", "📌 Trade plan:",
-                 f"- Entry: {f(ev['entry'])}" + (" (FVG midpoint, a limit order)" if name == "ICT Session Scalper" else ""),
+                 f"- Entry: {f(ev['entry'])}" + (" (FVG midpoint)" if name == "ICT Session Scalper" else ""),
                  f"- Hard SL: {f(ev['sl'])}", f"- TP1 {f(ev['tp1'])}", f"- TP2 {f(ev['tp2'])}", f"- R:R to TP1: 1:{ev['rr']:.2f}"]
         if ev.get("zone"):
             lines.append(f"- Zone: {f(ev['zone'][0])} - {f(ev['zone'][1])}")
