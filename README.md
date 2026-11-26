@@ -575,3 +575,11 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - Seven markets: XAUUSD, US100, US30, BTCUSD, GBPUSD, USDJPY, EURUSD. No backtest or forward test has been done: no success rate is claimed.
 
 - Fibonacci (50-79% golden zone of the latest M15 leg) is a condition of the unified confirmation: all three modules must have their entry inside it. It may be WAIVED only on a strong confirmation: every module check passed (score 100), H4 and H1 both agree, main chain score 90+ and R:R >= 1:2; the alert then says "Fibonacci: WAIVED ...". A conflict or a missing mandatory condition is never waived. FIB_GATE=0 switches the condition off, FIB_WAIVER=0 switches the waiver off, FIB_LO / FIB_HI change the zone.
+
+## Professional Trade Analysis Engine (`trade_analysis.py`, signals only)
+- A fourth, independent brain. It does not change SMC Prime, Order Flow Pulse or ICT Session Scalper: it re-reads CLOSED H4 / H1 (direction, liquidity) and M15 (entry confirmation) candles of the same feed and the same offsets, with SMA/EMA 50 and 200, RSI, Bollinger Bands, MACD, support/resistance, Fibonacci and market structure, plus the main chain's sweep / CHoCH-MSS / FVG-OB / retest / M15-confirmation facts.
+- Confidence Score /100: trend 20, M15 entry 15, liquidity+zone 15, momentum 15, location 10, room before the opposing S/R 15, Fibonacci 10. Minimum `ANALYSIS_MIN` (80). It counts conditions, it is not a win probability.
+- It is the LAST gate of a unified confirmation: no final signal when the data is incomplete (M15 60+, H1 210+ for the 200 averages, H4 60+ closed candles) or stale, when the score is below 80, when R:R to TP2 is below 1:2, or when REAL order flow is against the trade. Then the decision stays WAIT and is re-checked on the next scan.
+- Plan in the alert: BUY/SELL, entry, stop (the main chain's structural stop, never tightened), TP1 (1R), TP2, TP3 (next support/resistance beyond TP2, else a labelled 3R extension), R:R, reasons, cautions, a rating of each strategy (ALIGNED / AGAINST), cancellation conditions.
+- Order Flow is used only when real data is supplied; the free feeds have none, so it is reported "unavailable" and earns no points. Nothing is invented.
+- `ANALYSIS=0` switches the engine off (the unified engine then works as before). Voice (text-to-speech) is spoken for SMC Prime alerts only.

@@ -276,7 +276,7 @@ def deliver(cls, text, sid=None, quiet=False):
          "--priority", "high" if loud else "low", "--id", f"kenan-{cls}"] + (["--vibrate", spec["vibrate"]] if loud else []) + tap
         + (["--sound"] if loud and cls.endswith(("SIGNAL", "CONFIRMED")) and os.environ.get("SIGNAL_SOUND", "1") != "0" else [])
         + (decisions.button_args(sid) if loud and sid and cls in DECISION_CLASSES else []))
-    if loud and os.environ.get("ALERT_VOICE", "1") != "0":
+    if cls.startswith("SMC") and os.environ.get("ALERT_VOICE", "1") != "0":     # the spoken voice belongs to SMC Prime only
         run(["termux-tts-speak", "-l", "ar", AR[cls][1]] if ar else ["termux-tts-speak", spec["voice"]])
     try:
         import telegram_alerts                                  # the same alert in Telegram (preparatory ones are labelled)

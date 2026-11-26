@@ -59,6 +59,7 @@ import asia_breakout
 import displacement_alerts
 import session_engine
 import signal_manager
+import trade_analysis
 import unified_engine
 import telegram_alerts
 import session_alerts
@@ -560,6 +561,23 @@ def claim_block(market, cls, text, now_ts, store=None):
     side = "buy" if "BUY" in text.upper() and "SELL" not in text.upper() else "sell" if "SELL" in text.upper() else "-"
     ok, why = signal_manager.allow(market, side, None, now_ts, cls, store=store)
     return "" if ok else why
+
+
+def analysis_gate(name, now_ts, offsets):
+    """The Professional Trade Analysis Engine as the last gate of a unified confirmation: re-reads CLOSED H4 / H1 / M15 candles of the same feed
+    (same offsets) and returns (ok, report text, why). No candles or incomplete data = not ok."""
+    def gate(res):
+        off = offsets.get(name, 0.0)
+
+        def closed(tf, sec):
+            bars = selective.closed_only(get_candles(INSTRUMENTS[name], tf), sec, now_ts)
+            return [dict(b, open=b["open"] + off, high=b["high"] + off, low=b["low"] + off, close=b["close"] + off) for b in bars] if off else bars
+        m = res["main"]
+        plan = {"entry": m["entry"], "sl": m["sl"], "tp1": m.get("tp1"), "tp2": m["tp2"], "early_exit": m.get("early_exit")}
+        a = trade_analysis.analyze(res["market"], res["side"], plan, m.get("checks") or {}, res.get("votes") or {},
+                                   closed("15m", 900), closed("1h", 3600), closed("4h", 14400), now_ts, None, INSTRUMENTS[name].get("digits", 2))
+        return a["final"], trade_analysis.format_report(a, INSTRUMENTS[name].get("digits", 2)), "; ".join(a["why_not"])
+    return gate
 
 
 def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, reasons=None, digits=2, gate=None, signals=None, asia_gate=None):
@@ -1516,7 +1534,8 @@ def run():
                                 notify(txt_, alert=(st_ == "CANCELLED"))
                         except Exception as e:                       # noqa: BLE001
                             log.warning("unified cancel check failed for %s: %s", name, e)
-                        uni = unified_engine.run_market(mkt, now_ts, INSTRUMENTS[name].get("digits", 2), fresh=not lagging)
+                        uni = unified_engine.run_market(mkt, now_ts, INSTRUMENTS[name].get("digits", 2), fresh=not lagging,
+                                                        gate=analysis_gate(name, now_ts, offsets) if trade_analysis.enabled() else None)
                         if uni:                                      # ONE unified confirmation per main signal (tone, notification, Telegram)
                             hour_signals += 1
                             print(f"[{stamp} unified] {mkt}: {uni['text'].splitlines()[0]}", flush=True)

@@ -297,7 +297,7 @@ def format_alert(res, digits=2, now_ts=None):
         "Status: VALID TRADE SIGNAL", "Signal only: place the trade yourself in MT5. No win rate is guaranteed."])
 
 
-def run_market(market, now_ts, digits=2, fresh=True):
+def run_market(market, now_ts, digits=2, fresh=True, gate=None):
     """Called after every scan of a market. Returns an alert dict ONCE per main signal when the decision is CONFIRMED, else None.
     fresh=False (the data feed is lagging) never confirms. The decision is stored for the board. Never raises."""
     try:
@@ -309,13 +309,15 @@ def run_market(market, now_ts, digits=2, fresh=True):
             if not fresh:
                 d["decision"][market]["decision"] = "WAIT"
                 d["decision"][market]["reasons"] = ["the data feed is not fresh: no confirmation on old candles"]
+            elif gate is not None and not _gate_ok(gate, res, d, market):
+                pass                                                 # the analysis engine said no: WAIT, and it is re-checked next scan
             else:
                 m = res["main"]
                 d["sent"][res["id"]] = int(now_ts)
                 d["active"][res["id"]] = {"market": market, "side": res["side"], "ts": int(now_ts),
                                           "expires": int(now_ts + valid_minutes() * 60), "early_exit": m.get("early_exit"),
                                           "sl": m["sl"], "status": "ACTIVE"}
-                alert = {"text": format_alert(res, digits, now_ts), "side": res["side"], "id": res["id"], "market": market,
+                alert = {"text": format_alert(res, digits, now_ts) + ("\n\n" + res["analysis_text"] if res.get("analysis_text") else ""), "side": res["side"], "id": res["id"], "market": market,
                          "setup": m.get("setup"), "bar_time": m.get("bar_time"), "main_id": m["id"], "decision_id": m.get("decision_id")}
         d["sent"] = {k: t for k, t in d["sent"].items() if now_ts - t < 3 * 86400}
         d["active"] = {k: a for k, a in d["active"].items() if now_ts - a["ts"] < 3 * 86400}
@@ -323,6 +325,20 @@ def run_market(market, now_ts, digits=2, fresh=True):
         return alert
     except Exception:                                              # noqa: BLE001  (never stops the bot)
         return None
+
+
+def _gate_ok(gate, res, d, market):
+    """gate(res) -> (ok, text, why). When not ok the stored decision becomes WAIT with the reason. Any error also means WAIT."""
+    try:
+        ok, text, why = gate(res)
+    except Exception as e:                                         # noqa: BLE001
+        ok, text, why = False, "", f"analysis engine error: {e}"
+    if ok:
+        res["analysis_text"] = text
+        return True
+    d["decision"][market]["decision"] = "WAIT"
+    d["decision"][market]["reasons"] = [("Professional Trade Analysis: " + why) if why else "Professional Trade Analysis: not confirmed"]
+    return False
 
 
 def check_active(market, last_m15, now_ts):

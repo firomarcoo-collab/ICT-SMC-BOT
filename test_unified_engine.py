@@ -215,7 +215,10 @@ def test_quiet_module_alert_has_no_sound_or_vibration(monkeypatch):
     assert len(calls) == 1 and "--sound" not in calls[0] and "--vibrate" not in calls[0] and "low" in calls[0]
     calls.clear()
     alert_classes.deliver("PULSE_SIGNAL", "x", "s2")
-    assert "--sound" in calls[0] and any(c[0] == "termux-tts-speak" for c in calls)
+    assert "--sound" in calls[0] and not any(c[0] == "termux-tts-speak" for c in calls)      # voice is for SMC Prime only
+    calls.clear()
+    alert_classes.deliver("SMC_SIGNAL", "x", "s3", quiet=True)
+    assert any(c[0] == "termux-tts-speak" for c in calls) and "--sound" not in calls[0]
 
 
 # ---- Fibonacci: required, waived only on a strong confirmation ---------------------------------------------------------------------
