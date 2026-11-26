@@ -1551,10 +1551,20 @@ def run():
                             print(f"[{stamp} unified] {mkt}: {uni['text'].splitlines()[0]}", flush=True)
                             notify(uni["text"], entry=True, side=uni["side"], decision_id=uni.get("decision_id"), tg_text=uni["text"])
                             save_for_review(uni["text"])
-                            if track and uni.get("setup"):
+                            if track and uni.get("setup") and os.environ.get("MAIN_ALERT", "1") != "1":     # else it was tracked when the main alert fired
                                 track.add(name, "5m", "selective", uni["setup"], uni["bar_time"],
                                           ref=uni["main_id"], market=uni["setup"].get("market_entry", True))
-                    if alert and uni_mode:
+                    if alert and uni_mode and os.environ.get("MAIN_ALERT", "1") == "1":
+                        # the main SELECTIVE signal keeps its own notification and tone (it passed score >= 80 and R:R >= 1:2 by itself);
+                        # the stricter CONFIRMED BUY / SELL of the unified engine comes on top of it
+                        hour_signals += 1
+                        notify("MAIN CHAIN SIGNAL (the unified engine may confirm it later with the three modules)\n" + alert["text"], entry=True,
+                               side=alert["setup"]["side"], decision_id=alert.get("decision_id"), tg_text=alert.get("telegram"))
+                        save_for_review(alert["text"])
+                        if track:
+                            track.add(name, "5m", "selective", alert["setup"], alert["bar_time"],
+                                      ref=alert["id"], market=alert["setup"].get("market_entry", True))
+                    elif alert and uni_mode:
                         cand = ("🕓 MAIN CHAIN CANDIDATE (not an entry signal): the unified engine decides after SMC Prime, "
                                 "ICT Session Scalper and Order Flow Pulse confirm.\n" + alert["text"])
                         notify(cand, entry=False, side=alert["setup"]["side"])
