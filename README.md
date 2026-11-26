@@ -583,3 +583,5 @@ The entry-zones notification is sent only when there are zones, and silently (`-
 - Plan in the alert: BUY/SELL, entry, stop (the main chain's structural stop, never tightened), TP1 (1R), TP2, TP3 (next support/resistance beyond TP2, else a labelled 3R extension), R:R, reasons, cautions, a rating of each strategy (ALIGNED / AGAINST), cancellation conditions.
 - Order Flow is used only when real data is supplied; the free feeds have none, so it is reported "unavailable" and earns no points. Nothing is invented.
 - `ANALYSIS=0` switches the engine off (the unified engine then works as before). Voice (text-to-speech) is spoken for SMC Prime alerts only.
+
+- Order Flow Pulse, ICT Session Scalper and SMC Prime keep their own notification, tone and vibration (voice: SMC Prime only). The alert says the final CONFIRMED BUY / SELL comes only from the unified engine. UNIFIED_QUIET_MODULES=1 makes them silent information.

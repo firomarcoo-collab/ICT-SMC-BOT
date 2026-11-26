@@ -63,8 +63,9 @@ def valid_minutes():
 
 
 def quiet_modules():
-    """The separate module alerts are informational (silent, labelled) unless UNIFIED_QUIET_MODULES=0."""
-    return os.environ.get("UNIFIED_QUIET_MODULES", "1") != "0"
+    """The separate module alerts (SMC Prime, Order Flow Pulse, ICT Session Scalper) keep their notification, tone and vibration. Set
+    UNIFIED_QUIET_MODULES=1 to make them silent information while the unified engine decides."""
+    return os.environ.get("UNIFIED_QUIET_MODULES", "0") == "1"
 
 
 def _file():

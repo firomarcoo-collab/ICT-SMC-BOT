@@ -274,3 +274,10 @@ def test_waiver_never_overrides_a_conflict_or_a_missing_mandatory_condition(monk
     assert ue.decide("XAUUSD", NOW)["decision"] == "WAIT"
     ue.on_event("XAUUSD", ev(PULSE, "short"), "up", NOW - 10)
     assert ue.decide("XAUUSD", NOW)["decision"] == "NO TRADE"
+
+
+def test_module_alerts_keep_their_tone_by_default(monkeypatch):
+    monkeypatch.delenv("UNIFIED_QUIET_MODULES", raising=False)
+    assert ue.quiet_modules() is False
+    monkeypatch.setenv("UNIFIED_QUIET_MODULES", "1")
+    assert ue.quiet_modules() is True

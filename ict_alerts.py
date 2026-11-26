@@ -690,6 +690,8 @@ def track_setups(market, name, data, now_ts, cfg, calendar, lang, store=None, re
                                 extra += "\n" + warn
                         except Exception as e:                       # noqa: BLE001
                             log.warning("conflict check failed for %s: %s", market, e)
+                    if telegram_alerts.is_signal_class(cls) and unified_engine.enabled():
+                        text += "\nModule alert. The final CONFIRMED BUY / SELL comes only from the unified engine."
                     alert_classes.deliver(cls, text, sid, quiet=unified_engine.quiet_modules())
         except Exception as e:                                       # noqa: BLE001
             log.warning("session alerts failed for %s: %s", market, e)
