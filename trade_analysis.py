@@ -254,6 +254,12 @@ def analyze(market, side, plan, checks, votes, m15, h1, h4, now_ts, order_flow=N
                  "pulse": "RSI/MACD indicators " + ("support the trade" if parts["momentum"] >= 10 else "are mixed")}[key]
         out["ratings"][key] = ("ALIGNED" if agree else "AGAINST") + f" ({extra})"
 
+    import volatility_engine as ve
+    if ve.enabled():                                               # ATR regime, abnormal candle, spread against the stop (Phase 3)
+        vol = ve.assess(m15, plan.get("spread"), risk)
+        out["indicators"]["volatility"] = vol["regime"] + (f" (ATR {vol['ratio']}x normal)" if vol["ratio"] else "")
+        out["why_not"] += vol["problems"]
+        notes += vol["notes"]
     if rr2 < 2.0:
         out["why_not"].append(f"R:R to TP2 is 1:{rr2:.1f}, below 1:2")
     if score < min_score():

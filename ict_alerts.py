@@ -1121,7 +1121,11 @@ def restore_tracking(store, track, names):
     """After a restart, follow every saved ACTIVE signal again so its TP / SL still releases the
     market lock. Returns the markets that are NOT followed (their feed is not being run): those
     locks stay until the store's TTL expires them."""
-    track.on_done = lambda it, outcome: store.close(it["ref"], outcome) if it.get("ref") else None
+    def _done(it, outcome):
+        if it.get("ref"):
+            store.close(it["ref"], outcome)
+            unified_engine.record_result(it["ref"], outcome)         # lifecycle: TP_HIT / LOSS once per confirmed signal
+    track.on_done = _done
     unfollowed = []
     for sid, sig in list(store.active_signals.items()):
         market = sig.get("market", sid)
@@ -1541,7 +1545,7 @@ def run():
                             c15 = selective.closed_only(get_candles(INSTRUMENTS[name], "15m"), 900, now_ts)
                             last15 = dict(c15[-1], close=c15[-1]["close"] + offsets.get(name, 0.0)) if c15 else None
                             for st_, txt_ in unified_engine.check_active(mkt, last15, now_ts):
-                                notify(txt_, alert=(st_ == "CANCELLED"))
+                                notify(txt_, alert=(st_ in ("CANCELLED", "WARNING")))
                         except Exception as e:                       # noqa: BLE001
                             log.warning("unified cancel check failed for %s: %s", name, e)
                         uni = unified_engine.run_market(mkt, now_ts, INSTRUMENTS[name].get("digits", 2), fresh=not lagging,

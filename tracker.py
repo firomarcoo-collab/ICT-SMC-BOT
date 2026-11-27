@@ -78,7 +78,7 @@ class Tracker:
                 "kind": it["kind"], "side": s["side"], "result": result, "R": f"{r:.2f}", "mfe_r": f"{it['mfe']:.2f}",
                 "mae_r": f"{it.get('mae', 0.0):.2f}", "entry": s["entry"], "sl": s["sl"], "tp": s["tp"],
                 "entry_utc": s.get("bar_time", ""), "session": journal.session_of(s["bar_time"]) if s.get("bar_time") else "unknown",
-                "profile": s.get("profile", ""), "mode": s.get("mode", "")})
+                "profile": s.get("profile", ""), "mode": s.get("mode", ""), "score": s.get("score100", "")})
         except (OSError, KeyError):
             pass  # the journal must never stop the alerts
 

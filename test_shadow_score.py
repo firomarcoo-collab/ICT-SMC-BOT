@@ -64,3 +64,15 @@ def test_board_lists_every_market_with_reason_and_shadow():
 def test_shadow_never_changes_the_live_decision(monkeypatch):
     monkeypatch.setenv("SHADOW_SCORE", "0")
     assert ue.run_market("XAUUSD", NOW) is None
+
+
+def test_board_shows_recent_results_and_performance(tmp_path):
+    import journal as jn
+    jn.append(str(tmp_path / "journal.csv"), {"time_utc": "2026-11-02 10:00", "symbol": "XAUUSD", "side": "buy", "result": "win", "R": "2.00",
+                                              "mfe_r": "2", "mae_r": "0.3", "session": "London"})
+    txt = ue.board(NOW)
+    assert "Recent results: XAUUSD buy win +2.0R" in txt and "Performance: ALL: 1 trades" in txt
+
+
+def test_board_without_results_says_so():
+    assert "Recent results: none finished yet" in ue.board(NOW)

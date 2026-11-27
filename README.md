@@ -605,3 +605,18 @@ WAIT, data freshness and the shadow comparison. Switch off: `SHADOW_SCORE=0`. No
 A module vote (SMC Prime, ICT Session Scalper, Order Flow Pulse) recorded against the H1 trend no longer counts as a confirmation in the
 unified engine: the level stays WAIT and the board says "its SELL is against the H1 trend up". The module's own alert still goes out with
 the existing CONFLICT warning. An unknown H1 trend is not a conflict. This only makes the confirmation stricter. Switch off: `HTF_MODULE_GATE=0`.
+
+## Phases 3-7 of the MASTER DIRECTIVE (all signals only, none measured live yet)
+- **Volatility engine** (`volatility_engine.py`): ATR regime (low / normal / high / extreme), abnormal last candle (range > 3 x ATR), spread against the
+  stop distance, dynamic stop-distance advice. Inside the Professional Trade Analysis gate: extreme regime, abnormal candle or a known wide spread
+  = no confirmation; unknown spread is a note, not a veto. Off: `VOLATILITY_GATE=0`.
+- **Correlation engine** (`correlation_engine.py`): US100/US30/DAX40/BTC, EURUSD/GBPUSD/USDJPY/XAUUSD, GBPJPY pairs are one risk. A second confirmation with
+  the same risk as an ACTIVE one waits with the reason. The pair table is ASSUMED (general market structure), not measured; `measured()` checks it from
+  candles. Off: `CORR_GATE=0`.
+- **Lifecycle** (`lifecycle.py`): WAIT, CONFIRMED, WARNING, INVALIDATED, EXPIRED, LOSS, TP_HIT. Terminal states are final: a second result or loss for
+  the same signal is refused. A WARNING (once) is sent when a module goes against the H1 trend after confirmation.
+- **Journal reports**: `python journal.py day|week|month` and `python journal.py compare` (market, strategy, session, score band; win rate, PF, max DD,
+  avg R, expectancy). Journal rows now include `score`. Unfilled signals are not counted. `recommendations()` only SUGGESTS (30+ trades needed), never applies.
+- **Board**: recent results and performance from the journal.
+- **Backtest** (`backtest_tools.py`): `SPREAD=0.3 COMMISSION=0 SLIPPAGE=0.1 python backtest.py XAUUSD 30` prints before / after costs, in-sample vs
+  out-of-sample and walk-forward windows. Costs are in price units. Few trades = "too few to judge". No result predicts the future.

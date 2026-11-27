@@ -12,6 +12,7 @@ How the simulation works:
 - result is in R: a loss is -1, a win is the reward-to-risk of the trade
 - NO spread, commission or slippage, so real results are worse than these numbers
 """
+import os
 import sys
 import time
 import urllib.parse
@@ -82,7 +83,7 @@ def simulate(candles, cfg, kind="ict", digits=2, warmup=250, window=300, max_wai
             result = _exit(position, c)
             if result is not None:
                 trades.append({"R": _r_multiple(position, result), "score": position["score"],
-                               "side": position["side"], "time": c["time"]})
+                               "side": position["side"], "time": c["time"], "risk": abs(position["entry"] - position["sl"])})
                 position = None
         elif pending is not None:
             touched = (c["low"] <= pending["entry"] if pending["side"] == "buy"
@@ -92,7 +93,7 @@ def simulate(candles, cfg, kind="ict", digits=2, warmup=250, window=300, max_wai
                 result = _exit(position, c, check_target=False)  # fill bar: stop only
                 if result is not None:
                     trades.append({"R": -1.0, "score": position["score"],
-                                   "side": position["side"], "time": c["time"]})
+                                   "side": position["side"], "time": c["time"], "risk": abs(position["entry"] - position["sl"])})
                     position = None
             elif i - pending["placed"] >= max_wait:
                 pending = None
@@ -127,6 +128,9 @@ def report(name, days, candles, cfg, digits):
     print(f"{name}: {len(candles)} candles ({days} days requested)")
     ict = simulate(candles, cfg, "ict", digits)
     print(summarize("ICT, all signals", ict))
+    import backtest_tools
+    env = lambda k: float(os.environ.get(k) or 0)                   # noqa: E731  (price units, e.g. SPREAD=0.30 for gold)
+    print(backtest_tools.honest_report(ict, env("SPREAD"), env("COMMISSION"), env("SLIPPAGE")))
     for score in range(5):
         subset = [t for t in ict if t["score"] == score]
         if subset:
@@ -149,7 +153,7 @@ def main():
     if len(candles) < 400:
         raise SystemExit(f"Only {len(candles)} candles came back, not enough to test")
     report(name, days, candles, Config(), INSTRUMENTS[name]["digits"])
-    print("\nNo spread, commission or slippage included. Fewer than ~30 trades "
+    print("\nThe plain lines above include no cost; set SPREAD / COMMISSION / SLIPPAGE (price units) for the cost run. Fewer than ~30 trades "
           "says very little. Past results do not predict future results.")
 
 

@@ -17,6 +17,8 @@ import json
 import os
 from datetime import datetime, timezone
 
+import lifecycle
+
 WEIGHTS = {"smc": 35, "pulse": 30, "scalper": 35}
 LABEL = {"smc": "SMC Prime", "pulse": "Order Flow Pulse", "scalper": "ICT Session Scalper"}
 KEY = {"SMC Prime": "smc", "ICT Session Scalper": "scalper", "Order Flow Pulse (estimate)": "pulse"}
@@ -82,6 +84,7 @@ def _load():
     d.setdefault("main", {})
     d.setdefault("sent", {})
     d.setdefault("active", {})
+    d.setdefault("life", {})
     return d
 
 
@@ -336,14 +339,19 @@ def run_market(market, now_ts, digits=2, fresh=True, gate=None):
             if not fresh:
                 d["decision"][market]["decision"] = "WAIT"
                 d["decision"][market]["reasons"] = ["the data feed is not fresh: no confirmation on old candles"]
+            elif _corr_block(d, market, res["side"], now_ts):
+                why = _corr_block(d, market, res["side"], now_ts)
+                d["decision"][market]["decision"] = "WAIT"
+                d["decision"][market]["reasons"] = [why]
             elif gate is not None and not _gate_ok(gate, res, d, market):
                 pass                                                 # the analysis engine said no: WAIT, and it is re-checked next scan
             else:
                 m = res["main"]
                 d["sent"][res["id"]] = int(now_ts)
+                lifecycle.move(d["life"], res["id"], "CONFIRMED", now_ts)
                 d["active"][res["id"]] = {"market": market, "side": res["side"], "ts": int(now_ts),
                                           "expires": int(now_ts + valid_minutes() * 60), "early_exit": m.get("early_exit"),
-                                          "sl": m["sl"], "status": "ACTIVE"}
+                                          "sl": m["sl"], "status": "ACTIVE", "main_id": m["id"]}
                 alert = {"text": format_alert(res, digits, now_ts) + ("\n\n" + res["analysis_text"] if res.get("analysis_text") else ""), "side": res["side"], "id": res["id"], "market": market,
                          "setup": m.get("setup"), "bar_time": m.get("bar_time"), "main_id": m["id"], "decision_id": m.get("decision_id")}
         d["sent"] = {k: t for k, t in d["sent"].items() if now_ts - t < 3 * 86400}
@@ -352,6 +360,16 @@ def run_market(market, now_ts, digits=2, fresh=True, gate=None):
         return alert
     except Exception:                                              # noqa: BLE001  (never stops the bot)
         return None
+
+
+def _corr_block(d, market, side, now_ts):
+    """Phase 3: a correlated market already holds an active confirmed signal with the same risk -> no second confirmation ('' = free)."""
+    try:
+        import correlation_engine
+        act = [(a["market"], a["side"]) for a in d["active"].values() if a["status"] == "ACTIVE" and now_ts < a["expires"]]
+        return correlation_engine.block_reason(market, side, act)
+    except Exception:                                              # noqa: BLE001
+        return ""
 
 
 def _gate_ok(gate, res, d, market):
@@ -387,17 +405,42 @@ def check_active(market, last_m15, now_ts):
                 why = "a module turned against it: " + "; ".join(res["reasons"])
             if why:
                 a["status"] = "CANCELLED"
+                lifecycle.move(d["life"], sid, "INVALIDATED", now_ts, why)
                 out.append(("CANCELLED", f"KENAN TRADER AI - SIGNAL CANCELLED\n{market} {a['side'].upper()}: {why}.\n"
                                          "If you entered, manage or close it yourself. Signal only."))
             elif now_ts >= a["expires"]:
                 a["status"] = "EXPIRED"
+                lifecycle.move(d["life"], sid, "EXPIRED", now_ts)
                 out.append(("EXPIRED", f"KENAN TRADER AI - SIGNAL EXPIRED\n{market} {a['side'].upper()}: its validity ended at "
                                        f"{_utc(a['expires'])}. Do not enter any more."))
+            elif now_ts < a["expires"] and any("against the H1 trend" in r for r in res["reasons"]) \
+                    and lifecycle.move(d["life"], sid, "WARNING", now_ts, res["reasons"][0]):
+                out.append(("WARNING", f"KENAN TRADER AI - SIGNAL WARNING\n{market} {a['side'].upper()}: {res['reasons'][0]}.\n"
+                                       "The confirmation no longer holds in full. Manage it yourself. Signal only."))
         if out:
             _save(d)
     except Exception:                                              # noqa: BLE001
         pass
     return out
+
+
+def record_result(ref, outcome, now_ts=None):
+    """A tracked trade finished (outcome win / loss / expired...). ref = the main signal id. Returns the final state ONCE (e.g. 'TP_HIT',
+    'LOSS'), or None when it is unknown or was already finished: the caller must then stay silent (no duplicate result, no second loss)."""
+    try:
+        now_ts = int(now_ts if now_ts is not None else datetime.now(timezone.utc).timestamp())
+        new = lifecycle.from_outcome(outcome)
+        d = _load()
+        for sid, a in d["active"].items():
+            if a.get("main_id") == ref and new:
+                if lifecycle.move(d["life"], sid, new, now_ts):
+                    a["status"] = new
+                    _save(d)
+                    return new
+                return None
+    except Exception:                                              # noqa: BLE001
+        pass
+    return None
 
 
 def _age(ts, now_ts):
@@ -453,6 +496,16 @@ def board(now_ts=None, markets_all=None):
         conflict = decide(a["market"], now_ts, d)["decision"] == "NO TRADE"
         lines.append(f"  - {a['market']} {a['side'].upper()} valid until {_utc(a['expires'])}"
                      + (" (a module turned against it: it is cancelled on the next scan)" if conflict else ""))
+    try:                                                           # recent results and strategy performance from the journal
+        import journal
+        rows = journal.load(os.environ.get("JOURNAL_FILE") or journal.path_for(journal.DEFAULT_CSV))
+        if rows:
+            lines.append("Recent results: " + "; ".join(f"{r['symbol']} {r['side']} {r['result']} {float(r['R']):+.1f}R" for r in rows[-5:]))
+            lines.append("Performance: " + journal.line("ALL", rows))
+        else:
+            lines.append("Recent results: none finished yet (unfilled signals are not counted)")
+    except Exception:                                              # noqa: BLE001
+        pass
     try:
         import shadow_score
         s = shadow_score.summary()
